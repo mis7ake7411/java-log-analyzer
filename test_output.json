@@ -1,0 +1,15 @@
+{
+    "summary": {
+        "INFO": 2,
+        "WARN": 1,
+        "ERROR": 1
+    },
+    "errors": [
+        {
+            "timestamp": "2026-06-06 10:10:00.555",
+            "level": "ERROR",
+            "message": "Database connection failed",
+            "stacktrace": "java.sql.SQLException: Connection refused\n    at com.example.db.Connector.connect(Connector.java:45)\n    at com.example.Service.getData(Service.java:12)\n"
+        }
+    ]
+}
