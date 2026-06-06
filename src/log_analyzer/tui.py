@@ -27,6 +27,11 @@ class LogAnalyzerApp(App):
     Input {
         width: 1fr;
     }
+    .path-preview {
+        color: $text-muted;
+        margin-left: 17;
+        font-size: 80%;
+    }
     Button {
         width: 100%;
         margin-top: 1;
@@ -39,12 +44,6 @@ class LogAnalyzerApp(App):
         height: 10;
         display: none;
     }
-    .success {
-        color: green;
-    }
-    .error {
-        color: red;
-    }
     """
 
     TITLE = "Java Log Analyzer"
@@ -56,12 +55,20 @@ class LogAnalyzerApp(App):
             with Vertical(classes="field-group"):
                 with Horizontal():
                     yield Label("Log 目錄:")
-                    yield Input(placeholder="例如: ./logs", value=".", id="path")
+                    yield Input(placeholder="相對路徑 (如 ./logs) 或絕對路徑", value=".", id="path")
+                yield Static("", id="abspath-preview", classes="path-preview")
             
             with Vertical(classes="field-group"):
                 with Horizontal():
+                    yield Label("輸出檔名:")
+                    # 預設帶出一個帶時間的名稱
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    yield Input(placeholder="例如: my_report.csv", value=f"analysis_{timestamp}.csv", id="output_name")
+
+            with Vertical(classes="field-group"):
+                with Horizontal():
                     yield Label("搜尋關鍵字:")
-                    yield Input(placeholder="例如: Order_123", id="keyword")
+                    yield Input(placeholder="例如: Order_123 (留空則分析全部)", id="keyword")
             
             with Horizontal(classes="field-group"):
                 yield Label("忽略大小寫:")
@@ -77,13 +84,34 @@ class LogAnalyzerApp(App):
             
         yield Footer()
 
-    async def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "run":
-            await self.run_analysis()
+    def on_mount(self) -> None:
+        """應用程式啟動時，先更新一次路徑預覽"""
+        self.update_path_preview(".")
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """當使用者在輸入框打字時即時觸發"""
+        if event.input.id == "path":
+            self.update_path_preview(event.value)
+
+    def update_path_preview(self, path: str) -> None:
+        """更新畫面上的絕對路徑預覽，讓使用者知道自己指在哪裡"""
+        try:
+            if not path:
+                abspath = "請輸入路徑..."
+            else:
+                abspath = os.path.abspath(path)
+                if not os.path.exists(abspath):
+                    abspath = f"⚠️ 路徑不存在: {abspath}"
+                else:
+                    abspath = f"✅ 確認路徑: {abspath}"
+            self.query_one("#abspath-preview", Static).update(abspath)
+        except Exception:
+            pass
 
     async def run_analysis(self) -> None:
         # 取得畫面上的數值
         path = self.query_one("#path", Input).value
+        output_name = self.query_one("#output_name", Input).value
         keyword = self.query_one("#keyword", Input).value
         ignore_case = self.query_one("#ignore_case", Checkbox).value
         fmt = self.query_one("#format", Select).value
@@ -92,6 +120,12 @@ class LogAnalyzerApp(App):
         result_box.styles.display = "block"
         
         try:
+            # 修正輸出副檔名（如果使用者忘記改的話）
+            if not output_name.endswith(f".{fmt}"):
+                # 簡單處理，移除舊副檔名加上新的
+                base_name = os.path.splitext(output_name)[0]
+                output_name = f"{base_name}.{fmt}"
+
             # 1. 執行解析
             counts, errors = parse_logs(path, keyword=keyword, ignore_case=ignore_case)
             
@@ -100,15 +134,13 @@ class LogAnalyzerApp(App):
                 return
 
             # 2. 執行匯出
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            output_path = f"log_analysis_{timestamp}.{fmt}"
-            export_results(counts, errors, output_path, fmt)
+            export_results(counts, errors, output_name, fmt)
             
             # 3. 顯示成功訊息
             summary = "\n".join([f"- {lvl}: {cnt}" for lvl, cnt in sorted(counts.items()) if cnt > 0])
             result_box.update(
                 f"[bold green]分析完成！[/]\n"
-                f"報表儲存至: [cyan]{output_path}[/]\n\n"
+                f"報表已儲存至: [cyan]{os.path.abspath(output_name)}[/]\n\n"
                 f"[bold]符合條件的統計:[/]\n{summary}"
             )
             
