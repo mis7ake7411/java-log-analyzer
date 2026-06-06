@@ -17,14 +17,32 @@ git clone git@github.com:mis7ake7411/java-log-analyzer.git
 cd java-log-analyzer
 ```
 
-### 2. 安裝依賴套件
-```bash
-pip install -r requirements.txt
-```
+### 2. 建立虛擬環境 (建議)
+使用虛擬環境可以確保開發環境純淨，避免與系統套件衝突：
 
-### 3. 以開發模式安裝工具
-安裝後即可在系統任何地方直接使用 `log-analyzer` 指令：
+*   **Windows:**
+    ```powershell
+    python -m venv venv
+    .\venv\Scripts\activate
+    ```
+*   **Linux / macOS:**
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate
+    ```
+
+### 3. 安裝依賴套件與工具
+在虛擬環境啟動後執行：
+
 ```bash
+# 升級基礎工具
+pip install --upgrade pip setuptools
+
+# 安裝依賴套件
+pip install -r requirements.txt
+
+# 以開發模式安裝工具
+# 安裝後即可在系統任何地方直接使用 `log-analyzer` 指令
 pip install -e .
 ```
 
