@@ -3,5 +3,5 @@ logs/
 src/java_log_analyzer.egg-info/
 __pycache__/
 *.py[cod]
-test_output.json
-test_output.md
+*.json
+*.md
