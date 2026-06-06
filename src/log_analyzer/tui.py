@@ -30,7 +30,6 @@ class LogAnalyzerApp(App):
     .path-preview {
         color: $text-muted;
         margin-left: 17;
-        font-size: 80%;
     }
     Button {
         width: 100%;
