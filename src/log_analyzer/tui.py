@@ -137,11 +137,15 @@ class LogAnalyzerApp(App):
 
             
             # 3. 顯示成功訊息
+            total_logs = sum(counts.values())
             summary = "\n".join([f"- {lvl}: {cnt}" for lvl, cnt in sorted(counts.items()) if cnt > 0])
             result_box.update(
                 f"[bold green]分析完成！[/]\n"
                 f"報表已儲存至: [cyan]{os.path.abspath(output_name)}[/]\n\n"
-                f"[bold]符合條件的統計:[/]\n{summary}"
+                f"[bold]分析結果統計:[/]\n"
+                f"- 總計掃描到: {total_logs} 筆日誌\n"
+                f"- 合併後產出: {len(matched_logs)} 筆獨特事件\n\n"
+                f"[bold]各等級分佈:[/]\n{summary}"
             )
             
         except Exception as e:
