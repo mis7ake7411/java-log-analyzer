@@ -13,7 +13,7 @@
 
 ### 1. 下載專案
 ```bash
-git clone <your-repo-url>
+git clone git@github.com:mis7ake7411/java-log-analyzer.git
 cd java-log-analyzer
 ```
 
