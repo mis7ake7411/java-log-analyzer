@@ -11,18 +11,11 @@ def parse_logs(directory, start_time=None, end_time=None, keyword=None, ignore_c
     """
     解析指定資料夾中的所有 Logback 日誌檔案。
     
-    參數:
-        directory (str): 包含 .log 檔案的資料夾路徑。
-        start_time (datetime): 開始時間過濾條件。
-        end_time (datetime): 結束時間過濾條件。
-        keyword (str): 欲搜尋的關鍵字。
-        ignore_case (bool): 是否忽略大小寫。
-        
     回傳:
-        tuple: (各等級的統計數量, 錯誤詳細資訊列表)
+        tuple: (各等級的統計數量, 所有符合條件的日誌詳情列表)
     """
     counts = Counter()
-    errors = []
+    matched_logs = []
     
     if not os.path.exists(directory):
         raise FileNotFoundError(f"找不到目錄: {directory}")
@@ -34,22 +27,28 @@ def parse_logs(directory, start_time=None, end_time=None, keyword=None, ignore_c
     if search_keyword and ignore_case:
         search_keyword = search_keyword.lower()
 
+    # 修改 Regex 以捕捉更多欄位：時間、[線程]、等級、Logger、訊息
+    # 範例: 2023-10-27 10:00:00.000 [thread-1] INFO com.example.MyClass - some message
+    EXTENDED_PATTERN = re.compile(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{3})?)\s+\[(.*?)\]\s+(\w+)\s+(.*?)\s+-\s+(.*)$')
+
+    # 使用字典來暫存，key 為 (level, logger, message, stacktrace)，value 為該組的詳情
+    grouped_logs = {}
+
     for filename in files:
         filepath = os.path.join(directory, filename)
-        current_error = None
+        current_entry = None
         
         with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-            for line in f:
-                match = LOG_PATTERN.match(line)
+            for line_num, line in enumerate(f, 1):
+                match = EXTENDED_PATTERN.match(line)
                 
                 if match:
-                    if current_error:
-                        # 在存入 ERROR 之前，檢查它（含 Stacktrace）是否符合關鍵字條件
-                        if _should_include(current_error['message'] + current_error['stacktrace'], search_keyword, ignore_case):
-                            errors.append(current_error)
-                        current_error = None
+                    if current_entry:
+                        if _should_include(current_entry['full_text'], search_keyword, ignore_case):
+                            _add_to_grouped_logs(grouped_logs, current_entry)
+                        current_entry = None
                         
-                    timestamp_str, level, message = match.groups()
+                    timestamp_str, thread, level, logger, message = match.groups()
                     
                     try:
                         dt = datetime.strptime(timestamp_str[:19], '%Y-%m-%d %H:%M:%S')
@@ -61,29 +60,49 @@ def parse_logs(directory, start_time=None, end_time=None, keyword=None, ignore_c
                     if end_time and dt > end_time:
                         continue
                     
-                    # 如果不是 ERROR 等級，直接在這裡判斷關鍵字
-                    if level.upper() != 'ERROR':
-                        if _should_include(message, search_keyword, ignore_case):
-                            counts[level] += 1
-                    else:
-                        # 如果是 ERROR，先建立物件，稍後合併 Stacktrace 再判斷
-                        counts[level] += 1 # ERROR 計數不論關鍵字(方便統計總量)，或者您也可以改為符合關鍵字才計數
-                        current_error = {
-                            'timestamp': timestamp_str,
-                            'level': level,
-                            'message': message,
-                            'stacktrace': ''
-                        }
+                    counts[level] += 1
+                    
+                    current_entry = {
+                        'timestamp': timestamp_str,
+                        'thread': thread,
+                        'level': level,
+                        'logger': logger,
+                        'message': message,
+                        'filename': filename,
+                        'line_num': line_num,
+                        'stacktrace': '',
+                        'full_text': message,
+                        'line_numbers': [line_num] # 追蹤所有重複項出現的行號
+                    }
                 else:
-                    if current_error:
-                        current_error['stacktrace'] += line
+                    if current_entry:
+                        # 幫 Stacktrace 的每一行標註行號
+                        current_entry['stacktrace'] += f"{line_num:5}: {line}"
+                        current_entry['full_text'] += line
             
-            # 處理檔案末尾的 ERROR
-            if current_error:
-                if _should_include(current_error['message'] + current_error['stacktrace'], search_keyword, ignore_case):
-                    errors.append(current_error)
+            if current_entry:
+                if _should_include(current_entry['full_text'], search_keyword, ignore_case):
+                    _add_to_grouped_logs(grouped_logs, current_entry)
                 
-    return counts, errors
+    # 將 dict 轉回 list 並排序
+    final_logs = sorted(grouped_logs.values(), key=lambda x: x['timestamp'])
+    return counts, final_logs
+
+def _add_to_grouped_logs(grouped_logs, entry):
+    """
+    內部輔助函式：將新的 log 加入分組中。
+    """
+    key = (entry['level'], entry['logger'], entry['message'], entry['stacktrace'].strip())
+    
+    if key in grouped_logs:
+        grouped_logs[key]['count'] += 1
+        grouped_logs[key]['last_timestamp'] = entry['timestamp']
+        # 記錄重複項出現的行號
+        grouped_logs[key]['line_numbers'].append(entry['line_num'])
+    else:
+        entry['count'] = 1
+        entry['last_timestamp'] = entry['timestamp']
+        grouped_logs[key] = entry
 
 def _should_include(text, keyword, ignore_case):
     """

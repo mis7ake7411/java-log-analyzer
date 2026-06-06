@@ -126,14 +126,15 @@ class LogAnalyzerApp(App):
                 output_name = f"{base_name}.{fmt}"
 
             # 1. 執行解析
-            counts, errors = parse_logs(path, keyword=keyword, ignore_case=ignore_case)
-            
-            if not counts and not errors:
-                result_box.update("[bold red]結果：找不到符合條件的日誌內容。[/]")
+            counts, matched_logs = parse_logs(path, keyword=keyword, ignore_case=ignore_case)
+
+            if not matched_logs and not counts:
+                result_box.update("[bold red]找不到日誌檔案或無符合條件的內容。[/]")
                 return
 
             # 2. 執行匯出
-            export_results(counts, errors, output_name, fmt)
+            export_results(counts, matched_logs, output_name, fmt)
+
             
             # 3. 顯示成功訊息
             summary = "\n".join([f"- {lvl}: {cnt}" for lvl, cnt in sorted(counts.items()) if cnt > 0])

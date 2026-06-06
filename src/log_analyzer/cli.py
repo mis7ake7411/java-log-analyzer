@@ -74,14 +74,14 @@ def main():
             print(msg)
 
         # 執行解析邏輯
-        counts, errors = parse_logs(target_dir, start_dt, end_dt, args.keyword, args.ignore_case)
+        counts, matched_logs = parse_logs(target_dir, start_dt, end_dt, args.keyword, args.ignore_case)
         
-        if not counts and not errors:
+        if not counts and not matched_logs:
             print("結果：找不到符合條件的日誌內容。")
             return
 
         # 執行匯出邏輯 (使用新的通用匯出函式)
-        export_results(counts, errors, args.output, args.format)
+        export_results(counts, matched_logs, args.output, args.format)
         
         print(f"分析完成！報表已儲存至：{args.output} (格式: {args.format.upper()})")
         
