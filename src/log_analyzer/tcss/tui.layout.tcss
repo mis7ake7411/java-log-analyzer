@@ -16,6 +16,7 @@
 #form-panel {
     margin-bottom: 1;
     overflow: auto;
+    padding: 1 0 1 2;
 }
 
 .path-row {

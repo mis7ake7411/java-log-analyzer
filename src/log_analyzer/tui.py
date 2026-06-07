@@ -4,7 +4,7 @@ import asyncio
 import os
 from importlib.metadata import PackageNotFoundError, version as package_version
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
@@ -81,6 +81,50 @@ def ensure_writable_directory(path: str) -> str:
 def get_system_root_path() -> Path:
     """回傳目前作業系統的根目錄。"""
     return Path(Path.cwd().anchor or os.sep)
+
+
+def get_default_start_date_text() -> str:
+    """回傳起始日期預設值。"""
+    return date.today().isoformat()
+
+
+def get_default_start_time_text() -> str:
+    """回傳起始時間預設值。"""
+    return "00:00"
+
+
+def get_default_end_date_text() -> str:
+    """回傳結束日期預設值。"""
+    return ""
+
+
+def get_default_end_time_text() -> str:
+    """回傳結束時間預設值。"""
+    return ""
+
+
+def parse_datetime_range_inputs(
+    start_date_text: str,
+    start_time_text: str,
+    end_date_text: str,
+    end_time_text: str,
+) -> tuple[datetime, Optional[datetime]]:
+    """將分離的日期與時間欄位組合成起訖時間。"""
+    start_date_clean = start_date_text.strip() or get_default_start_date_text()
+    start_time_clean = start_time_text.strip() or get_default_start_time_text()
+    start_dt = datetime.strptime(f"{start_date_clean} {start_time_clean}", "%Y-%m-%d %H:%M")
+
+    end_date_clean = end_date_text.strip()
+    end_time_clean = end_time_text.strip()
+    if not end_date_clean and not end_time_clean:
+        return start_dt, None
+    if not end_date_clean or not end_time_clean:
+        raise ValueError("請同時輸入結束日期與時間，或兩者都留白。")
+
+    end_dt = datetime.strptime(f"{end_date_clean} {end_time_clean}", "%Y-%m-%d %H:%M")
+    if start_dt > end_dt:
+        raise ValueError("開始時間不能晚於結束時間。")
+    return start_dt, end_dt
 
 
 def get_package_version() -> str:
@@ -234,6 +278,41 @@ class LogAnalyzerApp(App):
                             yield Button("清除", id="clear_keyword")
                     yield Static("", classes="field-hint")
 
+                    with Container(classes="time-section"):
+                        yield Label("時間區間")
+                        with Container(classes="time-stack"):
+                            with Container(id="start-time-row", classes="time-row"):
+                                with Container(id="start-date-group", classes="time-group"):
+                                    yield Label("開始日期")
+                                    yield Input(
+                                        value=get_default_start_date_text(),
+                                        placeholder="YYYY-MM-DD",
+                                        id="start_date",
+                                    )
+                                with Container(id="start-time-group", classes="time-group"):
+                                    yield Label("開始時間")
+                                    yield Input(
+                                        value=get_default_start_time_text(),
+                                        placeholder="HH:MM",
+                                        id="start_time",
+                                    )
+                            with Container(id="end-time-row", classes="time-row"):
+                                with Container(id="end-date-group", classes="time-group"):
+                                    yield Label("結束日期")
+                                    yield Input(
+                                        value=get_default_end_date_text(),
+                                        placeholder="YYYY-MM-DD",
+                                        id="end_date",
+                                    )
+                                with Container(id="end-time-group", classes="time-group"):
+                                    yield Label("結束時間")
+                                    yield Input(
+                                        value=get_default_end_time_text(),
+                                        placeholder="HH:MM",
+                                        id="end_time",
+                                    )
+                            yield Static("", classes="field-hint")
+
                     with Container(classes="field-row"):
                         with Container(classes="field field--inline field--ignore"):
                             yield Label("忽略大小寫")
@@ -250,6 +329,7 @@ class LogAnalyzerApp(App):
                                 value="csv",
                                 id="format",
                             )
+                    yield Static("", classes="field-hint")
 
                     with Container(id="actions"):
                         yield Button("開始分析", variant="primary", id="run")
@@ -333,7 +413,7 @@ class LogAnalyzerApp(App):
             self.update_path_preview(event.value, "#output-path-status", require_writable=True)
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id in {"path", "output_path", "output_name", "keyword"}:
+        if event.input.id in {"path", "output_path", "output_name", "keyword", "start_date", "start_time", "end_date", "end_time"}:
             await self.action_run_analysis()
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -415,7 +495,18 @@ class LogAnalyzerApp(App):
         self._set_result(result_box, self._loading_view())
 
         try:
-            path, output_path, output_name, keyword, ignore_case, fmt = self._collect_form_values()
+            (
+                path,
+                output_path,
+                output_name,
+                start_date_text,
+                start_time_text,
+                end_date_text,
+                end_time_text,
+                keyword,
+                ignore_case,
+                fmt,
+            ) = self._collect_form_values()
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
                 None,
@@ -423,6 +514,10 @@ class LogAnalyzerApp(App):
                 path,
                 output_path,
                 output_name,
+                start_date_text,
+                start_time_text,
+                end_date_text,
+                end_time_text,
                 keyword,
                 ignore_case,
                 fmt,
@@ -437,7 +532,8 @@ class LogAnalyzerApp(App):
             self._set_result(result_box, self._error_view("找不到資料夾", str(exc)))
         except ValueError as exc:
             self._last_result = None
-            self._set_result(result_box, self._error_view("無可分析資料", str(exc)))
+            title = "無可分析資料" if str(exc).startswith("找不到符合條件的 log") else "輸入錯誤"
+            self._set_result(result_box, self._error_view(title, str(exc)))
         except Exception as exc:
             self._last_result = None
             self._set_result(result_box, self._error_view("執行失敗", str(exc)))
@@ -458,29 +554,45 @@ class LogAnalyzerApp(App):
         keyword_input.value = ""
         keyword_input.focus()
 
-    def _collect_form_values(self) -> Tuple[str, str, str, str, bool, str]:
+    def _collect_form_values(self) -> Tuple[str, str, str, str, str, str, str, str, bool, str]:
         path = self.query_one("#path", Input).value.strip() or "."
         output_path = self.query_one("#output_path", Input).value.strip() or "."
         output_name = self.query_one("#output_name", Input).value.strip()
+        start_date = self.query_one("#start_date", Input).value.strip()
+        start_time = self.query_one("#start_time", Input).value.strip()
+        end_date = self.query_one("#end_date", Input).value.strip()
+        end_time = self.query_one("#end_time", Input).value.strip()
         keyword = self.query_one("#keyword", Input).value.strip()
         ignore_case = self.query_one("#ignore_case", Checkbox).value
         fmt = self.query_one("#format", Select).value or "csv"
-        return path, output_path, output_name, keyword, ignore_case, fmt
+        return path, output_path, output_name, start_date, start_time, end_date, end_time, keyword, ignore_case, fmt
 
     def _execute_analysis(
         self,
         path: str,
         output_path: str,
         output_name: str,
+        start_date_text: str,
+        start_time_text: str,
+        end_date_text: str,
+        end_time_text: str,
         keyword: str,
         ignore_case: bool,
         fmt: str,
     ) -> AnalysisResult:
         normalized_path = ensure_readable_directory(path)
         normalized_output = self._normalize_output_path(output_path, output_name, fmt)
+        start_dt, end_dt = parse_datetime_range_inputs(
+            start_date_text,
+            start_time_text,
+            end_date_text,
+            end_time_text,
+        )
         counts, matched_logs = parse_logs(
             normalized_path,
-            keyword=keyword or None,
+            start_dt,
+            end_dt,
+            keyword or None,
             ignore_case=ignore_case,
         )
 

@@ -97,6 +97,46 @@ Screen {
     margin-top: 0;
 }
 
+.time-section {
+    height: auto;
+    margin-bottom: 1;
+}
+
+.time-section > Label {
+    color: #94a3b8;
+    margin-bottom: 0;
+}
+
+.time-row {
+    height: auto;
+    width: 1fr;
+    layout: horizontal;
+}
+
+.time-stack {
+    height: auto;
+    width: 1fr;
+    layout: vertical;
+}
+
+.time-group {
+    height: auto;
+    width: 1fr;
+}
+
+.time-group > Label {
+    color: #94a3b8;
+    margin-bottom: 0;
+}
+
+.time-group > Input {
+    width: 1fr;
+}
+
+.time-stack > .field-hint {
+    margin-top: 0;
+}
+
 .path-status {
     width: 1fr;
     color: #94a3b8;

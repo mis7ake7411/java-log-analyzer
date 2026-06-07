@@ -44,8 +44,7 @@ def parse_logs(directory, start_time=None, end_time=None, keyword=None, ignore_c
                 
                 if match:
                     if current_entry:
-                        if _should_include(current_entry['full_text'], search_keyword, ignore_case):
-                            _add_to_grouped_logs(grouped_logs, current_entry)
+                        _commit_entry(grouped_logs, counts, current_entry, search_keyword, ignore_case)
                         current_entry = None
                         
                     timestamp_str, thread, level, logger, message = match.groups()
@@ -59,8 +58,6 @@ def parse_logs(directory, start_time=None, end_time=None, keyword=None, ignore_c
                         continue
                     if end_time and dt > end_time:
                         continue
-                    
-                    counts[level] += 1
                     
                     current_entry = {
                         'timestamp': timestamp_str,
@@ -81,12 +78,21 @@ def parse_logs(directory, start_time=None, end_time=None, keyword=None, ignore_c
                         current_entry['full_text'] += line
             
             if current_entry:
-                if _should_include(current_entry['full_text'], search_keyword, ignore_case):
-                    _add_to_grouped_logs(grouped_logs, current_entry)
+                _commit_entry(grouped_logs, counts, current_entry, search_keyword, ignore_case)
                 
     # 將 dict 轉回 list 並排序
     final_logs = sorted(grouped_logs.values(), key=lambda x: x['timestamp'])
     return counts, final_logs
+
+def _commit_entry(grouped_logs, counts, entry, keyword, ignore_case):
+    """
+    內部輔助函式：套用文字過濾後，才將 log 納入統計與分組。
+    """
+    if not _should_include(entry['full_text'], keyword, ignore_case):
+        return
+
+    counts[entry['level']] += 1
+    _add_to_grouped_logs(grouped_logs, entry)
 
 def _add_to_grouped_logs(grouped_logs, entry):
     """
