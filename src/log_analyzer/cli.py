@@ -1,16 +1,25 @@
 import argparse
 import sys
 import os
+from importlib.metadata import PackageNotFoundError, version as package_version
 from datetime import datetime
 from .parser import parse_logs
 from .exporter import export_results
+
+
+def get_package_version() -> str:
+    try:
+        return package_version("java-log-analyzer")
+    except PackageNotFoundError:
+        return "unknown"
+
 
 def main():
     """
     程式的主要進入點，負責處理命令列參數與執行流程。
     """
     # 建立一個參數解析器
-    parser = argparse.ArgumentParser(description='Java Logback 日誌分析工具')
+    parser = argparse.ArgumentParser(prog='log-analyzer', description='Java Logback 日誌分析工具')
     
     # 參數定義
     parser.add_argument('dir', nargs='?', default='.', help='包含 .log 檔案的目錄路徑 (預設: 當前目錄)')
@@ -32,6 +41,7 @@ def main():
     
     # --- TUI 參數 ---
     parser.add_argument('--tui', action='store_true', help='啟動互動式介面 (TUI)')
+    parser.add_argument('--version', action='version', version=f'%(prog)s {get_package_version()}')
     
     args = parser.parse_args()
     

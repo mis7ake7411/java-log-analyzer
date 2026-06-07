@@ -2,6 +2,7 @@
 logs/
 src/java_log_analyzer.egg-info/
 __pycache__/
+build/
 venv/
 *.py[cod]
 *.json

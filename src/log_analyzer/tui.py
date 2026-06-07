@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from importlib.metadata import PackageNotFoundError, version as package_version
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -77,6 +78,19 @@ def ensure_writable_directory(path: str) -> str:
     raise FileNotFoundError(message)
 
 
+def get_system_root_path() -> Path:
+    """回傳目前作業系統的根目錄。"""
+    return Path(Path.cwd().anchor or os.sep)
+
+
+def get_package_version() -> str:
+    """讀取目前安裝的套件版本，找不到時回退到未知。"""
+    try:
+        return package_version("java-log-analyzer")
+    except PackageNotFoundError:
+        return "unknown"
+
+
 class FolderOnlyDirectoryTree(DirectoryTree):
     """只保留資料夾節點，避免選到檔案。"""
     def filter_paths(self, paths: Iterable[Path]) -> Iterable[Path]:
@@ -146,13 +160,9 @@ class DirectoryPickerScreen(ModalScreen[Optional[str]]):
         self.dismiss(os.path.abspath(selected_path))
 
     def _pick_tree_root(self) -> tuple[Path, str]:
-        # 優先使用目前輸入值，失敗時再退回 cwd/home，最後由手動輸入補足。
-        candidates = [self.initial_path, str(Path.cwd()), str(Path.home())]
-        for candidate in candidates:
-            color, message, is_valid, abspath = inspect_directory_path(candidate)
-            if is_valid and abspath:
-                return Path(abspath), ""
-        return Path.cwd(), "目前路徑無法直接瀏覽，請改用手動輸入。"
+        # 瀏覽樹預設從系統根目錄開始，避免一開啟就被目前專案路徑綁住。
+        root_path = get_system_root_path()
+        return root_path, ""
 
     def _status_text(self, message: str, color: str) -> Text:
         text = Text()
@@ -181,7 +191,7 @@ class LogAnalyzerApp(App):
             with Container(id="hero"):
                 with Container(id="hero-title-row"):
                     yield Static("Java Log Analyzer", id="hero-title")
-                    yield Static("v0.1.0", id="hero-version")
+                    yield Static(f"v{get_package_version()}", id="hero-version")
                     yield Static("·", id="hero-separator")
                     yield Static("分析、篩選並匯出 Java Logback 記錄", id="hero-subtitle")
 
@@ -216,10 +226,13 @@ class LogAnalyzerApp(App):
 
                     with Container(classes="field"):
                         yield Label("關鍵字")
-                        yield Input(
-                            placeholder="例如：Order_123 或 SQLException",
-                            id="keyword",
-                        )
+                        with Container(classes="path-row"):
+                            yield Input(
+                                placeholder="例如：Order_123 或 SQLException",
+                                id="keyword",
+                            )
+                            yield Button("清除", id="clear_keyword")
+                    yield Static("", classes="field-hint")
 
                     with Container(classes="field-row"):
                         with Container(classes="field field--inline field--ignore"):
@@ -332,6 +345,8 @@ class LogAnalyzerApp(App):
             self.action_browse_path()
         elif event.button.id == "browse_output_path":
             self.action_browse_output_path()
+        elif event.button.id == "clear_keyword":
+            self.action_clear_keyword()
 
     def update_path_preview(self, path: str, status_id: str = "#path-status", require_writable: bool = False) -> None:
         preview = self.query_one(status_id, Static)
@@ -437,6 +452,11 @@ class LogAnalyzerApp(App):
         result_box = self.query_one("#result-box", RichLog)
         self._last_result = None
         self._set_result(result_box, self._build_idle_view())
+
+    def action_clear_keyword(self) -> None:
+        keyword_input = self.query_one("#keyword", Input)
+        keyword_input.value = ""
+        keyword_input.focus()
 
     def _collect_form_values(self) -> Tuple[str, str, str, str, bool, str]:
         path = self.query_one("#path", Input).value.strip() or "."

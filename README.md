@@ -55,6 +55,10 @@ log-analyzer
 ```
 *(或使用 `python3 -m log_analyzer.cli`)*
 
+TUI 小提示：
+- 點選「瀏覽」時，資料夾樹會從系統根目錄開始顯示，方便直接切換到任意磁碟或掛載點。
+- 關鍵字欄位旁提供「清除」按鈕，可一鍵清空目前輸入內容。
+
 ### 方式 B：傳統命令列 (CLI)
 您可以透過參數進行自動化分析：
 
@@ -74,6 +78,10 @@ log-analyzer
     ```bash
     log-analyzer --start "2026-06-06 10:00:00" --end "2026-06-06 12:00:00"
     ```
+*   **查看版本**：
+    ```bash
+    log-analyzer --version
+    ```
 
 ## 專案結構
 - `src/log_analyzer/parser.py`: 核心解析邏輯（內含詳細中文註解）。
@@ -84,4 +92,3 @@ log-analyzer
 ## 適用環境
 - Python 3.6+
 - 跨平台支援：Windows / Linux / macOS
-# java-log-analyzer
