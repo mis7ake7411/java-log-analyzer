@@ -127,3 +127,7 @@ TUI 小提示：
 
 - Python 3.9+
 - 跨平台支援：Windows / Linux / macOS
+
+## 授權
+
+MIT License. See [LICENSE](LICENSE) for details.
