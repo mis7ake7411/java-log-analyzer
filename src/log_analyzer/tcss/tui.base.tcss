@@ -36,6 +36,11 @@ Screen {
     margin-bottom: 1;
 }
 
+.field-row {
+    width: 1fr;
+    margin-bottom: 1;
+}
+
 .field > Label {
     color: #94a3b8;
     margin-bottom: 0;
@@ -48,6 +53,14 @@ Screen {
 
 .field > Checkbox {
     width: auto;
+}
+
+.field--inline {
+    margin-bottom: 0;
+}
+
+.field--inline > Label {
+    margin-bottom: 0;
 }
 
 .field-body {

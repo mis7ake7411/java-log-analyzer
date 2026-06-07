@@ -182,7 +182,7 @@ class LogAnalyzerApp(App):
                 yield Static("Java Log Analyzer", id="hero-title")
                 yield Static("分析、篩選並匯出 Java Logback 記錄", id="hero-subtitle")
 
-            with Container(id="content"):
+            with ScrollableContainer(id="content"):
                 with ScrollableContainer(id="form-panel"):
                     yield Static("輸入設定", classes="section-title")
 
@@ -218,21 +218,22 @@ class LogAnalyzerApp(App):
                             id="keyword",
                         )
 
-                    with Container(classes="field"):
-                        yield Label("忽略大小寫")
-                        yield Checkbox(value=True, id="ignore_case")
+                    with Container(classes="field-row"):
+                        with Container(classes="field field--inline field--ignore"):
+                            yield Label("忽略大小寫")
+                            yield Checkbox(value=True, id="ignore_case")
 
-                    with Container(classes="field"):
-                        yield Label("輸出格式")
-                        yield Select(
-                            [
-                                ("CSV (Excel)", "csv"),
-                                ("JSON", "json"),
-                                ("Markdown", "md"),
-                            ],
-                            value="csv",
-                            id="format",
-                        )
+                        with Container(classes="field field--inline field--format"):
+                            yield Label("輸出格式")
+                            yield Select(
+                                [
+                                    ("CSV (Excel)", "csv"),
+                                    ("JSON", "json"),
+                                    ("Markdown", "md"),
+                                ],
+                                value="csv",
+                                id="format",
+                            )
 
                     with Container(id="actions"):
                         yield Button("開始分析", variant="primary", id="run")
@@ -282,7 +283,7 @@ class LogAnalyzerApp(App):
         compact = self._is_compact(width, height)
         form_panel = self.query_one("#form-panel", ScrollableContainer)
         actions = self.query_one("#actions", Container)
-        content = self.query_one("#content", Container)
+        content = self.query_one("#content", ScrollableContainer)
 
         if compact:
             content.remove_class("wide")
