@@ -56,13 +56,45 @@ def test_clear_keyword_action_empties_keyword_input():
     assert fake_input.focused is True
 
 
+def test_ctrl_a_selects_focused_input_text():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            keyword = app.query_one("#keyword")
+            keyword.value = "RuntimeException"
+            keyword.focus()
+
+            await pilot.press("ctrl+a")
+
+            assert keyword.selected_text == "RuntimeException"
+
+    asyncio.run(run_check())
+
+
+def test_ctrl_u_clears_focused_input_text():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            keyword = app.query_one("#keyword")
+            keyword.value = "RuntimeException"
+            keyword.focus()
+
+            await pilot.press("ctrl+u")
+
+            assert keyword.value == ""
+
+    asyncio.run(run_check())
+
+
 def test_get_package_version_matches_installed_package():
     assert get_package_version() == package_version("java-log-analyzer")
 
 
 def test_default_datetime_field_texts():
-    assert get_default_start_date_text() == date.today().isoformat()
-    assert get_default_start_time_text() == "00:00"
+    assert get_default_start_date_text() == ""
+    assert get_default_start_time_text() == ""
     assert get_default_end_date_text() == ""
     assert get_default_end_time_text() == ""
 
@@ -83,16 +115,81 @@ def test_parse_datetime_range_inputs_allows_blank_end():
     assert end_dt is None
 
 
-def test_parse_datetime_range_inputs_rejects_partial_end():
+def test_parse_datetime_range_inputs_allows_start_date_only():
+    start_dt, end_dt = parse_datetime_range_inputs(
+        "2026-06-07",
+        "",
+        "",
+        "",
+    )
+
+    assert start_dt is not None
+    assert start_dt.isoformat(sep=" ") == "2026-06-07 00:00:00"
+    assert end_dt is None
+
+
+def test_parse_datetime_range_inputs_allows_end_date_only():
+    start_dt, end_dt = parse_datetime_range_inputs(
+        "",
+        "",
+        "2026-06-07",
+        "",
+    )
+
+    assert start_dt is None
+    assert end_dt is not None
+    assert end_dt.isoformat(sep=" ") == "2026-06-07 23:59:59"
+
+
+def test_parse_datetime_range_inputs_allows_blank_start_and_end():
+    start_dt, end_dt = parse_datetime_range_inputs(
+        "",
+        "",
+        "",
+        "",
+    )
+
+    assert start_dt is None
+    assert end_dt is None
+
+
+def test_parse_datetime_range_inputs_allows_end_only():
+    start_dt, end_dt = parse_datetime_range_inputs(
+        "",
+        "",
+        "2026-06-07",
+        "12:00",
+    )
+
+    assert start_dt is None
+    assert end_dt is not None
+    assert end_dt.isoformat(sep=" ") == "2026-06-07 12:00:00"
+
+
+def test_parse_datetime_range_inputs_rejects_start_time_without_date():
     try:
         parse_datetime_range_inputs(
-            "2026-06-07",
+            "",
             "00:00",
-            "2026-06-07",
+            "",
             "",
         )
     except ValueError as exc:
-        assert "結束日期與時間" in str(exc)
+        assert "開始日期" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_parse_datetime_range_inputs_rejects_end_time_without_date():
+    try:
+        parse_datetime_range_inputs(
+            "",
+            "",
+            "",
+            "12:00",
+        )
+    except ValueError as exc:
+        assert "結束日期" in str(exc)
     else:
         raise AssertionError("expected ValueError")
 
@@ -119,6 +216,8 @@ def test_collect_form_values_includes_time_fields():
         "#end_date": FakeInput("2026-06-07"),
         "#end_time": FakeInput("12:00"),
         "#keyword": FakeInput("RuntimeException"),
+        "#pattern_mode": FakeSelect("custom"),
+        "#log_pattern": FakeInput("%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"),
         "#ignore_case": FakeCheckbox(True),
         "#format": FakeSelect("json"),
     }
@@ -137,6 +236,8 @@ def test_collect_form_values_includes_time_fields():
         "2026-06-07",
         "12:00",
         "RuntimeException",
+        "custom",
+        "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n",
         True,
         "json",
     )
@@ -152,6 +253,18 @@ def test_time_range_rows_have_two_inputs_each():
 
             assert len(start_row.query("Input")) == 2
             assert len(end_row.query("Input")) == 2
+
+    asyncio.run(run_check())
+
+
+def test_log_pattern_controls_exist():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            assert app.query_one("#pattern_mode")
+            assert app.query_one("#log_pattern")
 
     asyncio.run(run_check())
 

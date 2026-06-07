@@ -1,20 +1,25 @@
 import os
-import re
 from datetime import datetime
 from collections import Counter
 
-# 標準的 Logback 格式正規表示式：2023-10-27 10:00:00.000 [thread] LEVEL logger - message
-# 這個 Regex 會捕捉三個部分：時間戳記 (Timestamp)、日誌等級 (Level)、以及訊息內容 (Message)
-LOG_PATTERN = re.compile(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{3})?)\s+\[.*?\]\s+(\w+)\s+.*?\s+-\s+(.*)$')
-EXTENDED_PATTERN = re.compile(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{3})?)\s+\[(.*?)\]\s+(\w+)\s+(.*?)\s+-\s+(.*)$')
+from .logback_pattern import DEFAULT_LOGBACK_REGEX, compile_logback_pattern
 
-def parse_logs(directory, start_time=None, end_time=None, keyword=None, ignore_case=False):
+
+def parse_logs(
+    directory,
+    start_time=None,
+    end_time=None,
+    keyword=None,
+    ignore_case=False,
+    log_pattern=None,
+):
     """
     解析指定資料夾中的所有 Logback 日誌檔案。
     
     回傳:
         tuple: (各等級的統計數量, 所有符合條件的日誌詳情列表)
     """
+    entry_pattern = compile_logback_pattern(log_pattern) if log_pattern else DEFAULT_LOGBACK_REGEX
     counts = Counter()
     matched_logs = []
     
@@ -37,14 +42,18 @@ def parse_logs(directory, start_time=None, end_time=None, keyword=None, ignore_c
         
         with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
             for line_num, line in enumerate(f, 1):
-                match = EXTENDED_PATTERN.match(line)
+                match = entry_pattern.match(line)
                 
                 if match:
                     if current_entry:
                         _commit_entry(grouped_logs, counts, current_entry, search_keyword, ignore_case)
                         current_entry = None
                         
-                    timestamp_str, thread, level, logger, message = match.groups()
+                    timestamp_str = match.group("timestamp")
+                    thread = match.group("thread")
+                    level = match.group("level")
+                    logger = match.group("logger")
+                    message = match.group("message")
                     
                     try:
                         dt = datetime.strptime(timestamp_str[:19], '%Y-%m-%d %H:%M:%S')

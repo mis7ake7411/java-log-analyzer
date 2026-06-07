@@ -6,6 +6,7 @@ from datetime import datetime
 from .naming import build_timestamped_name
 from .parser import parse_logs
 from .exporter import export_results
+from .logback_pattern import UnsupportedLogbackPatternError
 
 
 def get_package_version() -> str:
@@ -36,6 +37,7 @@ def main():
     
     parser.add_argument('--start', help='過濾開始時間 (格式: YYYY-MM-DD HH:MM:SS)')
     parser.add_argument('--end', help='過濾結束時間 (格式: YYYY-MM-DD HH:MM:SS)')
+    parser.add_argument('--pattern', help='自訂 Logback pattern，可貼上 logback.xml 的 <pattern> 內容')
     
     # --- TUI 參數 ---
     parser.add_argument('--tui', action='store_true', help='啟動互動式介面 (TUI)')
@@ -82,7 +84,14 @@ def main():
             print(msg)
 
         # 執行解析邏輯
-        counts, matched_logs = parse_logs(target_dir, start_dt, end_dt, args.keyword, args.ignore_case)
+        counts, matched_logs = parse_logs(
+            target_dir,
+            start_dt,
+            end_dt,
+            args.keyword,
+            args.ignore_case,
+            args.pattern,
+        )
         
         if not counts and not matched_logs:
             print("結果：找不到符合條件的日誌內容。")
@@ -98,6 +107,9 @@ def main():
             if count > 0:
                 print(f"  {level}: {count}")
             
+    except UnsupportedLogbackPatternError as e:
+        print(f"錯誤：{e}")
+        sys.exit(1)
     except Exception as e:
         print(f"執行時發生錯誤：{e}")
         sys.exit(1)

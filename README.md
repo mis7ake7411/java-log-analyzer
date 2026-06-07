@@ -5,6 +5,7 @@
 ## 核心功能
 
 - **智慧解析**：支援標準 Logback 格式，自動捕捉多行 Exception 堆疊 (Stacktrace)。
+- **自訂格式**：支援貼上常見 Logback PatternLayout pattern，解析非預設欄位順序的日誌。
 - **TUI 互動介面**：提供視覺化選單，免記指令即可輕鬆操作。
 - **多格式匯出**：支援 CSV (Excel)、JSON (程式讀取) 及 Markdown (文件報告)。
 - **精準過濾**：支援關鍵字搜尋（含大小寫切換）與時間區間篩選。
@@ -80,7 +81,9 @@ TUI 小提示：
 
 - 點選「瀏覽」時，資料夾樹會從系統根目錄開始顯示，方便直接切換到任意磁碟或掛載點。
 - 關鍵字欄位旁提供「清除」按鈕，可一鍵清空目前輸入內容。
-- 時間區間採日期與時間分開輸入，起始日期預設為今天，起始時間預設為 `00:00`，結束欄位可留白不限制上限。
+- 輸入框支援 `Ctrl+A` 全選目前欄位文字，`Ctrl+U` 清空目前欄位文字。
+- Log 格式預設使用內建 Logback pattern；若日誌格式不同，可切到「進階 Pattern」並貼上 `logback.xml` 的 `<pattern>` 內容。
+- 時間區間採日期與時間分開輸入；起訖欄位都留白時會解析全部 log，不套用時間限制。只填日期時，開始日期會從當天 `00:00:00` 起算，結束日期會到當天 `23:59:59` 為止。
 
 ### 方式 B：傳統命令列 (CLI)
 
@@ -110,11 +113,38 @@ TUI 小提示：
     log-analyzer --start "2026-06-06 10:00:00" --end "2026-06-06 12:00:00"
     ```
 
+- **自訂 Logback pattern**：
+
+    ```bash
+    log-analyzer /path/to/logs --pattern "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} %file:%line - %msg%n"
+    ```
+
+- **括號式 level / thread 格式**：
+
+    ```bash
+    log-analyzer /path/to/logs --pattern "[%d{yyyy-MM-dd HH:mm:ss.SSS}] [%-5level] [%thread] %logger.%method(%line) - %msg%n"
+    ```
+
 - **查看版本**：
 
     ```bash
     log-analyzer --version
     ```
+
+## Logback Pattern 支援範圍
+
+預設模式使用內建 pattern：
+
+```text
+%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n
+```
+
+進階模式可貼上 `logback.xml` 裡的 `<pattern>` 內容，但目前只支援常見 token。超出範圍時，CLI/TUI 會提示不支援的 token。Spring Boot 常見的 `${NAME:-default}` 預設值 placeholder 會先展開成 default。
+
+- 會解析成欄位：`%d` / `%date`、`%thread` / `%t`、`%level` / `%le` / `%p`、`%logger` / `%lo` / `%c`、`%msg` / `%message` / `%m`
+- 可接受但不納入輸出欄位：`%file`、`%line` / `%L`、`%class`、`%method` / `%M`、`%caller`、`%mdc` / `%X`、`%ex` / `%throwable` / `%xEx` / `%wEx` / `%wex` / `%rootException` / `%rEx`、`%n`
+- 日期格式目前支援 `yyyy-MM-dd HH:mm:ss.SSS` 或無毫秒的 `yyyy-MM-dd HH:mm:ss`
+- 尚不支援轉換函式與複雜 pattern，例如 `%replace(...)`、`%clr(...)` 顏色包裝或條件式格式
 
 ## 專案結構
 

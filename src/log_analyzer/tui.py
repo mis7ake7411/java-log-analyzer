@@ -15,11 +15,12 @@ from rich.table import Table
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Container, ScrollableContainer
-from textual.events import Resize
+from textual.events import Key, Resize
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, DirectoryTree, Footer, Header, Input, Label, RichLog, Select, Static
 
 from .exporter import export_results
+from .logback_pattern import DEFAULT_LOGBACK_PATTERN
 from .naming import build_timestamped_name
 from .parser import parse_logs
 
@@ -93,12 +94,12 @@ def get_system_root_path() -> Path:
 
 def get_default_start_date_text() -> str:
     """回傳起始日期預設值。"""
-    return date.today().isoformat()
+    return ""
 
 
 def get_default_start_time_text() -> str:
     """回傳起始時間預設值。"""
-    return "00:00"
+    return ""
 
 
 def get_default_end_date_text() -> str:
@@ -121,21 +122,35 @@ def parse_datetime_range_inputs(
     start_time_text: str,
     end_date_text: str,
     end_time_text: str,
-) -> tuple[datetime, Optional[datetime]]:
+) -> tuple[Optional[datetime], Optional[datetime]]:
     """將分離的日期與時間欄位組合成起訖時間。"""
-    start_date_clean = start_date_text.strip() or get_default_start_date_text()
-    start_time_clean = start_time_text.strip() or get_default_start_time_text()
-    start_dt = datetime.strptime(f"{start_date_clean} {start_time_clean}", "%Y-%m-%d %H:%M")
+    start_date_clean = start_date_text.strip()
+    start_time_clean = start_time_text.strip()
+    if not start_date_clean:
+        if start_time_clean:
+            raise ValueError("請先輸入開始日期，或將開始時間留白。")
+        start_dt = None
+    elif start_time_clean:
+        start_dt = datetime.strptime(f"{start_date_clean} {start_time_clean}", "%Y-%m-%d %H:%M")
+    else:
+        start_dt = datetime.strptime(start_date_clean, "%Y-%m-%d")
 
     end_date_clean = end_date_text.strip()
     end_time_clean = end_time_text.strip()
-    if not end_date_clean and not end_time_clean:
+    if not end_date_clean:
+        if end_time_clean:
+            raise ValueError("請先輸入結束日期，或將結束時間留白。")
         return start_dt, None
-    if not end_date_clean or not end_time_clean:
-        raise ValueError("請同時輸入結束日期與時間，或兩者都留白。")
 
-    end_dt = datetime.strptime(f"{end_date_clean} {end_time_clean}", "%Y-%m-%d %H:%M")
-    if start_dt > end_dt:
+    if end_time_clean:
+        end_dt = datetime.strptime(f"{end_date_clean} {end_time_clean}", "%Y-%m-%d %H:%M")
+    else:
+        end_dt = datetime.strptime(end_date_clean, "%Y-%m-%d").replace(
+            hour=23,
+            minute=59,
+            second=59,
+        )
+    if start_dt is not None and start_dt > end_dt:
         raise ValueError("開始時間不能晚於結束時間。")
     return start_dt, end_dt
 
@@ -152,6 +167,19 @@ class FolderOnlyDirectoryTree(DirectoryTree):
     """只保留資料夾節點，避免選到檔案。"""
     def filter_paths(self, paths: Iterable[Path]) -> Iterable[Path]:
         return [path for path in paths if path.is_dir()]
+
+
+class ShortcutInput(Input):
+    """補上符合一般編輯習慣的輸入框快捷鍵。"""
+    def on_key(self, event: Key) -> None:
+        if event.key == "ctrl+a":
+            self.select_all()
+            event.prevent_default()
+            event.stop()
+        elif event.key == "ctrl+u":
+            self.value = ""
+            event.prevent_default()
+            event.stop()
 
 
 class DirectoryPickerScreen(ModalScreen[Optional[str]]):
@@ -182,7 +210,7 @@ class DirectoryPickerScreen(ModalScreen[Optional[str]]):
                 yield FolderOnlyDirectoryTree(root_path, id="picker-tree")
                 with Container(id="picker-manual"):
                     yield Label("手動輸入")
-                    yield Input(value=self.initial_path or str(root_path), id="picker-path")
+                    yield ShortcutInput(value=self.initial_path or str(root_path), id="picker-path")
                 yield Static(status_message, id="picker-status")
                 with Container(id="picker-actions"):
                     yield Button(self.confirm_label, variant="primary", id="picker-confirm")
@@ -260,21 +288,21 @@ class LogAnalyzerApp(App):
                     with Container(classes="field"):
                         yield Label("Log 目錄")
                         with Container(classes="path-row"):
-                            yield Input(placeholder="例如：./logs", value=".", id="path")
+                            yield ShortcutInput(placeholder="例如：./logs", value=".", id="path")
                             yield Button("瀏覽", id="browse_path")
                     yield Static("", classes="path-status", id="path-status")
 
                     with Container(classes="field"):
                         yield Label("目標資料夾")
                         with Container(classes="path-row"):
-                            yield Input(placeholder="例如：./exports", value=".", id="output_path")
+                            yield ShortcutInput(placeholder="例如：./exports", value=".", id="output_path")
                             yield Button("瀏覽", id="browse_output_path")
                     yield Static("", classes="path-status", id="output-path-status")
 
                     with Container(classes="field"):
                         yield Label("輸出檔名")
                         with Container(classes="field-body"):
-                            yield Input(
+                            yield ShortcutInput(
                                 placeholder="例如：analysis_123000",
                                 value=self._auto_output_name,
                                 id="output_name",
@@ -284,12 +312,32 @@ class LogAnalyzerApp(App):
                     with Container(classes="field"):
                         yield Label("關鍵字")
                         with Container(classes="path-row"):
-                            yield Input(
+                            yield ShortcutInput(
                                 placeholder="例如：Order_123 或 SQLException",
                                 id="keyword",
                             )
                             yield Button("清除", id="clear_keyword")
                     yield Static("", classes="field-hint")
+
+                    with Container(classes="field"):
+                        yield Label("Log 格式")
+                        yield Select(
+                            [
+                                ("預設 Logback", "default"),
+                                ("進階 Pattern", "custom"),
+                            ],
+                            value="default",
+                            id="pattern_mode",
+                        )
+
+                    with Container(classes="field"):
+                        yield Label("Pattern")
+                        with Container(classes="field-body"):
+                            yield ShortcutInput(
+                                placeholder=DEFAULT_LOGBACK_PATTERN,
+                                id="log_pattern",
+                            )
+                            yield Static("進階模式才會套用；僅支援常見 Logback token。", classes="field-hint")
 
                     with Container(classes="time-section"):
                         yield Label("時間區間")
@@ -297,14 +345,14 @@ class LogAnalyzerApp(App):
                             with Container(id="start-time-row", classes="time-row"):
                                 with Container(id="start-date-group", classes="time-group"):
                                     yield Label("開始日期")
-                                    yield Input(
+                                    yield ShortcutInput(
                                         value=get_default_start_date_text(),
                                         placeholder="YYYY-MM-DD",
                                         id="start_date",
                                     )
                                 with Container(id="start-time-group", classes="time-group"):
                                     yield Label("開始時間")
-                                    yield Input(
+                                    yield ShortcutInput(
                                         value=get_default_start_time_text(),
                                         placeholder="HH:MM",
                                         id="start_time",
@@ -312,14 +360,14 @@ class LogAnalyzerApp(App):
                             with Container(id="end-time-row", classes="time-row"):
                                 with Container(id="end-date-group", classes="time-group"):
                                     yield Label("結束日期")
-                                    yield Input(
+                                    yield ShortcutInput(
                                         value=get_default_end_date_text(),
                                         placeholder="YYYY-MM-DD",
                                         id="end_date",
                                     )
                                 with Container(id="end-time-group", classes="time-group"):
                                     yield Label("結束時間")
-                                    yield Input(
+                                    yield ShortcutInput(
                                         value=get_default_end_time_text(),
                                         placeholder="HH:MM",
                                         id="end_time",
@@ -426,7 +474,17 @@ class LogAnalyzerApp(App):
             self.update_path_preview(event.value, "#output-path-status", require_writable=True)
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id in {"path", "output_path", "output_name", "keyword", "start_date", "start_time", "end_date", "end_time"}:
+        if event.input.id in {
+            "path",
+            "output_path",
+            "output_name",
+            "keyword",
+            "log_pattern",
+            "start_date",
+            "start_time",
+            "end_date",
+            "end_time",
+        }:
             await self.action_run_analysis()
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -517,6 +575,8 @@ class LogAnalyzerApp(App):
                 end_date_text,
                 end_time_text,
                 keyword,
+                pattern_mode,
+                log_pattern,
                 ignore_case,
                 fmt,
             ) = self._collect_form_values()
@@ -532,6 +592,8 @@ class LogAnalyzerApp(App):
                 end_date_text,
                 end_time_text,
                 keyword,
+                pattern_mode,
+                log_pattern,
                 ignore_case,
                 fmt,
             )
@@ -577,7 +639,7 @@ class LogAnalyzerApp(App):
         output_name_input = self.query_one("#output_name", Input)
         output_name_input.value = self._auto_output_name
 
-    def _collect_form_values(self) -> Tuple[str, str, str, str, str, str, str, str, bool, str]:
+    def _collect_form_values(self) -> Tuple[str, str, str, str, str, str, str, str, str, str, bool, str]:
         path = self.query_one("#path", Input).value.strip() or "."
         output_path = self.query_one("#output_path", Input).value.strip() or "."
         output_name = self.query_one("#output_name", Input).value.strip()
@@ -586,9 +648,24 @@ class LogAnalyzerApp(App):
         end_date = self.query_one("#end_date", Input).value.strip()
         end_time = self.query_one("#end_time", Input).value.strip()
         keyword = self.query_one("#keyword", Input).value.strip()
+        pattern_mode = self.query_one("#pattern_mode", Select).value or "default"
+        log_pattern = self.query_one("#log_pattern", Input).value.strip()
         ignore_case = self.query_one("#ignore_case", Checkbox).value
         fmt = self.query_one("#format", Select).value or "csv"
-        return path, output_path, output_name, start_date, start_time, end_date, end_time, keyword, ignore_case, fmt
+        return (
+            path,
+            output_path,
+            output_name,
+            start_date,
+            start_time,
+            end_date,
+            end_time,
+            keyword,
+            str(pattern_mode),
+            log_pattern,
+            ignore_case,
+            str(fmt),
+        )
 
     def _execute_analysis(
         self,
@@ -600,6 +677,8 @@ class LogAnalyzerApp(App):
         end_date_text: str,
         end_time_text: str,
         keyword: str,
+        pattern_mode: str,
+        log_pattern: str,
         ignore_case: bool,
         fmt: str,
     ) -> AnalysisResult:
@@ -611,12 +690,14 @@ class LogAnalyzerApp(App):
             end_date_text,
             end_time_text,
         )
+        selected_pattern = log_pattern if pattern_mode == "custom" else None
         counts, matched_logs = parse_logs(
             normalized_path,
             start_dt,
             end_dt,
             keyword or None,
             ignore_case=ignore_case,
+            log_pattern=selected_pattern,
         )
 
         if not counts and not matched_logs:
