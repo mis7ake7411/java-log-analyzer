@@ -8,6 +8,7 @@ from log_analyzer.tui import (
     LogAnalyzerApp,
     get_default_end_date_text,
     get_default_end_time_text,
+    get_default_output_name_text,
     get_default_start_date_text,
     get_default_start_time_text,
     get_package_version,
@@ -64,6 +65,10 @@ def test_default_datetime_field_texts():
     assert get_default_start_time_text() == "00:00"
     assert get_default_end_date_text() == ""
     assert get_default_end_time_text() == ""
+
+
+def test_default_output_name_text_uses_timestamp_prefix():
+    assert get_default_output_name_text().startswith("analysis_")
 
 
 def test_parse_datetime_range_inputs_allows_blank_end():
@@ -197,3 +202,30 @@ def test_form_controls_keep_gap_from_scrollbar():
                 assert content_right - control_right >= 2
 
     asyncio.run(run_check())
+
+
+def test_refresh_output_name_default_updates_only_auto_value(monkeypatch):
+    class FakeInput:
+        def __init__(self, value: str) -> None:
+            self.value = value
+
+    monkeypatch.setattr(
+        "log_analyzer.tui.get_default_output_name_text",
+        lambda: "analysis_20260607_120000",
+    )
+
+    app = LogAnalyzerApp()
+    app._auto_output_name = "analysis_20260607_111111"
+
+    auto_input = FakeInput("analysis_20260607_111111")
+    app.query_one = lambda *_args, **_kwargs: auto_input  # type: ignore[assignment]
+
+    app._refresh_output_name_default("analysis_20260607_111111")
+    assert auto_input.value == "analysis_20260607_120000"
+    assert app._auto_output_name == "analysis_20260607_120000"
+
+    app._auto_output_name = "analysis_20260607_120000"
+    custom_input = FakeInput("custom_report")
+    app.query_one = lambda *_args, **_kwargs: custom_input  # type: ignore[assignment]
+    app._refresh_output_name_default("custom_report")
+    assert custom_input.value == "custom_report"

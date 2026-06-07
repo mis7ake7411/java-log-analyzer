@@ -3,6 +3,7 @@ import sys
 import os
 from importlib.metadata import PackageNotFoundError, version as package_version
 from datetime import datetime
+from .naming import build_timestamped_name
 from .parser import parse_logs
 from .exporter import export_results
 
@@ -26,9 +27,6 @@ def main():
     
     # --- 格式支援功能參數 ---
     parser.add_argument('-f', '--format', choices=['csv', 'json', 'md'], default='csv', help='輸出的檔案格式 (預設: csv)')
-    
-    # 自動生成報表檔名 (根據格式調整副檔名)
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     
     parser.add_argument('-o', '--output', help='輸出的報表路徑 (若未指定，將自動根據格式產生)')
     
@@ -60,7 +58,7 @@ def main():
     # 處理預設輸出檔名
     output_ext = args.format
     if not args.output:
-        args.output = f'log_analysis_{timestamp}.{output_ext}'
+        args.output = f'{build_timestamped_name("log_analysis")}.{output_ext}'
 
     # 智慧偵測資料夾
     target_dir = args.dir

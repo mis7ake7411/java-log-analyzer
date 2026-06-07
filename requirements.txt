@@ -1,2 +1,2 @@
-pytest
-textual
+pytest>=8.0.0
+textual==8.2.7

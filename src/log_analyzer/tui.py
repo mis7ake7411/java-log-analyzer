@@ -20,11 +20,19 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, DirectoryTree, Footer, Header, Input, Label, RichLog, Select, Static
 
 from .exporter import export_results
+from .naming import build_timestamped_name
 from .parser import parse_logs
 
 
+"""
+Java Log Analyzer 的 TUI 應用程式。
+使用 Textual 框架打造互動式介面。
+"""
 @dataclass
 class AnalysisResult:
+    """
+    Java Log Analyzer 的分析結果資料結構。
+    """
     input_path: str
     output_path: str
     format_name: str
@@ -101,6 +109,11 @@ def get_default_end_date_text() -> str:
 def get_default_end_time_text() -> str:
     """回傳結束時間預設值。"""
     return ""
+
+
+def get_default_output_name_text() -> str:
+    """回傳輸出檔名預設值。"""
+    return build_timestamped_name("analysis")
 
 
 def parse_datetime_range_inputs(
@@ -230,6 +243,7 @@ class LogAnalyzerApp(App):
     ]
 
     def compose(self) -> ComposeResult:
+        self._auto_output_name = get_default_output_name_text()
         yield Header(show_clock=True)
         with Container(id="shell"):
             with Container(id="hero"):
@@ -260,10 +274,9 @@ class LogAnalyzerApp(App):
                     with Container(classes="field"):
                         yield Label("輸出檔名")
                         with Container(classes="field-body"):
-                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                             yield Input(
                                 placeholder="例如：analysis_123000",
-                                value=f"analysis_{timestamp}",
+                                value=self._auto_output_name,
                                 id="output_name",
                             )
                             yield Static("副檔名由輸出格式自動決定。", classes="field-hint")
@@ -524,6 +537,7 @@ class LogAnalyzerApp(App):
             )
             self._last_result = result
             self._set_result(result_box, self._build_dashboard(result))
+            self._refresh_output_name_default(output_name)
         except PermissionError as exc:
             self._last_result = None
             self._set_result(result_box, self._error_view("權限不足", str(exc)))
@@ -553,6 +567,15 @@ class LogAnalyzerApp(App):
         keyword_input = self.query_one("#keyword", Input)
         keyword_input.value = ""
         keyword_input.focus()
+
+    def _refresh_output_name_default(self, previous_output_name: str) -> None:
+        previous_clean = previous_output_name.strip()
+        if previous_clean not in {"", getattr(self, "_auto_output_name", "")}:
+            return
+
+        self._auto_output_name = get_default_output_name_text()
+        output_name_input = self.query_one("#output_name", Input)
+        output_name_input.value = self._auto_output_name
 
     def _collect_form_values(self) -> Tuple[str, str, str, str, str, str, str, str, bool, str]:
         path = self.query_one("#path", Input).value.strip() or "."
