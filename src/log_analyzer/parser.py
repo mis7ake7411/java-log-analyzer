@@ -6,6 +6,7 @@ from collections import Counter
 # 標準的 Logback 格式正規表示式：2023-10-27 10:00:00.000 [thread] LEVEL logger - message
 # 這個 Regex 會捕捉三個部分：時間戳記 (Timestamp)、日誌等級 (Level)、以及訊息內容 (Message)
 LOG_PATTERN = re.compile(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{3})?)\s+\[.*?\]\s+(\w+)\s+.*?\s+-\s+(.*)$')
+EXTENDED_PATTERN = re.compile(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{3})?)\s+\[(.*?)\]\s+(\w+)\s+(.*?)\s+-\s+(.*)$')
 
 def parse_logs(directory, start_time=None, end_time=None, keyword=None, ignore_case=False):
     """
@@ -26,10 +27,6 @@ def parse_logs(directory, start_time=None, end_time=None, keyword=None, ignore_c
     search_keyword = keyword
     if search_keyword and ignore_case:
         search_keyword = search_keyword.lower()
-
-    # 修改 Regex 以捕捉更多欄位：時間、[線程]、等級、Logger、訊息
-    # 範例: 2023-10-27 10:00:00.000 [thread-1] INFO com.example.MyClass - some message
-    EXTENDED_PATTERN = re.compile(r'^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{3})?)\s+\[(.*?)\]\s+(\w+)\s+(.*?)\s+-\s+(.*)$')
 
     # 使用字典來暫存，key 為 (level, logger, message, stacktrace)，value 為該組的詳情
     grouped_logs = {}
@@ -67,14 +64,14 @@ def parse_logs(directory, start_time=None, end_time=None, keyword=None, ignore_c
                         'message': message,
                         'filename': filename,
                         'line_num': line_num,
-                        'stacktrace': '',
+                        'stacktrace_lines': [],
                         'full_text': message,
                         'line_numbers': [line_num] # 追蹤所有重複項出現的行號
                     }
                 else:
                     if current_entry:
                         # 幫 Stacktrace 的每一行標註行號
-                        current_entry['stacktrace'] += f"{line_num:5}: {line}"
+                        current_entry['stacktrace_lines'].append(f"{line_num:5}: {line}")
                         current_entry['full_text'] += line
             
             if current_entry:
@@ -98,7 +95,8 @@ def _add_to_grouped_logs(grouped_logs, entry):
     """
     內部輔助函式：將新的 log 加入分組中。
     """
-    key = (entry['level'], entry['logger'], entry['message'], entry['stacktrace'].strip())
+    stacktrace_text = ''.join(entry['stacktrace_lines']).strip()
+    key = (entry['level'], entry['logger'], entry['message'], stacktrace_text)
     
     if key in grouped_logs:
         grouped_logs[key]['count'] += 1
@@ -108,6 +106,7 @@ def _add_to_grouped_logs(grouped_logs, entry):
     else:
         entry['count'] = 1
         entry['last_timestamp'] = entry['timestamp']
+        entry['stacktrace'] = stacktrace_text
         grouped_logs[key] = entry
 
 def _should_include(text, keyword, ignore_case):
