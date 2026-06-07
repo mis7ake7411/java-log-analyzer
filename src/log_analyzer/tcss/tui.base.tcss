@@ -1,0 +1,79 @@
+Screen {
+    background: #0f172a;
+    color: #e2e8f0;
+}
+
+#shell {
+    height: 100%;
+    padding: 1 2;
+}
+
+#hero {
+    height: 5;
+    padding: 0 2;
+    margin-bottom: 1;
+    border: round #38bdf8;
+    background: #111827;
+    overflow: hidden;
+}
+
+#hero-title {
+    text-style: bold;
+    color: #f8fafc;
+}
+
+#hero-subtitle {
+    color: #94a3b8;
+}
+
+.section-title {
+    text-style: bold;
+    color: #e2e8f0;
+    margin-bottom: 1;
+}
+
+.field {
+    margin-bottom: 1;
+}
+
+.field > Label {
+    color: #94a3b8;
+    margin-bottom: 0;
+}
+
+.field > Input,
+.field > Select {
+    width: 1fr;
+}
+
+.field > Checkbox {
+    width: auto;
+}
+
+.field-body {
+    width: 1fr;
+    layout: vertical;
+}
+
+.field-body > Input {
+    width: 1fr;
+}
+
+.field-body > .field-hint {
+    margin-top: 0;
+}
+
+.path-status {
+    width: 1fr;
+    color: #94a3b8;
+}
+
+.helper {
+    margin-top: 1;
+    color: #94a3b8;
+}
+
+.field-hint {
+    margin-top: 0;
+    color: #94a3b8;
+}

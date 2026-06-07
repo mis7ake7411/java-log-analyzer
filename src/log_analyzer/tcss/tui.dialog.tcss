@@ -1,0 +1,58 @@
+#directory-picker {
+    align: center middle;
+    background: rgba(15, 23, 42, 0.78);
+}
+
+#picker-card {
+    width: 90%;
+    height: 90%;
+    border: round #38bdf8;
+    background: #0b1220;
+    padding: 1 2;
+}
+
+#picker-title {
+    text-style: bold;
+    color: #f8fafc;
+}
+
+#picker-hint {
+    color: #94a3b8;
+    margin-bottom: 1;
+}
+
+#picker-tree {
+    height: 1fr;
+    border: round #334155;
+    background: #111827;
+}
+
+#picker-manual {
+    margin-top: 1;
+}
+
+#picker-manual > Label {
+    color: #94a3b8;
+}
+
+#picker-path {
+    width: 1fr;
+}
+
+#picker-status {
+    margin-top: 1;
+    color: #94a3b8;
+}
+
+#picker-actions {
+    margin-top: 1;
+    layout: horizontal;
+}
+
+#picker-actions Button {
+    width: 1fr;
+}
+
+#picker-actions #picker-cancel {
+    margin-left: 1;
+}
