@@ -9,21 +9,39 @@ Screen {
 }
 
 #hero {
-    height: 5;
-    padding: 0 2;
+    height: auto;
+    padding: 1 2;
     margin-bottom: 1;
     border: round #38bdf8;
     background: #111827;
-    overflow: hidden;
+    align: center middle;
+}
+
+#hero-title-row {
+    height: auto;
+    width: auto;
 }
 
 #hero-title {
     text-style: bold;
     color: #f8fafc;
+    width: auto;
+}
+
+#hero-version {
+    width: auto;
+    color: #38bdf8;
+    text-style: italic;
+}
+
+#hero-separator {
+    width: auto;
+    color: #475569;
 }
 
 #hero-subtitle {
     color: #94a3b8;
+    width: auto;
 }
 
 .section-title {
@@ -33,10 +51,12 @@ Screen {
 }
 
 .field {
+    height: auto;
     margin-bottom: 1;
 }
 
 .field-row {
+    height: auto;
     width: 1fr;
     margin-bottom: 1;
 }
@@ -64,6 +84,7 @@ Screen {
 }
 
 .field-body {
+    height: auto;
     width: 1fr;
     layout: vertical;
 }
@@ -89,4 +110,18 @@ Screen {
 .field-hint {
     margin-top: 0;
     color: #94a3b8;
+}
+
+Button:focus {
+    background: #1e293b;
+    color: #38bdf8;
+    border: tall #38bdf8;
+    text-style: bold;
+}
+
+Button.-primary:focus {
+    background: #0284c7;
+    color: #ffffff;
+    border: tall #38bdf8;
+    text-style: bold;
 }

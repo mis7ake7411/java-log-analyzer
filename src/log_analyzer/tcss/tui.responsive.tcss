@@ -1,3 +1,29 @@
+/* ── Hero 響應式排版 ── */
+
+#hero-title-row.wide {
+    layout: horizontal;
+}
+
+#hero-title-row.wide #hero-title,
+#hero-title-row.wide #hero-version,
+#hero-title-row.wide #hero-separator {
+    margin-right: 1;
+}
+
+#hero-title-row.compact {
+    layout: vertical;
+}
+
+#hero-title-row.compact #hero-separator {
+    display: none;
+}
+
+#hero-title-row.compact #hero-version {
+    margin-left: 0;
+}
+
+/* ── Content 響應式排版 ── */
+
 #content.wide {
     layout: horizontal;
 }
@@ -8,7 +34,7 @@
 
 #content.wide #form-panel {
     width: 42%;
-    min-width: 34;
+    min-width: 50;
     margin-right: 1;
     margin-bottom: 0;
     height: 1fr;
@@ -25,14 +51,14 @@
     margin-right: 0;
     margin-bottom: 1;
     height: 1fr;
-    min-height: 0;
+    min-height: 8;
     overflow: auto;
 }
 
 #content.compact #output-panel {
     width: auto;
-    height: 18;
-    min-height: 12;
+    height: 1fr;
+    min-height: 8;
 }
 
 #form-panel.wide {
@@ -55,7 +81,7 @@
 }
 
 #form-panel.wide .field-row .field--ignore {
-    width: 1fr;
+    width: 16;
     margin-right: 1;
 }
 

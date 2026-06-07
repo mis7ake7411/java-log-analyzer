@@ -28,6 +28,7 @@
 }
 
 #picker-manual {
+    height: auto;
     margin-top: 1;
 }
 
@@ -45,6 +46,7 @@
 }
 
 #picker-actions {
+    height: auto;
     margin-top: 1;
     layout: horizontal;
 }

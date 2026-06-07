@@ -19,6 +19,7 @@
 }
 
 .path-row {
+    height: auto;
     width: 1fr;
     layout: horizontal;
 }
@@ -45,6 +46,7 @@
 }
 
 #actions {
+    height: auto;
     margin-top: 1;
     width: 1fr;
 }

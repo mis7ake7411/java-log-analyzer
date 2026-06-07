@@ -179,8 +179,11 @@ class LogAnalyzerApp(App):
         yield Header(show_clock=True)
         with Container(id="shell"):
             with Container(id="hero"):
-                yield Static("Java Log Analyzer", id="hero-title")
-                yield Static("分析、篩選並匯出 Java Logback 記錄", id="hero-subtitle")
+                with Container(id="hero-title-row"):
+                    yield Static("Java Log Analyzer", id="hero-title")
+                    yield Static("v0.1.0", id="hero-version")
+                    yield Static("·", id="hero-separator")
+                    yield Static("分析、篩選並匯出 Java Logback 記錄", id="hero-subtitle")
 
             with ScrollableContainer(id="content"):
                 with ScrollableContainer(id="form-panel"):
@@ -284,6 +287,7 @@ class LogAnalyzerApp(App):
         form_panel = self.query_one("#form-panel", ScrollableContainer)
         actions = self.query_one("#actions", Container)
         content = self.query_one("#content", ScrollableContainer)
+        hero_title_row = self.query_one("#hero-title-row", Container)
 
         if compact:
             content.remove_class("wide")
@@ -292,6 +296,8 @@ class LogAnalyzerApp(App):
             form_panel.add_class("compact")
             actions.remove_class("wide")
             actions.add_class("compact")
+            hero_title_row.remove_class("wide")
+            hero_title_row.add_class("compact")
         else:
             content.remove_class("compact")
             content.add_class("wide")
@@ -299,9 +305,13 @@ class LogAnalyzerApp(App):
             form_panel.add_class("wide")
             actions.remove_class("compact")
             actions.add_class("wide")
+            hero_title_row.remove_class("compact")
+            hero_title_row.add_class("wide")
 
     def _is_compact(self, width: int, height: int) -> bool:
-        return width < 120 or height < 42
+        # 當寬度小於 90，或者高度小於 18 時，才使用單欄（compact）垂直版面。
+        # 否則使用雙欄（左右分欄）版面。
+        return width < 90 or height < 18
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "path":
@@ -377,8 +387,16 @@ class LogAnalyzerApp(App):
 
     async def action_run_analysis(self) -> None:
         run_button = self.query_one("#run", Button)
+        clear_button = self.query_one("#clear", Button)
         result_box = self.query_one("#result-box", RichLog)
+
+        # 記錄當下聚焦的元件，並暫時清除焦點，避免焦點自動轉移至「清除結果」按鈕造成反白
+        original_focused = self.focused
+        self.set_focus(None)
+
+        # 停用按鈕以防二次點擊
         run_button.disabled = True
+        clear_button.disabled = True
         self._set_result(result_box, self._loading_view())
 
         try:
@@ -410,6 +428,10 @@ class LogAnalyzerApp(App):
             self._set_result(result_box, self._error_view("執行失敗", str(exc)))
         finally:
             run_button.disabled = False
+            clear_button.disabled = False
+            # 恢復原本的焦點元件
+            if original_focused and not original_focused.disabled:
+                self.set_focus(original_focused)
 
     def action_clear_result(self) -> None:
         result_box = self.query_one("#result-box", RichLog)
