@@ -13,10 +13,11 @@
 
 ## 安裝教學
 
-### 1. 下載專案
+### 1. 下載 Release
+
+GitHub 的 `Releases` 頁面下載最新版本的 ZIP 壓縮檔，解壓縮後進入專案目錄。
 
 ```bash
-git clone git@github.com:mis7ake7411/java-log-analyzer.git
 cd java-log-analyzer
 ```
 
