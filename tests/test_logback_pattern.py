@@ -21,6 +21,29 @@ def test_compile_logback_pattern_matches_default_logback_shape():
     assert match.group("message") == "Started"
 
 
+def test_compile_logback_pattern_matches_logback_default_comma_millis():
+    compiled = compile_logback_pattern("%d %-5level [%thread] %logger{0}: %msg%n")
+
+    match = compiled.match(
+        "2026-05-25 15:50:33,198 INFO  [main] YtMamApp: "
+        "Starting YtMamApp on ytmam_ap_test"
+    )
+    match_with_colon = compiled.match(
+        "2026-05-25 15:50:33,214 INFO  [main] YtMamApp: "
+        "The following profiles are active: swagger,dev"
+    )
+
+    assert match is not None
+    assert match.group("timestamp") == "2026-05-25 15:50:33,198"
+    assert match.group("level") == "INFO"
+    assert match.group("thread") == "main"
+    assert match.group("logger") == "YtMamApp"
+    assert match.group("message") == "Starting YtMamApp on ytmam_ap_test"
+    assert match_with_colon is not None
+    assert match_with_colon.group("logger") == "YtMamApp"
+    assert match_with_colon.group("message") == "The following profiles are active: swagger,dev"
+
+
 def test_compile_logback_pattern_allows_file_and_line_before_message_separator():
     compiled = compile_logback_pattern(
         "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} %file:%line - %msg%n"

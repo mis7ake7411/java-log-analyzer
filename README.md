@@ -119,6 +119,12 @@ TUI 小提示：
     log-analyzer /path/to/logs --pattern "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} %file:%line - %msg%n"
     ```
 
+- **Logback 預設逗號毫秒格式**：
+
+    ```bash
+    log-analyzer /path/to/logs --pattern "%d %-5level [%thread] %logger{0}: %msg%n"
+    ```
+
 - **括號式 level / thread 格式**：
 
     ```bash
@@ -143,7 +149,7 @@ TUI 小提示：
 
 - 會解析成欄位：`%d` / `%date`、`%thread` / `%t`、`%level` / `%le` / `%p`、`%logger` / `%lo` / `%c`、`%msg` / `%message` / `%m`
 - 可接受但不納入輸出欄位：`%file`、`%line` / `%L`、`%class`、`%method` / `%M`、`%caller`、`%mdc` / `%X`、`%ex` / `%throwable` / `%xEx` / `%wEx` / `%wex` / `%rootException` / `%rEx`、`%n`
-- 日期格式目前支援 `yyyy-MM-dd HH:mm:ss.SSS` 或無毫秒的 `yyyy-MM-dd HH:mm:ss`
+- 日期格式目前支援 `yyyy-MM-dd HH:mm:ss.SSS`、`yyyy-MM-dd HH:mm:ss,SSS`，或無毫秒的 `yyyy-MM-dd HH:mm:ss`
 - 尚不支援轉換函式與複雜 pattern，例如 `%replace(...)`、`%clr(...)` 顏色包裝或條件式格式
 
 ## 專案結構

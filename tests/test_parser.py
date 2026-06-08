@@ -55,6 +55,33 @@ def test_parse_logs_with_custom_logback_pattern(tmp_path):
     assert "RuntimeException" in errors[0]["stacktrace"]
 
 
+def test_parse_logs_with_logback_default_comma_millis_pattern(tmp_path):
+    d = tmp_path / "logs"
+    d.mkdir()
+    log_file = d / "logFile.2026-05-25.log"
+    log_file.write_text(
+        "2026-05-25 15:50:33,198 INFO  [main] YtMamApp: "
+        "Starting YtMamApp on ytmam_ap_test\n"
+        "2026-05-25 15:50:33,198 DEBUG [main] YtMamApp: "
+        "Running with Spring Boot v2.2.7.RELEASE\n"
+        "2026-05-25 15:50:33,214 INFO  [main] YtMamApp: "
+        "The following profiles are active: swagger,dev\n"
+    )
+
+    counts, errors = parse_logs(
+        str(d),
+        log_pattern="%d %-5level [%thread] %logger{0}: %msg%n",
+    )
+
+    assert counts["INFO"] == 2
+    assert counts["DEBUG"] == 1
+    assert errors[0]["timestamp"] == "2026-05-25 15:50:33,198"
+    assert errors[0]["logger"] == "YtMamApp"
+    assert errors[0]["message"] == "Starting YtMamApp on ytmam_ap_test"
+    assert errors[2]["logger"] == "YtMamApp"
+    assert errors[2]["message"] == "The following profiles are active: swagger,dev"
+
+
 def test_parse_logs_with_spring_boot_file_pattern_defaults(tmp_path):
     d = tmp_path / "logs"
     d.mkdir()

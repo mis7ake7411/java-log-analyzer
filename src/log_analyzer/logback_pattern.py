@@ -3,8 +3,9 @@ from typing import Pattern
 
 
 DEFAULT_LOGBACK_PATTERN = "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+TIMESTAMP_PATTERN = r"(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:[\.,]\d{3})?)"
 DEFAULT_LOGBACK_REGEX = re.compile(
-    r'^(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{3})?)\s+'
+    rf'^{TIMESTAMP_PATTERN}\s+'
     r'\[(?P<thread>.*?)\]\s+(?P<level>\w+)\s+(?P<logger>.*?)\s+-\s+(?P<message>.*)$'
 )
 
@@ -42,16 +43,16 @@ SUPPORTED_TOKENS = {
 }
 
 FIELD_PATTERNS = {
-    "d": r"(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{3})?)",
-    "date": r"(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{3})?)",
+    "d": TIMESTAMP_PATTERN,
+    "date": TIMESTAMP_PATTERN,
     "thread": r"(?P<thread>.*?)",
     "t": r"(?P<thread>.*?)",
     "level": r"\s*(?P<level>\w+)\s*",
     "le": r"\s*(?P<level>\w+)\s*",
     "p": r"\s*(?P<level>\w+)\s*",
-    "logger": r"(?P<logger>.+\S)\s*",
-    "lo": r"(?P<logger>.+\S)\s*",
-    "c": r"(?P<logger>.+\S)\s*",
+    "logger": r"(?P<logger>.+?\S)\s*",
+    "lo": r"(?P<logger>.+?\S)\s*",
+    "c": r"(?P<logger>.+?\S)\s*",
     "msg": r"(?P<message>.*)",
     "message": r"(?P<message>.*)",
     "m": r"(?P<message>.*)",
@@ -99,6 +100,8 @@ def compile_logback_pattern(pattern: str) -> Pattern[str]:
 
         if token == "n":
             regex_parts.append(r"\s*")
+        elif token in {"logger", "lo", "c"} and _is_logger_followed_by_method(cleaned, match.end()):
+            regex_parts.append(r"(?P<logger>.+\S)\s*")
         elif token in FIELD_PATTERNS:
             regex_parts.append(FIELD_PATTERNS[token])
         else:
@@ -116,6 +119,10 @@ def compile_logback_pattern(pattern: str) -> Pattern[str]:
 def _literal_to_regex(literal: str) -> str:
     escaped = re.escape(literal)
     return re.sub(r"\\\s+", r"\\s+", escaped)
+
+
+def _is_logger_followed_by_method(pattern: str, position: int) -> bool:
+    return re.match(r"\.%-?\d*(?:\.\d+)?(?:method|M)(?:\{[^}]*\})?", pattern[position:]) is not None
 
 
 def _expand_logback_default_placeholders(pattern: str) -> str:
