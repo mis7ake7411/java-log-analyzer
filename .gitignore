@@ -8,3 +8,5 @@ venv/
 *.json
 *.md
 *.csv
+*.log
+*.xml

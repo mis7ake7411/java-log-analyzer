@@ -7,6 +7,7 @@ from .naming import build_timestamped_name
 from .parser import parse_logs
 from .exporter import export_results
 from .logback_pattern import UnsupportedLogbackPatternError
+from .logback_xml import find_best_logback_pattern
 
 
 def get_package_version() -> str:
@@ -38,6 +39,8 @@ def main():
     parser.add_argument('--start', help='過濾開始時間 (格式: YYYY-MM-DD HH:MM:SS)')
     parser.add_argument('--end', help='過濾結束時間 (格式: YYYY-MM-DD HH:MM:SS)')
     parser.add_argument('--pattern', help='自訂 Logback pattern，可貼上 logback.xml 的 <pattern> 內容')
+    parser.add_argument('--logback-xml', help='從 logback.xml / logback-spring.xml 匯入並自動選擇最符合 log 樣本的 pattern')
+    parser.add_argument('--sort', choices=['time', 'level'], default='time', help='結果排序方式：time 時間排序，level 依 Log Level 分組排序')
     
     # --- TUI 參數 ---
     parser.add_argument('--tui', action='store_true', help='啟動互動式介面 (TUI)')
@@ -83,6 +86,18 @@ def main():
                 msg += " (忽略大小寫)"
             print(msg)
 
+        selected_pattern = args.pattern
+        if args.logback_xml and not selected_pattern:
+            best_pattern = find_best_logback_pattern(args.logback_xml, target_dir)
+            if best_pattern is None:
+                print("錯誤：logback XML 中找不到可用的 pattern。")
+                sys.exit(1)
+            selected_pattern = best_pattern.pattern
+            print(
+                "已從 logback XML 選用 pattern："
+                f"{best_pattern.name}，命中 {best_pattern.matches}/{best_pattern.checked}"
+            )
+
         # 執行解析邏輯
         counts, matched_logs = parse_logs(
             target_dir,
@@ -90,7 +105,8 @@ def main():
             end_dt,
             args.keyword,
             args.ignore_case,
-            args.pattern,
+            selected_pattern,
+            args.sort,
         )
         
         if not counts and not matched_logs:

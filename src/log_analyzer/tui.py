@@ -21,6 +21,7 @@ from textual.widgets import Button, Checkbox, DirectoryTree, Footer, Header, Inp
 
 from .exporter import export_results
 from .logback_pattern import DEFAULT_LOGBACK_PATTERN
+from .logback_xml import find_best_logback_pattern
 from .naming import build_timestamped_name
 from .parser import parse_logs
 
@@ -43,6 +44,7 @@ class AnalysisResult:
     matched_groups: int
     matched_occurrences: int
     level_summary: List[Tuple[str, int]]
+    sort_by: str
 
 
 def inspect_directory_path(path: str, require_writable: bool = False) -> tuple[str, str, bool, str]:
@@ -65,6 +67,22 @@ def inspect_directory_path(path: str, require_writable: bool = False) -> tuple[s
         return "red", f"權限不足，無法讀取：{abspath}", False, abspath
     label = "目標資料夾" if not require_writable else "輸出資料夾"
     return "green", f"{label}：{abspath}", True, abspath
+
+
+def inspect_file_path(path: str) -> tuple[str, str, bool, str]:
+    """檢查檔案路徑是否存在且可讀。"""
+    cleaned = path.strip()
+    if not cleaned:
+        return "yellow", "請輸入檔案路徑。", False, ""
+
+    abspath = os.path.abspath(os.path.expanduser(cleaned))
+    if not os.path.exists(abspath):
+        return "red", f"檔案不存在：{abspath}", False, abspath
+    if not os.path.isfile(abspath):
+        return "red", f"不是檔案：{abspath}", False, abspath
+    if not os.access(abspath, os.R_OK):
+        return "red", f"權限不足，無法讀取：{abspath}", False, abspath
+    return "green", f"檔案：{abspath}", True, abspath
 
 
 def ensure_readable_directory(path: str) -> str:
@@ -255,6 +273,81 @@ class DirectoryPickerScreen(ModalScreen[Optional[str]]):
         return text
 
 
+class FilePickerScreen(ModalScreen[Optional[str]]):
+    """檔案選擇彈窗，支援樹狀瀏覽與手動輸入。"""
+    def __init__(
+        self,
+        initial_path: str,
+        title: str,
+        hint: str,
+        confirm_label: str,
+    ) -> None:
+        self.initial_path = initial_path
+        self.title_text = title
+        self.hint_text = hint
+        self.confirm_label = confirm_label
+        self._selected_path: Optional[str] = None
+        super().__init__()
+
+    def compose(self) -> ComposeResult:
+        root_path, status_message = self._pick_tree_root()
+        with Container(id="directory-picker"):
+            with Container(id="picker-card"):
+                yield Static(self.title_text, id="picker-title")
+                yield Static(self.hint_text, id="picker-hint")
+                yield DirectoryTree(root_path, id="picker-tree")
+                with Container(id="picker-manual"):
+                    yield Label("手動輸入")
+                    yield ShortcutInput(value=self.initial_path or str(root_path), id="picker-path")
+                yield Static(status_message, id="picker-status")
+                with Container(id="picker-actions"):
+                    yield Button(self.confirm_label, variant="primary", id="picker-confirm")
+                    yield Button("取消", id="picker-cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#picker-path", Input).focus()
+
+    def on_directory_tree_file_selected(self, event: DirectoryTree.FileSelected) -> None:
+        selected_path = str(event.path)
+        self._selected_path = selected_path
+        picker_path = self.query_one("#picker-path", Input)
+        picker_path.value = selected_path
+        color, message, _, _ = inspect_file_path(selected_path)
+        self.query_one("#picker-status", Static).update(self._status_text(message, color))
+
+    def on_directory_tree_directory_selected(self, event: DirectoryTree.DirectorySelected) -> None:
+        picker_path = self.query_one("#picker-path", Input)
+        picker_path.value = str(event.path)
+        self.query_one("#picker-status", Static).update(
+            self._status_text("請選擇檔案，或手動輸入完整檔案路徑。", "yellow")
+        )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "picker-cancel":
+            self.dismiss(None)
+            return
+        if event.button.id == "picker-confirm":
+            self._confirm_selection()
+
+    def _confirm_selection(self) -> None:
+        picker_path = self.query_one("#picker-path", Input)
+        selected_path = picker_path.value.strip() or self._selected_path or ""
+        color, message, is_valid, _ = inspect_file_path(selected_path)
+        if not is_valid:
+            self.query_one("#picker-status", Static).update(self._status_text(message, color))
+            return
+        self.dismiss(os.path.abspath(selected_path))
+
+    def _pick_tree_root(self) -> tuple[Path, str]:
+        root_path = get_system_root_path()
+        return root_path, ""
+
+    def _status_text(self, message: str, color: str) -> Text:
+        text = Text()
+        text.append(message, style=color)
+        return text
+
+
 class LogAnalyzerApp(App):
     TITLE = "Java Log Analyzer"
     CSS_PATH = [
@@ -318,6 +411,16 @@ class LogAnalyzerApp(App):
                             )
                             yield Button("清除", id="clear_keyword")
                     yield Static("", classes="field-hint")
+                    
+                    with Container(classes="field"):
+                        yield Label("Logback XML")
+                        with Container(classes="path-row compact-buttons"):
+                            yield ShortcutInput(
+                                placeholder="例如：./logback-spring.xml",
+                                id="logback_xml_path",
+                            )
+                            yield Button("瀏覽", id="browse_logback_xml")
+                    yield Static("", classes="field-hint", id="logback-xml-status")
 
                     with Container(classes="field"):
                         yield Label("Log 格式")
@@ -329,6 +432,7 @@ class LogAnalyzerApp(App):
                             value="default",
                             id="pattern_mode",
                         )
+                    yield Static("", classes="field-hint")
 
                     with Container(classes="field"):
                         yield Label("Pattern")
@@ -378,6 +482,17 @@ class LogAnalyzerApp(App):
                         with Container(classes="field field--inline field--ignore"):
                             yield Label("忽略大小寫")
                             yield Checkbox(value=True, id="ignore_case")
+
+                        with Container(classes="field field--inline field--sort"):
+                            yield Label("排序方式")
+                            yield Select(
+                                [
+                                    ("時間排序", "time"),
+                                    ("Level 分組", "level"),
+                                ],
+                                value="time",
+                                id="sort_by",
+                            )
 
                         with Container(classes="field field--inline field--format"):
                             yield Label("輸出格式")
@@ -480,6 +595,7 @@ class LogAnalyzerApp(App):
             "output_name",
             "keyword",
             "log_pattern",
+            "logback_xml_path",
             "start_date",
             "start_time",
             "end_date",
@@ -498,6 +614,8 @@ class LogAnalyzerApp(App):
             self.action_browse_output_path()
         elif event.button.id == "clear_keyword":
             self.action_clear_keyword()
+        elif event.button.id == "browse_logback_xml":
+            self.action_browse_logback_xml()
 
     def update_path_preview(self, path: str, status_id: str = "#path-status", require_writable: bool = False) -> None:
         preview = self.query_one(status_id, Static)
@@ -521,6 +639,18 @@ class LogAnalyzerApp(App):
             hint="可用樹狀瀏覽，或直接手動輸入路徑。",
             confirm_label="使用此資料夾",
             require_writable=True,
+        )
+
+    def action_browse_logback_xml(self) -> None:
+        current_path = self.query_one("#logback_xml_path", Input).value.strip() or ""
+        self.push_screen(
+            FilePickerScreen(
+                current_path,
+                "選擇 Logback XML",
+                "請選擇 logback.xml 或 logback-spring.xml。",
+                "載入",
+            ),
+            callback=self._apply_and_load_logback_xml,
         )
 
     def _open_directory_picker(
@@ -551,6 +681,19 @@ class LogAnalyzerApp(App):
             require_writable=target_id == "output_path",
         )
 
+    def _apply_selected_logback_xml(self, selected_path: Optional[str]) -> None:
+        if not selected_path:
+            return
+
+        xml_input = self.query_one("#logback_xml_path", Input)
+        xml_input.value = selected_path
+        xml_input.focus()
+
+    def _apply_and_load_logback_xml(self, selected_path: Optional[str]) -> None:
+        self._apply_selected_logback_xml(selected_path)
+        if selected_path:
+            self.action_load_logback_xml()
+
     async def action_run_analysis(self) -> None:
         run_button = self.query_one("#run", Button)
         clear_button = self.query_one("#clear", Button)
@@ -577,6 +720,7 @@ class LogAnalyzerApp(App):
                 keyword,
                 pattern_mode,
                 log_pattern,
+                sort_by,
                 ignore_case,
                 fmt,
             ) = self._collect_form_values()
@@ -594,6 +738,7 @@ class LogAnalyzerApp(App):
                 keyword,
                 pattern_mode,
                 log_pattern,
+                sort_by,
                 ignore_case,
                 fmt,
             )
@@ -630,6 +775,30 @@ class LogAnalyzerApp(App):
         keyword_input.value = ""
         keyword_input.focus()
 
+    def action_load_logback_xml(self) -> None:
+        status = self.query_one("#logback-xml-status", Static)
+        xml_path = self.query_one("#logback_xml_path", Input).value.strip()
+        if not xml_path:
+            status.update("請輸入 logback.xml / logback-spring.xml 路徑。")
+            return
+        if not os.path.isfile(xml_path):
+            status.update(f"找不到檔案：{os.path.abspath(xml_path)}")
+            return
+
+        log_dir = self.query_one("#path", Input).value.strip() or "."
+        best_pattern = find_best_logback_pattern(xml_path, log_dir)
+        if best_pattern is None:
+            status.update("找不到可用的 Logback pattern。")
+            return
+
+        self.query_one("#pattern_mode", Select).value = "custom"
+        pattern_input = self.query_one("#log_pattern", Input)
+        pattern_input.value = best_pattern.pattern
+        pattern_input.focus()
+        status.update(
+            f"已載入 {best_pattern.name}，命中 {best_pattern.matches}/{best_pattern.checked}。"
+        )
+
     def _refresh_output_name_default(self, previous_output_name: str) -> None:
         previous_clean = previous_output_name.strip()
         if previous_clean not in {"", getattr(self, "_auto_output_name", "")}:
@@ -639,7 +808,7 @@ class LogAnalyzerApp(App):
         output_name_input = self.query_one("#output_name", Input)
         output_name_input.value = self._auto_output_name
 
-    def _collect_form_values(self) -> Tuple[str, str, str, str, str, str, str, str, str, str, bool, str]:
+    def _collect_form_values(self) -> Tuple[str, str, str, str, str, str, str, str, str, str, str, bool, str]:
         path = self.query_one("#path", Input).value.strip() or "."
         output_path = self.query_one("#output_path", Input).value.strip() or "."
         output_name = self.query_one("#output_name", Input).value.strip()
@@ -650,6 +819,7 @@ class LogAnalyzerApp(App):
         keyword = self.query_one("#keyword", Input).value.strip()
         pattern_mode = self.query_one("#pattern_mode", Select).value or "default"
         log_pattern = self.query_one("#log_pattern", Input).value.strip()
+        sort_by = self.query_one("#sort_by", Select).value or "time"
         ignore_case = self.query_one("#ignore_case", Checkbox).value
         fmt = self.query_one("#format", Select).value or "csv"
         return (
@@ -663,6 +833,7 @@ class LogAnalyzerApp(App):
             keyword,
             str(pattern_mode),
             log_pattern,
+            str(sort_by),
             ignore_case,
             str(fmt),
         )
@@ -679,6 +850,7 @@ class LogAnalyzerApp(App):
         keyword: str,
         pattern_mode: str,
         log_pattern: str,
+        sort_by: str,
         ignore_case: bool,
         fmt: str,
     ) -> AnalysisResult:
@@ -698,6 +870,7 @@ class LogAnalyzerApp(App):
             keyword or None,
             ignore_case=ignore_case,
             log_pattern=selected_pattern,
+            sort_by=sort_by,
         )
 
         if not counts and not matched_logs:
@@ -720,6 +893,7 @@ class LogAnalyzerApp(App):
             matched_groups=matched_groups,
             matched_occurrences=matched_occurrences,
             level_summary=level_summary,
+            sort_by=sort_by,
         )
 
     def _normalize_output_path(self, output_path: str, output_name: str, fmt: str) -> str:
@@ -795,6 +969,7 @@ class LogAnalyzerApp(App):
         metadata.add_row("輸入目錄", result.input_path)
         metadata.add_row("輸出檔案", result.output_path)
         metadata.add_row("關鍵字", result.keyword)
+        metadata.add_row("排序方式", "Level 分組" if result.sort_by == "level" else "時間排序")
         metadata.add_row("忽略大小寫", "是" if result.ignore_case else "否")
 
         level_table = Table.grid(expand=True)

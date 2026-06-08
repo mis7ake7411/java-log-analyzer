@@ -48,6 +48,7 @@ Screen {
     text-style: bold;
     color: #e2e8f0;
     margin-bottom: 1;
+    text-align: center;
 }
 
 .field {

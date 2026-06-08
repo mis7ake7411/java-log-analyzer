@@ -34,6 +34,10 @@
     margin-left: 1;
 }
 
+.path-row.compact-buttons Button {
+    width: 8;
+}
+
 #output-panel {
     height: 18;
     min-height: 12;

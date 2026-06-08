@@ -32,6 +32,48 @@ def test_parse_logs_keyword(temp_log_dir):
     assert len(errors) == 1
 
 
+def test_parse_logs_defaults_to_time_order(tmp_path):
+    d = tmp_path / "logs"
+    d.mkdir()
+    log_file = d / "ordered.log"
+    log_file.write_text(
+        "2026-06-06 10:00:00.000 [main] INFO  com.test - Info first\n"
+        "2026-06-06 10:01:00.000 [main] ERROR com.test - Error second\n"
+        "2026-06-06 10:02:00.000 [main] WARN  com.test - Warn third\n"
+    )
+
+    _counts, errors = parse_logs(str(d))
+
+    assert [entry["message"] for entry in errors] == [
+        "Info first",
+        "Error second",
+        "Warn third",
+    ]
+
+
+def test_parse_logs_can_sort_by_level_then_time(tmp_path):
+    d = tmp_path / "logs"
+    d.mkdir()
+    log_file = d / "levels.log"
+    log_file.write_text(
+        "2026-06-06 10:00:00.000 [main] INFO  com.test - Info first\n"
+        "2026-06-06 10:01:00.000 [main] ERROR com.test - Error later\n"
+        "2026-06-06 10:02:00.000 [main] WARN  com.test - Warn later\n"
+        "2026-06-06 10:03:00.000 [main] DEBUG com.test - Debug later\n"
+        "2026-06-06 09:59:00.000 [main] ERROR com.test - Error earlier\n"
+    )
+
+    _counts, errors = parse_logs(str(d), sort_by="level")
+
+    assert [(entry["level"], entry["message"]) for entry in errors] == [
+        ("ERROR", "Error earlier"),
+        ("ERROR", "Error later"),
+        ("WARN", "Warn later"),
+        ("INFO", "Info first"),
+        ("DEBUG", "Debug later"),
+    ]
+
+
 def test_parse_logs_with_custom_logback_pattern(tmp_path):
     d = tmp_path / "logs"
     d.mkdir()

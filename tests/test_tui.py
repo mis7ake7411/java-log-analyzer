@@ -5,6 +5,7 @@ from datetime import date
 
 from log_analyzer.tui import (
     DirectoryPickerScreen,
+    FilePickerScreen,
     LogAnalyzerApp,
     get_default_end_date_text,
     get_default_end_time_text,
@@ -29,6 +30,20 @@ def test_directory_picker_root_starts_from_system_root():
         title="選擇 Log 目錄",
         hint="",
         confirm_label="使用此路徑",
+    )
+
+    root_path, message = screen._pick_tree_root()
+
+    assert root_path == Path(Path.cwd().anchor or "/")
+    assert message == ""
+
+
+def test_file_picker_root_starts_from_system_root():
+    screen = FilePickerScreen(
+        initial_path=r"C:\not-used.xml",
+        title="選擇 Logback XML",
+        hint="",
+        confirm_label="使用此檔案",
     )
 
     root_path, message = screen._pick_tree_root()
@@ -218,6 +233,7 @@ def test_collect_form_values_includes_time_fields():
         "#keyword": FakeInput("RuntimeException"),
         "#pattern_mode": FakeSelect("custom"),
         "#log_pattern": FakeInput("%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"),
+        "#sort_by": FakeSelect("level"),
         "#ignore_case": FakeCheckbox(True),
         "#format": FakeSelect("json"),
     }
@@ -238,6 +254,7 @@ def test_collect_form_values_includes_time_fields():
         "RuntimeException",
         "custom",
         "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n",
+        "level",
         True,
         "json",
     )
@@ -267,6 +284,147 @@ def test_log_pattern_controls_exist():
             assert app.query_one("#log_pattern")
 
     asyncio.run(run_check())
+
+
+def test_sort_control_exists():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            assert app.query_one("#sort_by")
+
+    asyncio.run(run_check())
+
+
+def test_logback_xml_controls_exist():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            assert app.query_one("#logback_xml_path")
+            assert app.query_one("#browse_logback_xml")
+
+    asyncio.run(run_check())
+
+
+def test_load_logback_xml_action_fills_pattern(monkeypatch, tmp_path):
+    xml_file = tmp_path / "logback.xml"
+    xml_file.write_text("<configuration />", encoding="utf-8")
+
+    class FakeInput:
+        def __init__(self, value: str = "") -> None:
+            self.value = value
+            self.focused = False
+
+        def focus(self) -> None:
+            self.focused = True
+
+    class FakeSelect:
+        def __init__(self, value: str) -> None:
+            self.value = value
+
+    class FakeStatic:
+        def __init__(self) -> None:
+            self.value = ""
+
+        def update(self, value: str) -> None:
+            self.value = value
+
+    class FakePattern:
+        name = "FILE Pattern"
+        pattern = "%d %-5level [%thread] %logger{0}: %msg%n"
+        matches = 2
+        checked = 2
+
+    mapping = {
+        "#logback-xml-status": FakeStatic(),
+        "#logback_xml_path": FakeInput(str(xml_file)),
+        "#path": FakeInput("./logs"),
+        "#pattern_mode": FakeSelect("default"),
+        "#log_pattern": FakeInput(),
+    }
+
+    monkeypatch.setattr("log_analyzer.tui.find_best_logback_pattern", lambda *_args: FakePattern())
+
+    app = LogAnalyzerApp()
+    app.query_one = lambda selector, *_args, **_kwargs: mapping[selector]  # type: ignore[assignment]
+
+    app.action_load_logback_xml()
+
+    assert mapping["#pattern_mode"].value == "custom"
+    assert mapping["#log_pattern"].value == "%d %-5level [%thread] %logger{0}: %msg%n"
+    assert "命中 2/2" in mapping["#logback-xml-status"].value
+
+
+def test_apply_selected_logback_xml_updates_input():
+    class FakeInput:
+        def __init__(self) -> None:
+            self.value = ""
+            self.focused = False
+
+        def focus(self) -> None:
+            self.focused = True
+
+    app = LogAnalyzerApp()
+    fake_input = FakeInput()
+    app.query_one = lambda *_args, **_kwargs: fake_input  # type: ignore[assignment]
+
+    app._apply_selected_logback_xml(r"C:\logs\logback-spring.xml")
+
+    assert fake_input.value == r"C:\logs\logback-spring.xml"
+    assert fake_input.focused is True
+
+
+def test_apply_and_load_logback_xml_updates_pattern(monkeypatch, tmp_path):
+    xml_file = tmp_path / "logback.xml"
+    xml_file.write_text("<configuration />", encoding="utf-8")
+
+    class FakeInput:
+        def __init__(self, value: str = "") -> None:
+            self.value = value
+            self.focused = False
+
+        def focus(self) -> None:
+            self.focused = True
+
+    class FakeSelect:
+        def __init__(self, value: str) -> None:
+            self.value = value
+
+    class FakeStatic:
+        def __init__(self) -> None:
+            self.value = ""
+
+        def update(self, value: str) -> None:
+            self.value = value
+
+    class FakePattern:
+        name = "FILE Pattern"
+        pattern = "%d %-5level [%thread] %logger{0}: %msg%n"
+        matches = 2
+        checked = 2
+
+    mapping = {
+        "#logback-xml-status": FakeStatic(),
+        "#logback_xml_path": FakeInput(),
+        "#path": FakeInput("./logs"),
+        "#pattern_mode": FakeSelect("default"),
+        "#log_pattern": FakeInput(),
+    }
+
+    monkeypatch.setattr("log_analyzer.tui.find_best_logback_pattern", lambda *_args: FakePattern())
+
+    app = LogAnalyzerApp()
+    app.query_one = lambda selector, *_args, **_kwargs: mapping[selector]  # type: ignore[assignment]
+
+    app._apply_and_load_logback_xml(str(xml_file))
+
+    assert mapping["#logback_xml_path"].value == str(xml_file)
+    assert mapping["#pattern_mode"].value == "custom"
+    assert mapping["#log_pattern"].value == "%d %-5level [%thread] %logger{0}: %msg%n"
+    assert "命中 2/2" in mapping["#logback-xml-status"].value
 
 
 def test_time_range_inputs_are_not_collapsed_in_wide_layout():

@@ -83,6 +83,7 @@ TUI 小提示：
 - 關鍵字欄位旁提供「清除」按鈕，可一鍵清空目前輸入內容。
 - 輸入框支援 `Ctrl+A` 全選目前欄位文字，`Ctrl+U` 清空目前欄位文字。
 - Log 格式預設使用內建 Logback pattern；若日誌格式不同，可切到「進階 Pattern」並貼上 `logback.xml` 的 `<pattern>` 內容。
+- Logback XML 可透過「瀏覽」選擇 `logback.xml` / `logback-spring.xml`，在子視窗按「載入」後，工具會用目前 Log 目錄樣本挑選命中率最高的 pattern 並回填。
 - 時間區間採日期與時間分開輸入；起訖欄位都留白時會解析全部 log，不套用時間限制。只填日期時，開始日期會從當天 `00:00:00` 起算，結束日期會到當天 `23:59:59` 為止。
 
 ### 方式 B：傳統命令列 (CLI)
@@ -107,6 +108,12 @@ TUI 小提示：
     log-analyzer -f md -o report.md
     ```
 
+- **依 Level 分組排序**：
+
+    ```bash
+    log-analyzer /path/to/logs --sort level
+    ```
+
 - **時間區間過濾**：
 
     ```bash
@@ -117,6 +124,12 @@ TUI 小提示：
 
     ```bash
     log-analyzer /path/to/logs --pattern "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} %file:%line - %msg%n"
+    ```
+
+- **從 logback.xml 匯入 pattern**：
+
+    ```bash
+    log-analyzer /path/to/logs --logback-xml /path/to/logback-spring.xml
     ```
 
 - **Logback 預設逗號毫秒格式**：

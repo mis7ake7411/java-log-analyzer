@@ -4,6 +4,15 @@ from collections import Counter
 
 from .logback_pattern import DEFAULT_LOGBACK_REGEX, compile_logback_pattern
 
+LEVEL_SORT_ORDER = {
+    "ERROR": 0,
+    "WARN": 1,
+    "WARNING": 1,
+    "INFO": 2,
+    "DEBUG": 3,
+    "TRACE": 4,
+}
+
 
 def parse_logs(
     directory,
@@ -12,6 +21,7 @@ def parse_logs(
     keyword=None,
     ignore_case=False,
     log_pattern=None,
+    sort_by="time",
 ):
     """
     解析指定資料夾中的所有 Logback 日誌檔案。
@@ -87,8 +97,18 @@ def parse_logs(
                 _commit_entry(grouped_logs, counts, current_entry, search_keyword, ignore_case)
                 
     # 將 dict 轉回 list 並排序
-    final_logs = sorted(grouped_logs.values(), key=lambda x: x['timestamp'])
+    final_logs = sorted(grouped_logs.values(), key=lambda x: _sort_key(x, sort_by))
     return counts, final_logs
+
+
+def _sort_key(entry, sort_by):
+    timestamp = entry["timestamp"]
+    if sort_by == "level":
+        return (
+            LEVEL_SORT_ORDER.get(entry["level"], 99),
+            timestamp,
+        )
+    return (timestamp,)
 
 def _commit_entry(grouped_logs, counts, entry, keyword, ignore_case):
     """
