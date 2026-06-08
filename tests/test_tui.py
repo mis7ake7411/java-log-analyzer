@@ -3,7 +3,7 @@ from pathlib import Path
 from importlib.metadata import version as package_version
 from datetime import date
 
-from log_analyzer.tui import (
+from log_analyzer.presentation.tui import (
     DirectoryPickerScreen,
     FilePickerScreen,
     LogAnalyzerApp,
@@ -346,7 +346,7 @@ def test_load_logback_xml_action_fills_pattern(monkeypatch, tmp_path):
         "#log_pattern": FakeInput(),
     }
 
-    monkeypatch.setattr("log_analyzer.tui.find_best_logback_pattern", lambda *_args: FakePattern())
+    monkeypatch.setattr("log_analyzer.presentation.tui.find_best_logback_pattern", lambda *_args: FakePattern())
 
     app = LogAnalyzerApp()
     app.query_one = lambda selector, *_args, **_kwargs: mapping[selector]  # type: ignore[assignment]
@@ -414,7 +414,7 @@ def test_apply_and_load_logback_xml_updates_pattern(monkeypatch, tmp_path):
         "#log_pattern": FakeInput(),
     }
 
-    monkeypatch.setattr("log_analyzer.tui.find_best_logback_pattern", lambda *_args: FakePattern())
+    monkeypatch.setattr("log_analyzer.presentation.tui.find_best_logback_pattern", lambda *_args: FakePattern())
 
     app = LogAnalyzerApp()
     app.query_one = lambda selector, *_args, **_kwargs: mapping[selector]  # type: ignore[assignment]
@@ -481,7 +481,7 @@ def test_refresh_output_name_default_updates_only_auto_value(monkeypatch):
             self.value = value
 
     monkeypatch.setattr(
-        "log_analyzer.tui.get_default_output_name_text",
+        "log_analyzer.presentation.tui.get_default_output_name_text",
         lambda: "analysis_20260607_120000",
     )
 

@@ -2,177 +2,36 @@ from __future__ import annotations
 
 import asyncio
 import os
+from functools import partial
 from importlib.metadata import PackageNotFoundError, version as package_version
-from dataclasses import dataclass
-from datetime import date, datetime
 from pathlib import Path
-from typing import Iterable, List, Optional, Tuple
+from typing import Optional, Tuple
 
-from rich.columns import Columns
-from rich.console import Group
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Container, ScrollableContainer
-from textual.events import Key, Resize
-from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, DirectoryTree, Footer, Header, Input, Label, RichLog, Select, Static
+from textual.events import Resize
+from textual.widgets import Button, Checkbox, Footer, Header, Input, Label, RichLog, Select, Static
 
-from .exporter import export_results
-from .logback_pattern import DEFAULT_LOGBACK_PATTERN
-from .logback_xml import find_best_logback_pattern
-from .naming import build_timestamped_name
-from .parser import parse_logs
+from ..application.analysis_service import AnalysisResult, build_output_path, run_analysis
+from ..domain.logback_pattern import DEFAULT_LOGBACK_PATTERN
+from ..domain.logback_xml import find_best_logback_pattern
+from .tui_dialogs import DirectoryPickerScreen, FilePickerScreen, ShortcutInput
+from .tui_inputs import (
+    get_default_end_date_text,
+    get_default_end_time_text,
+    get_default_output_name_text,
+    get_default_start_date_text,
+    get_default_start_time_text,
+    parse_datetime_range_inputs,
+)
+from .tui_views import build_dashboard_view, build_error_view, build_idle_view, build_loading_view, format_path_status
+from ..infrastructure.paths import get_system_root_path, inspect_directory_path
 
 
 """
 Java Log Analyzer 的 TUI 應用程式。
 使用 Textual 框架打造互動式介面。
 """
-@dataclass
-class AnalysisResult:
-    """
-    Java Log Analyzer 的分析結果資料結構。
-    """
-    input_path: str
-    output_path: str
-    format_name: str
-    keyword: str
-    ignore_case: bool
-    total_logs: int
-    matched_groups: int
-    matched_occurrences: int
-    level_summary: List[Tuple[str, int]]
-    sort_by: str
-
-
-def inspect_directory_path(path: str, require_writable: bool = False) -> tuple[str, str, bool, str]:
-    """檢查資料夾路徑是否存在、可讀，必要時也要可寫。"""
-    cleaned = path.strip()
-    if not cleaned:
-        return "yellow", "請輸入資料夾路徑。", False, ""
-
-    abspath = os.path.abspath(os.path.expanduser(cleaned))
-    if not os.path.exists(abspath):
-        return "red", f"路徑不存在：{abspath}", False, abspath
-    if not os.path.isdir(abspath):
-        return "red", f"不是資料夾：{abspath}", False, abspath
-    required_mode = os.R_OK | os.X_OK
-    if require_writable:
-        required_mode |= os.W_OK
-    if not os.access(abspath, required_mode):
-        if require_writable:
-            return "red", f"權限不足，無法寫入：{abspath}", False, abspath
-        return "red", f"權限不足，無法讀取：{abspath}", False, abspath
-    label = "目標資料夾" if not require_writable else "輸出資料夾"
-    return "green", f"{label}：{abspath}", True, abspath
-
-
-def inspect_file_path(path: str) -> tuple[str, str, bool, str]:
-    """檢查檔案路徑是否存在且可讀。"""
-    cleaned = path.strip()
-    if not cleaned:
-        return "yellow", "請輸入檔案路徑。", False, ""
-
-    abspath = os.path.abspath(os.path.expanduser(cleaned))
-    if not os.path.exists(abspath):
-        return "red", f"檔案不存在：{abspath}", False, abspath
-    if not os.path.isfile(abspath):
-        return "red", f"不是檔案：{abspath}", False, abspath
-    if not os.access(abspath, os.R_OK):
-        return "red", f"權限不足，無法讀取：{abspath}", False, abspath
-    return "green", f"檔案：{abspath}", True, abspath
-
-
-def ensure_readable_directory(path: str) -> str:
-    """確認分析來源資料夾可讀，並回傳正規化後路徑。"""
-    color, message, is_valid, abspath = inspect_directory_path(path)
-    if is_valid:
-        return abspath
-    if color == "red" and "權限不足" in message:
-        raise PermissionError(message)
-    raise FileNotFoundError(message)
-
-
-def ensure_writable_directory(path: str) -> str:
-    """確認輸出資料夾可寫，並回傳正規化後路徑。"""
-    color, message, is_valid, abspath = inspect_directory_path(path, require_writable=True)
-    if is_valid:
-        return abspath
-    if color == "red" and "權限不足" in message:
-        raise PermissionError(message)
-    raise FileNotFoundError(message)
-
-
-def get_system_root_path() -> Path:
-    """回傳目前作業系統的根目錄。"""
-    return Path(Path.cwd().anchor or os.sep)
-
-
-def get_default_start_date_text() -> str:
-    """回傳起始日期預設值。"""
-    return ""
-
-
-def get_default_start_time_text() -> str:
-    """回傳起始時間預設值。"""
-    return ""
-
-
-def get_default_end_date_text() -> str:
-    """回傳結束日期預設值。"""
-    return ""
-
-
-def get_default_end_time_text() -> str:
-    """回傳結束時間預設值。"""
-    return ""
-
-
-def get_default_output_name_text() -> str:
-    """回傳輸出檔名預設值。"""
-    return build_timestamped_name("analysis")
-
-
-def parse_datetime_range_inputs(
-    start_date_text: str,
-    start_time_text: str,
-    end_date_text: str,
-    end_time_text: str,
-) -> tuple[Optional[datetime], Optional[datetime]]:
-    """將分離的日期與時間欄位組合成起訖時間。"""
-    start_date_clean = start_date_text.strip()
-    start_time_clean = start_time_text.strip()
-    if not start_date_clean:
-        if start_time_clean:
-            raise ValueError("請先輸入開始日期，或將開始時間留白。")
-        start_dt = None
-    elif start_time_clean:
-        start_dt = datetime.strptime(f"{start_date_clean} {start_time_clean}", "%Y-%m-%d %H:%M")
-    else:
-        start_dt = datetime.strptime(start_date_clean, "%Y-%m-%d")
-
-    end_date_clean = end_date_text.strip()
-    end_time_clean = end_time_text.strip()
-    if not end_date_clean:
-        if end_time_clean:
-            raise ValueError("請先輸入結束日期，或將結束時間留白。")
-        return start_dt, None
-
-    if end_time_clean:
-        end_dt = datetime.strptime(f"{end_date_clean} {end_time_clean}", "%Y-%m-%d %H:%M")
-    else:
-        end_dt = datetime.strptime(end_date_clean, "%Y-%m-%d").replace(
-            hour=23,
-            minute=59,
-            second=59,
-        )
-    if start_dt is not None and start_dt > end_dt:
-        raise ValueError("開始時間不能晚於結束時間。")
-    return start_dt, end_dt
-
-
 def get_package_version() -> str:
     """讀取目前安裝的套件版本，找不到時回退到未知。"""
     try:
@@ -181,180 +40,14 @@ def get_package_version() -> str:
         return "unknown"
 
 
-class FolderOnlyDirectoryTree(DirectoryTree):
-    """只保留資料夾節點，避免選到檔案。"""
-    def filter_paths(self, paths: Iterable[Path]) -> Iterable[Path]:
-        return [path for path in paths if path.is_dir()]
-
-
-class ShortcutInput(Input):
-    """補上符合一般編輯習慣的輸入框快捷鍵。"""
-    def on_key(self, event: Key) -> None:
-        if event.key == "ctrl+a":
-            self.select_all()
-            event.prevent_default()
-            event.stop()
-        elif event.key == "ctrl+u":
-            self.value = ""
-            event.prevent_default()
-            event.stop()
-
-
-class DirectoryPickerScreen(ModalScreen[Optional[str]]):
-    """資料夾選擇彈窗，支援樹狀瀏覽與手動輸入。"""
-    def __init__(
-        self,
-        initial_path: str,
-        title: str,
-        hint: str,
-        confirm_label: str,
-        require_writable: bool = False,
-    ) -> None:
-        self.initial_path = initial_path
-        self.title_text = title
-        self.hint_text = hint
-        self.confirm_label = confirm_label
-        self.require_writable = require_writable
-        self._selected_path: Optional[str] = None
-        super().__init__()
-
-    def compose(self) -> ComposeResult:
-        root_path, status_message = self._pick_tree_root()
-        with Container(id="directory-picker"):
-            with Container(id="picker-card"):
-                # 標題、提示與樹狀瀏覽放在同一個彈窗中，方便快速切換。
-                yield Static(self.title_text, id="picker-title")
-                yield Static(self.hint_text, id="picker-hint")
-                yield FolderOnlyDirectoryTree(root_path, id="picker-tree")
-                with Container(id="picker-manual"):
-                    yield Label("手動輸入")
-                    yield ShortcutInput(value=self.initial_path or str(root_path), id="picker-path")
-                yield Static(status_message, id="picker-status")
-                with Container(id="picker-actions"):
-                    yield Button(self.confirm_label, variant="primary", id="picker-confirm")
-                    yield Button("取消", id="picker-cancel")
-
-    def on_mount(self) -> None:
-        self.query_one("#picker-path", Input).focus()
-
-    def on_directory_tree_directory_selected(self, event: DirectoryTree.DirectorySelected) -> None:
-        selected_path = str(event.path)
-        self._selected_path = selected_path
-        picker_path = self.query_one("#picker-path", Input)
-        picker_path.value = selected_path
-        color, message, _, _ = inspect_directory_path(selected_path, require_writable=self.require_writable)
-        self.query_one("#picker-status", Static).update(self._status_text(message, color))
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "picker-cancel":
-            self.dismiss(None)
-            return
-        if event.button.id == "picker-confirm":
-            self._confirm_selection()
-
-    def _confirm_selection(self) -> None:
-        picker_path = self.query_one("#picker-path", Input)
-        selected_path = picker_path.value.strip() or self._selected_path or ""
-        # 確認前再檢查一次權限，避免樹狀瀏覽與實際可用狀態不同步。
-        color, message, is_valid, _ = inspect_directory_path(selected_path, require_writable=self.require_writable)
-        if not is_valid:
-            self.query_one("#picker-status", Static).update(self._status_text(message, color))
-            return
-        self.dismiss(os.path.abspath(selected_path))
-
-    def _pick_tree_root(self) -> tuple[Path, str]:
-        # 瀏覽樹預設從系統根目錄開始，避免一開啟就被目前專案路徑綁住。
-        root_path = get_system_root_path()
-        return root_path, ""
-
-    def _status_text(self, message: str, color: str) -> Text:
-        text = Text()
-        text.append(message, style=color)
-        return text
-
-
-class FilePickerScreen(ModalScreen[Optional[str]]):
-    """檔案選擇彈窗，支援樹狀瀏覽與手動輸入。"""
-    def __init__(
-        self,
-        initial_path: str,
-        title: str,
-        hint: str,
-        confirm_label: str,
-    ) -> None:
-        self.initial_path = initial_path
-        self.title_text = title
-        self.hint_text = hint
-        self.confirm_label = confirm_label
-        self._selected_path: Optional[str] = None
-        super().__init__()
-
-    def compose(self) -> ComposeResult:
-        root_path, status_message = self._pick_tree_root()
-        with Container(id="directory-picker"):
-            with Container(id="picker-card"):
-                yield Static(self.title_text, id="picker-title")
-                yield Static(self.hint_text, id="picker-hint")
-                yield DirectoryTree(root_path, id="picker-tree")
-                with Container(id="picker-manual"):
-                    yield Label("手動輸入")
-                    yield ShortcutInput(value=self.initial_path or str(root_path), id="picker-path")
-                yield Static(status_message, id="picker-status")
-                with Container(id="picker-actions"):
-                    yield Button(self.confirm_label, variant="primary", id="picker-confirm")
-                    yield Button("取消", id="picker-cancel")
-
-    def on_mount(self) -> None:
-        self.query_one("#picker-path", Input).focus()
-
-    def on_directory_tree_file_selected(self, event: DirectoryTree.FileSelected) -> None:
-        selected_path = str(event.path)
-        self._selected_path = selected_path
-        picker_path = self.query_one("#picker-path", Input)
-        picker_path.value = selected_path
-        color, message, _, _ = inspect_file_path(selected_path)
-        self.query_one("#picker-status", Static).update(self._status_text(message, color))
-
-    def on_directory_tree_directory_selected(self, event: DirectoryTree.DirectorySelected) -> None:
-        picker_path = self.query_one("#picker-path", Input)
-        picker_path.value = str(event.path)
-        self.query_one("#picker-status", Static).update(
-            self._status_text("請選擇檔案，或手動輸入完整檔案路徑。", "yellow")
-        )
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "picker-cancel":
-            self.dismiss(None)
-            return
-        if event.button.id == "picker-confirm":
-            self._confirm_selection()
-
-    def _confirm_selection(self) -> None:
-        picker_path = self.query_one("#picker-path", Input)
-        selected_path = picker_path.value.strip() or self._selected_path or ""
-        color, message, is_valid, _ = inspect_file_path(selected_path)
-        if not is_valid:
-            self.query_one("#picker-status", Static).update(self._status_text(message, color))
-            return
-        self.dismiss(os.path.abspath(selected_path))
-
-    def _pick_tree_root(self) -> tuple[Path, str]:
-        root_path = get_system_root_path()
-        return root_path, ""
-
-    def _status_text(self, message: str, color: str) -> Text:
-        text = Text()
-        text.append(message, style=color)
-        return text
-
-
 class LogAnalyzerApp(App):
     TITLE = "Java Log Analyzer"
+    _PACKAGE_ROOT = Path(__file__).resolve().parents[1]
     CSS_PATH = [
-        "./tcss/tui.base.tcss",
-        "./tcss/tui.layout.tcss",
-        "./tcss/tui.dialog.tcss",
-        "./tcss/tui.responsive.tcss",
+        str(_PACKAGE_ROOT / "tcss" / "tui.base.tcss"),
+        str(_PACKAGE_ROOT / "tcss" / "tui.layout.tcss"),
+        str(_PACKAGE_ROOT / "tcss" / "tui.dialog.tcss"),
+        str(_PACKAGE_ROOT / "tcss" / "tui.responsive.tcss"),
     ]
     _last_result: Optional[AnalysisResult] = None
     BINDINGS = [
@@ -411,7 +104,7 @@ class LogAnalyzerApp(App):
                             )
                             yield Button("清除", id="clear_keyword")
                     yield Static("", classes="field-hint")
-                    
+
                     with Container(classes="field"):
                         yield Label("Logback XML")
                         with Container(classes="path-row compact-buttons"):
@@ -543,7 +236,7 @@ class LogAnalyzerApp(App):
         last_result = getattr(self, "_last_result", None)
         if last_result is not None:
             result_box = self.query_one("#result-box", RichLog)
-            self._set_result(result_box, self._build_dashboard(last_result))
+            self._set_result(result_box, build_dashboard_view(last_result, self._is_compact(self.size.width, self.size.height)))
             return
 
         self.update_path_preview(self.query_one("#path", Input).value)
@@ -621,7 +314,7 @@ class LogAnalyzerApp(App):
         preview = self.query_one(status_id, Static)
         # 狀態列即時反映路徑可用性，避免要按執行才發現權限或拼字錯誤。
         color, message, _, _ = inspect_directory_path(path, require_writable=require_writable)
-        preview.update(self._compact_path_status(message, color, require_writable=require_writable))
+        preview.update(format_path_status(message, color, require_writable=require_writable))
 
     def action_browse_path(self) -> None:
         self._open_directory_picker(
@@ -706,7 +399,7 @@ class LogAnalyzerApp(App):
         # 停用按鈕以防二次點擊
         run_button.disabled = True
         clear_button.disabled = True
-        self._set_result(result_box, self._loading_view())
+        self._set_result(result_box, build_loading_view())
 
         try:
             (
@@ -724,40 +417,46 @@ class LogAnalyzerApp(App):
                 ignore_case,
                 fmt,
             ) = self._collect_form_values()
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(
-                None,
-                self._execute_analysis,
-                path,
-                output_path,
-                output_name,
+            start_dt, end_dt = parse_datetime_range_inputs(
                 start_date_text,
                 start_time_text,
                 end_date_text,
                 end_time_text,
-                keyword,
-                pattern_mode,
-                log_pattern,
-                sort_by,
-                ignore_case,
-                fmt,
+            )
+            normalized_output = build_output_path(output_path, output_name, fmt)
+            selected_pattern = log_pattern if pattern_mode == "custom" else None
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                None,
+                partial(
+                    run_analysis,
+                    path,
+                    normalized_output,
+                    start_dt,
+                    end_dt,
+                    keyword or None,
+                    ignore_case,
+                    sort_by,
+                    fmt,
+                    selected_pattern,
+                ),
             )
             self._last_result = result
-            self._set_result(result_box, self._build_dashboard(result))
+            self._set_result(result_box, build_dashboard_view(result, self._is_compact(self.size.width, self.size.height)))
             self._refresh_output_name_default(output_name)
         except PermissionError as exc:
             self._last_result = None
-            self._set_result(result_box, self._error_view("權限不足", str(exc)))
+            self._set_result(result_box, build_error_view("權限不足", str(exc)))
         except FileNotFoundError as exc:
             self._last_result = None
-            self._set_result(result_box, self._error_view("找不到資料夾", str(exc)))
+            self._set_result(result_box, build_error_view("找不到資料夾", str(exc)))
         except ValueError as exc:
             self._last_result = None
             title = "無可分析資料" if str(exc).startswith("找不到符合條件的 log") else "輸入錯誤"
-            self._set_result(result_box, self._error_view(title, str(exc)))
+            self._set_result(result_box, build_error_view(title, str(exc)))
         except Exception as exc:
             self._last_result = None
-            self._set_result(result_box, self._error_view("執行失敗", str(exc)))
+            self._set_result(result_box, build_error_view("執行失敗", str(exc)))
         finally:
             run_button.disabled = False
             clear_button.disabled = False
@@ -768,7 +467,7 @@ class LogAnalyzerApp(App):
     def action_clear_result(self) -> None:
         result_box = self.query_one("#result-box", RichLog)
         self._last_result = None
-        self._set_result(result_box, self._build_idle_view())
+        self._set_result(result_box, build_idle_view())
 
     def action_clear_keyword(self) -> None:
         keyword_input = self.query_one("#keyword", Input)
@@ -838,185 +537,10 @@ class LogAnalyzerApp(App):
             str(fmt),
         )
 
-    def _execute_analysis(
-        self,
-        path: str,
-        output_path: str,
-        output_name: str,
-        start_date_text: str,
-        start_time_text: str,
-        end_date_text: str,
-        end_time_text: str,
-        keyword: str,
-        pattern_mode: str,
-        log_pattern: str,
-        sort_by: str,
-        ignore_case: bool,
-        fmt: str,
-    ) -> AnalysisResult:
-        normalized_path = ensure_readable_directory(path)
-        normalized_output = self._normalize_output_path(output_path, output_name, fmt)
-        start_dt, end_dt = parse_datetime_range_inputs(
-            start_date_text,
-            start_time_text,
-            end_date_text,
-            end_time_text,
-        )
-        selected_pattern = log_pattern if pattern_mode == "custom" else None
-        counts, matched_logs = parse_logs(
-            normalized_path,
-            start_dt,
-            end_dt,
-            keyword or None,
-            ignore_case=ignore_case,
-            log_pattern=selected_pattern,
-            sort_by=sort_by,
-        )
-
-        if not counts and not matched_logs:
-            raise ValueError("找不到符合條件的 log。請確認目錄、關鍵字或資料內容。")
-
-        export_results(counts, matched_logs, normalized_output, fmt)
-
-        total_logs = sum(counts.values())
-        matched_groups = len(matched_logs)
-        matched_occurrences = sum(entry.get("count", 1) for entry in matched_logs)
-        level_summary = [(level, count) for level, count in sorted(counts.items()) if count > 0]
-
-        return AnalysisResult(
-            input_path=os.path.abspath(normalized_path),
-            output_path=os.path.abspath(normalized_output),
-            format_name=fmt,
-            keyword=keyword or "未設定",
-            ignore_case=ignore_case,
-            total_logs=total_logs,
-            matched_groups=matched_groups,
-            matched_occurrences=matched_occurrences,
-            level_summary=level_summary,
-            sort_by=sort_by,
-        )
-
-    def _normalize_output_path(self, output_path: str, output_name: str, fmt: str) -> str:
-        normalized_dir = ensure_writable_directory(output_path)
-        cleaned = output_name.strip()
-        if not cleaned:
-            cleaned = f"analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-
-        # 使用者只輸入檔名，副檔名由輸出格式統一決定。
-        cleaned = os.path.basename(cleaned)
-        base_name, _ = os.path.splitext(cleaned)
-        if not base_name:
-            base_name = cleaned
-        return os.path.join(normalized_dir, f"{base_name}.{fmt}")
-
-    def _build_idle_view(self) -> Panel:
-        body = Text()
-        body.append("尚未產生分析結果\n", style="bold cyan")
-        body.append("\n")
-        body.append("請先在上方填入條件，然後按「開始分析」。\n", style="white")
-        body.append("\n")
-        body.append("Enter 開始分析，c 清除結果，q 離開。", style="dim")
-        return Panel(body, title="結果區", border_style="cyan", padding=(1, 2))
-
-    def _loading_view(self) -> Panel:
-        body = Text("分析中，請稍候...", style="bold cyan")
-        return Panel(body, title="執行中", border_style="cyan", padding=(1, 2))
-
-    def _status_text(self, message: str, color: str) -> Text:
-        text = Text()
-        text.append(message, style=color)
-        return text
-
-    def _compact_path_status(self, message: str, color: str, require_writable: bool) -> Text:
-        if color == "green":
-            label = "可寫" if require_writable else "可讀"
-            return self._status_text(f"狀態：{label}", color)
-        return self._status_text(message, color)
-
     def _set_result(self, result_box: RichLog, renderable: object) -> None:
         result_box.clear()
         result_box.write(renderable)
         result_box.scroll_home()
-
-    def _error_view(self, title: str, message: str) -> Panel:
-        body = Text()
-        body.append(f"{title}\n", style="bold red")
-        body.append(message, style="white")
-        return Panel(body, title="執行失敗", border_style="red", padding=(1, 2))
-
-    def _build_dashboard(self, result: AnalysisResult) -> Group:
-        compact = self._is_compact(self.size.width, self.size.height)
-        overview = Panel(
-            Group(
-                Text("分析完成", style="bold green"),
-                Text("以下以單欄卡片方式呈現本次分析結果。", style="dim"),
-            ),
-            border_style="green",
-            padding=(1, 2),
-            title="執行狀態",
-        )
-
-        metric_cards = [
-            self._metric_card("總 Log", str(result.total_logs), "cyan", "整體筆數"),
-            self._metric_card("群組", str(result.matched_groups), "green", "符合條件的事件群組"),
-            self._metric_card("命中", str(result.matched_occurrences), "yellow", "條件觸發總次數"),
-            self._metric_card("格式", result.format_name.upper(), "magenta", "輸出檔案格式"),
-        ]
-
-        metadata = Table.grid(padding=(0, 1))
-        metadata.add_column(style="bold cyan", width=12)
-        metadata.add_column(ratio=1)
-        metadata.add_row("輸入目錄", result.input_path)
-        metadata.add_row("輸出檔案", result.output_path)
-        metadata.add_row("關鍵字", result.keyword)
-        metadata.add_row("排序方式", "Level 分組" if result.sort_by == "level" else "時間排序")
-        metadata.add_row("忽略大小寫", "是" if result.ignore_case else "否")
-
-        level_table = Table.grid(expand=True)
-        level_table.add_column(style="bold", width=12)
-        level_table.add_column(justify="right", width=8)
-        level_table.add_column(ratio=1)
-        if result.level_summary:
-            max_count = max(count for _, count in result.level_summary)
-            for level, count in result.level_summary:
-                level_table.add_row(level, str(count), self._progress_bar(count, max_count))
-        else:
-            level_table.add_row("N/A", "-", "沒有可顯示的統計")
-
-        if compact:
-            return Group(
-                overview,
-                *metric_cards,
-                Panel(metadata, title="分析資訊", border_style="blue", padding=(1, 2)),
-                Panel(level_table, title="Level 分布", border_style="green", padding=(1, 2)),
-            )
-
-        return Group(
-            overview,
-            Columns(metric_cards, equal=True, expand=True),
-            Columns(
-                [
-                    Panel(metadata, title="分析資訊", border_style="blue", padding=(1, 2)),
-                    Panel(level_table, title="Level 分布", border_style="green", padding=(1, 2)),
-                ],
-                equal=True,
-                expand=True,
-            ),
-        )
-
-    def _metric_card(self, title: str, value: str, accent: str, caption: str) -> Panel:
-        body = Group(
-            Text(value, style=f"bold {accent}"),
-            Text(caption, style="dim"),
-        )
-        return Panel(body, title=title, border_style=accent, padding=(1, 2))
-
-    def _progress_bar(self, value: int, maximum: int, width: int = 18) -> str:
-        if maximum <= 0:
-            return "░" * width
-        filled = max(1, round((value / maximum) * width))
-        filled = min(filled, width)
-        return "█" * filled + "░" * (width - filled)
 
 
 if __name__ == "__main__":

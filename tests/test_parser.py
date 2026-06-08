@@ -2,8 +2,8 @@ import pytest
 import os
 import shutil
 from datetime import datetime
-from log_analyzer.parser import parse_logs
-import log_analyzer.parser as parser_module
+from log_analyzer.domain.parser import parse_logs
+import log_analyzer.domain.parser as parser_module
 
 @pytest.fixture
 def temp_log_dir(tmp_path):

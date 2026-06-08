@@ -1,0 +1,99 @@
+import os
+import sys
+from importlib.metadata import PackageNotFoundError, version as package_version
+from ..application.analysis_service import run_analysis
+from ..domain.logback_pattern import UnsupportedLogbackPatternError
+from .cli_args import build_argument_parser
+from .cli_runtime import (
+    parse_datetime_value,
+    resolve_logback_pattern,
+    resolve_output_path,
+    resolve_target_dir,
+)
+
+
+def get_package_version() -> str:
+    try:
+        return package_version("java-log-analyzer")
+    except PackageNotFoundError:
+        return "unknown"
+
+
+def main():
+    """
+    程式的主要進入點，負責處理命令列參數與執行流程。
+    """
+    parser = build_argument_parser(get_package_version)
+    args = parser.parse_args()
+
+    if args.tui or (len(sys.argv) == 1 and sys.stdin.isatty()):
+        try:
+            from .tui import LogAnalyzerApp
+            app = LogAnalyzerApp()
+            app.run()
+            return
+        except ImportError:
+            print("提示：欲使用 TUI 介面，請先安裝 textual 套件 (pip install textual)")
+            if args.tui: sys.exit(1)
+
+    args.output = resolve_output_path(args.output, args.format)
+    target_dir, notice = resolve_target_dir(args.dir)
+    if notice:
+        print(notice)
+
+    try:
+        start_dt = parse_datetime_value(args.start, "開始時間")
+        end_dt = parse_datetime_value(args.end, "結束時間")
+    except ValueError as e:
+        print(f"錯誤：{e}")
+        sys.exit(1)
+    
+    try:
+        print(f"正在分析目錄：{os.path.abspath(target_dir)}")
+        if args.keyword:
+            msg = f"正在搜尋關鍵字：'{args.keyword}'"
+            if args.ignore_case:
+                msg += " (忽略大小寫)"
+            print(msg)
+
+        selected_pattern = args.pattern
+        try:
+            selected_pattern, logback_notice = resolve_logback_pattern(
+                args.logback_xml,
+                target_dir,
+                selected_pattern,
+            )
+        except ValueError as exc:
+            print(f"錯誤：{exc}")
+            sys.exit(1)
+        if logback_notice:
+            print(logback_notice)
+
+        result = run_analysis(
+            target_dir,
+            args.output,
+            start_dt,
+            end_dt,
+            args.keyword,
+            args.ignore_case,
+            args.sort,
+            args.format,
+            selected_pattern,
+        )
+
+        print(f"分析完成！報表已儲存至：{result.output_path} (格式: {args.format.upper()})")
+        
+        print("\n符合條件的統計摘要 (Summary)：")
+        for level, count in sorted(result.counts.items()):
+            if count > 0:
+                print(f"  {level}: {count}")
+            
+    except UnsupportedLogbackPatternError as e:
+        print(f"錯誤：{e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"執行時發生錯誤：{e}")
+        sys.exit(1)
+
+if __name__ == '__main__':
+    main()

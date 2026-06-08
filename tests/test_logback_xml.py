@@ -1,4 +1,4 @@
-from log_analyzer.logback_xml import find_best_logback_pattern, load_logback_patterns
+from log_analyzer.domain.logback_xml import find_best_logback_pattern, load_logback_patterns
 
 
 def test_load_logback_patterns_extracts_property_and_encoder_patterns(tmp_path):

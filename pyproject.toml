@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "java-log-analyzer"
-version = "1.0.4"
+version = "1.0.5"
 description = "A professional Python tool to analyze Java Logback logs."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -19,7 +19,7 @@ classifiers = [
 dependencies = []
 
 [project.scripts]
-log-analyzer = "log_analyzer.cli:main"
+log-analyzer = "log_analyzer.presentation.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

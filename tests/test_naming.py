@@ -1,4 +1,4 @@
-from log_analyzer.naming import build_timestamped_name
+from log_analyzer.infrastructure.naming import build_timestamped_name
 
 
 def test_build_timestamped_name_uses_prefix():

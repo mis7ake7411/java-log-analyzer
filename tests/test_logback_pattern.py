@@ -1,6 +1,6 @@
 import pytest
 
-from log_analyzer.logback_pattern import (
+from log_analyzer.domain.logback_pattern import (
     UnsupportedLogbackPatternError,
     compile_logback_pattern,
 )
