@@ -32,6 +32,30 @@ def test_parse_logs_keyword(temp_log_dir):
     assert len(errors) == 1
 
 
+def test_parse_logs_separates_multiline_message_and_exception(tmp_path):
+    d = tmp_path / "logs"
+    d.mkdir()
+    log_file = d / "multiline.log"
+    log_file.write_text(
+        "2026-06-06 10:00:00.001 [main] INFO  com.test - Start request\n"
+        "    payload=abc\n"
+        "    requestId=123\n"
+        "2026-06-06 10:10:00.555 [http-1] ERROR com.test - Fail\n"
+        "java.lang.RuntimeException: Error\n"
+        "    at com.test.App.main\n"
+    )
+
+    counts, errors = parse_logs(str(d), keyword="requestId=123")
+
+    assert counts["INFO"] == 1
+    assert counts["ERROR"] == 0
+    assert len(errors) == 1
+    assert errors[0]["message"] == "Start request"
+    assert "payload=abc" in errors[0]["message_body"]
+    assert "requestId=123" in errors[0]["message_body"]
+    assert errors[0]["stacktrace"] == ""
+
+
 def test_parse_logs_defaults_to_time_order(tmp_path):
     d = tmp_path / "logs"
     d.mkdir()

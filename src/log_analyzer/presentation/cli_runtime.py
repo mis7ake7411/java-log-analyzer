@@ -1,21 +1,11 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
-from typing import Optional, Tuple
+from typing import Optional
 
+from .datetime_text import parse_datetime_value
 from ..domain.logback_xml import find_best_logback_pattern
 from ..infrastructure.naming import build_timestamped_name
-
-
-def parse_datetime_value(value: Optional[str], label: str):
-    """解析單一時間字串。"""
-    if not value:
-        return None
-    try:
-        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
-    except ValueError as exc:
-        raise ValueError(f"{label}格式不正確。請使用 YYYY-MM-DD HH:MM:SS。{exc}") from exc
 
 
 def resolve_target_dir(target_dir: str):

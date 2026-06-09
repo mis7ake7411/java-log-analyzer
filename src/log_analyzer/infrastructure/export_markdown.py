@@ -28,6 +28,12 @@ def export_to_markdown(counts, matched_logs, output_path):
                 f.write(f"- **Logger**: `{log['logger']}`\n")
                 f.write(f"- **來源檔案**: `{log['filename']}`\n")
 
+                if log.get('message_body'):
+                    f.write("#### 延伸訊息:\n")
+                    f.write("```text\n")
+                    f.write(log['message_body'].rstrip())
+                    f.write("\n```\n")
+
                 if log['stacktrace']:
                     f.write("#### 內容/堆疊追蹤 (含原始行號):\n")
                     f.write("```java\n")

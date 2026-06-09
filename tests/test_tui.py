@@ -181,6 +181,33 @@ def test_parse_datetime_range_inputs_allows_end_only():
     assert end_dt.isoformat(sep=" ") == "2026-06-07 12:00:00"
 
 
+def test_parse_datetime_range_inputs_accepts_compact_numeric_values():
+    start_dt, end_dt = parse_datetime_range_inputs(
+        "20260607",
+        "1820",
+        "20260608",
+        "235959",
+    )
+
+    assert start_dt is not None
+    assert end_dt is not None
+    assert start_dt.isoformat(sep=" ") == "2026-06-07 18:20:00"
+    assert end_dt.isoformat(sep=" ") == "2026-06-08 23:59:59"
+
+
+def test_parse_datetime_range_inputs_accepts_compact_numeric_date_only():
+    start_dt, end_dt = parse_datetime_range_inputs(
+        "",
+        "",
+        "20260607",
+        "",
+    )
+
+    assert start_dt is None
+    assert end_dt is not None
+    assert end_dt.isoformat(sep=" ") == "2026-06-07 23:59:59"
+
+
 def test_parse_datetime_range_inputs_rejects_start_time_without_date():
     try:
         parse_datetime_range_inputs(

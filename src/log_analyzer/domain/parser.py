@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import os
+import re
 from collections import Counter
 from datetime import datetime
 from typing import Optional
 
 from .logback_pattern import DEFAULT_LOGBACK_REGEX, compile_logback_pattern
 from .parser_aggregation import commit_entry, normalize_keyword, sort_key
+
+_STACKTRACE_HEADER_RE = re.compile(r"^[A-Za-z_][\w.$]*(?:Exception|Error)(?::|\s|$)")
 
 
 def parse_logs(
@@ -82,7 +85,7 @@ def _iter_entries_from_file(
                     current_entry = None
                     continue
             elif current_entry:
-                _append_stacktrace_line(current_entry, line_num, line)
+                _append_continuation_line(current_entry, line_num, line)
 
         if current_entry:
             yield current_entry
@@ -105,6 +108,7 @@ def _create_entry(match, filename, line_num):
         "filename": filename,
         "line_num": line_num,
         "stacktrace_lines": [],
+        "message_body": "",
         "full_text": message,
         "line_numbers": [line_num],  # 追蹤所有重複項出現的行號
     }
@@ -118,8 +122,33 @@ def _parse_entry_time(timestamp_str):
         return None
 
 
-def _append_stacktrace_line(entry, line_num, line):
-    """把堆疊追蹤行附加到目前 entry。"""
-    entry["stacktrace_lines"].append(f"{line_num:5}: {line}")
-    entry["full_text"] += line
+def _append_continuation_line(entry, line_num, line):
+    """把後續續行附加到目前 entry。"""
+    line_text = line.rstrip("\n")
+    entry["full_text"] += f"\n{line_text}"
 
+    if _is_stacktrace_line(entry, line_text):
+        entry["stacktrace_lines"].append(f"{line_num:5}: {line}")
+        return
+
+    entry["message_body"] = _append_message_body(entry["message_body"], line_text)
+
+
+def _append_message_body(message_body, line_text):
+    if not message_body:
+        return line_text
+    return f"{message_body}\n{line_text}"
+
+
+def _is_stacktrace_line(entry, line_text):
+    if entry["stacktrace_lines"]:
+        return True
+
+    stripped = line_text.strip()
+    if not stripped:
+        return False
+
+    if stripped.startswith(("at ", "Caused by:", "Suppressed:", "... ")):
+        return True
+
+    return bool(_STACKTRACE_HEADER_RE.match(stripped))
