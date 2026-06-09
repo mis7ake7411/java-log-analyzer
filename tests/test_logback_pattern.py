@@ -58,9 +58,9 @@ def test_compile_logback_pattern_allows_file_and_line_before_message_separator()
 
 def test_compile_logback_pattern_rejects_unsupported_token():
     with pytest.raises(UnsupportedLogbackPatternError) as exc:
-        compile_logback_pattern("%d{yyyy-MM-dd HH:mm:ss.SSS} %replace(%msg){'x','y'}%n")
+        compile_logback_pattern("%d{yyyy-MM-dd HH:mm:ss.SSS} %foo %n")
 
-    assert "%replace" in str(exc.value)
+    assert "%foo" in str(exc.value)
 
 
 def test_compile_logback_pattern_expands_spring_boot_file_pattern_defaults():
@@ -121,3 +121,18 @@ def test_compile_logback_pattern_matches_bracketed_level_thread_method_shape():
     assert second.group("level") == "INFO"
     assert second.group("logger") == "o.s.o.j.AbstractEntityManagerFactoryBean"
     assert second.group("message") == "Closing JPA EntityManagerFactory for persistence unit 'default'"
+
+
+def test_compile_logback_pattern_supports_class_token_and_wrapper_converters():
+    compiled = compile_logback_pattern(
+        "%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) [%thread] %C{36} - %replace(%msg){'x','y'}%n"
+    )
+
+    match = compiled.match("2026-06-07 12:34:56.789 INFO  [main] com.test.App - Started")
+
+    assert match is not None
+    assert match.group("timestamp") == "2026-06-07 12:34:56.789"
+    assert match.group("level") == "INFO"
+    assert match.group("thread") == "main"
+    assert match.group("logger") == "com.test.App"
+    assert match.group("message") == "Started"

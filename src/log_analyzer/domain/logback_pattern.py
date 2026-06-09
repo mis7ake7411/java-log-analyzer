@@ -1,5 +1,5 @@
 import re
-from typing import Pattern
+from typing import Optional, Pattern
 
 
 DEFAULT_LOGBACK_PATTERN = "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
@@ -20,6 +20,8 @@ SUPPORTED_TOKENS = {
     "logger",
     "lo",
     "c",
+    "C",
+    "class",
     "msg",
     "message",
     "m",
@@ -38,8 +40,11 @@ SUPPORTED_TOKENS = {
     "method",
     "M",
     "caller",
+    "marker",
     "mdc",
     "X",
+    "pid",
+    "property",
 }
 
 FIELD_PATTERNS = {
@@ -53,6 +58,8 @@ FIELD_PATTERNS = {
     "logger": r"(?P<logger>.+?\S)\s*",
     "lo": r"(?P<logger>.+?\S)\s*",
     "c": r"(?P<logger>.+?\S)\s*",
+    "C": r"(?P<logger>.+?\S)\s*",
+    "class": r"(?P<logger>.+?\S)\s*",
     "msg": r"(?P<message>.*)",
     "message": r"(?P<message>.*)",
     "m": r"(?P<message>.*)",
@@ -66,8 +73,11 @@ PASS_THROUGH_PATTERNS = {
     "method": r"\S+",
     "M": r"\S+",
     "caller": r".*?",
+    "marker": r".*?",
     "mdc": r".*?",
     "X": r".*?",
+    "pid": r"\S+",
+    "property": r".*?",
     "ex": r".*",
     "throwable": r".*",
     "xEx": r".*",
@@ -85,6 +95,7 @@ class UnsupportedLogbackPatternError(ValueError):
 def compile_logback_pattern(pattern: str) -> Pattern[str]:
     """Compile a supported subset of Logback PatternLayout syntax into a regex."""
     cleaned = _expand_logback_default_placeholders(pattern.strip())
+    cleaned = _strip_wrapper_converters(cleaned)
     if not cleaned:
         return DEFAULT_LOGBACK_REGEX
 
@@ -139,6 +150,95 @@ def _expand_logback_default_placeholders(pattern: str) -> str:
         if expanded == previous:
             break
     return expanded
+
+
+_WRAPPER_TOKENS = {
+    "replace",
+    "highlight",
+    "cyan",
+    "green",
+    "yellow",
+    "blue",
+    "magenta",
+    "red",
+    "white",
+    "black",
+    "gray",
+    "grey",
+    "bold",
+    "boldCyan",
+    "boldGreen",
+    "boldYellow",
+    "boldBlue",
+    "boldMagenta",
+    "boldRed",
+    "boldWhite",
+}
+
+
+def _strip_wrapper_converters(pattern: str) -> str:
+    """移除包裹型 converter，保留內層可解析 pattern。"""
+    stripped = pattern
+    for _ in range(20):
+        next_stripped, changed = _strip_wrapper_converters_once(stripped)
+        if not changed or next_stripped == stripped:
+            return stripped
+        stripped = next_stripped
+    return stripped
+
+
+def _strip_wrapper_converters_once(pattern: str) -> tuple[str, bool]:
+    parts = []
+    i = 0
+    changed = False
+
+    while i < len(pattern):
+        if pattern[i] == "%":
+            match = re.match(r"%(-?\d*(?:\.\d+)?)?([A-Za-z]+)", pattern[i:])
+            if match:
+                token = match.group(2)
+                end = i + match.end()
+                if token in _WRAPPER_TOKENS and end < len(pattern) and pattern[end] == "(":
+                    inner_start = end + 1
+                    inner_end = _find_closing_delimiter(pattern, inner_start - 1, "(", ")")
+                    if inner_end is not None:
+                        parts.append(pattern[inner_start:inner_end])
+                        i = inner_end + 1
+                        i = _skip_optional_brace_blocks(pattern, i)
+                        changed = True
+                        continue
+        parts.append(pattern[i])
+        i += 1
+
+    return "".join(parts), changed
+
+
+def _skip_optional_brace_blocks(pattern: str, position: int) -> int:
+    current = position
+    while current < len(pattern) and pattern[current] == "{":
+        end = _find_closing_delimiter(pattern, current, "{", "}")
+        if end is None:
+            break
+        current = end + 1
+    return current
+
+
+def _find_closing_delimiter(
+    pattern: str,
+    opening_index: int,
+    open_char: str,
+    close_char: str,
+) -> Optional[int]:
+    depth = 0
+    for index in range(opening_index, len(pattern)):
+        char = pattern[index]
+        if char == open_char:
+            depth += 1
+        elif char == close_char:
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
 
 
 def _ensure_required_groups(regex: str) -> None:
