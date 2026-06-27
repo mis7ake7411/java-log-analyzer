@@ -2,11 +2,15 @@ import asyncio
 from pathlib import Path
 from importlib.metadata import version as package_version
 from datetime import date
+from types import SimpleNamespace
+
+from rich.console import Console
 
 from log_analyzer.presentation.tui import (
     DirectoryPickerScreen,
     FilePickerScreen,
     LogAnalyzerApp,
+    build_dashboard_view,
     build_error_view,
     build_loading_view,
     get_default_end_date_text,
@@ -474,6 +478,156 @@ def test_error_view_includes_next_step_hint():
     assert "找不到資料夾" in lines[0]
     assert "路徑不存在" in lines[1]
     assert "重新選擇 Log 目錄" in lines[2]
+
+
+def test_dashboard_view_includes_exception_group_summary():
+    result = SimpleNamespace(
+        total_logs=9,
+        matched_groups=3,
+        matched_occurrences=7,
+        format_name="csv",
+        input_path="/in",
+        output_path="/out/report.csv",
+        exported_files=["/out/report.csv"],
+        keyword="Exception",
+        sort_by="time",
+        ignore_case=False,
+        level_summary=[("ERROR", 7)],
+        matched_logs=[
+            {
+                "count": 4,
+                "stacktrace": "   1: java.lang.RuntimeException: boom\n   2: at com.test.App.main",
+                "message": "Fail A",
+                "message_body": "",
+            },
+            {
+                "count": 2,
+                "stacktrace": "   8: java.lang.RuntimeException: boom\n   9: at com.test.Service.run",
+                "message": "Fail B",
+                "message_body": "",
+            },
+            {
+                "count": 1,
+                "stacktrace": "   3: java.lang.IllegalStateException: broken\n   4: at com.test.Other.main",
+                "message": "Fail C",
+                "message_body": "",
+            },
+        ],
+    )
+
+    console = Console(width=120, record=True, color_system=None)
+    console.print(build_dashboard_view(result, compact=False))
+    output = console.export_text()
+
+    assert "例外群組摘要" in output
+    assert "java.lang.RuntimeException: boom" in output
+    assert "2 群組" in output
+    assert "6 次" in output
+
+
+def test_dashboard_view_includes_time_hotspot_summary():
+    result = SimpleNamespace(
+        total_logs=12,
+        matched_groups=4,
+        matched_occurrences=10,
+        format_name="csv",
+        input_path="/in",
+        output_path="/out/report.csv",
+        exported_files=["/out/report.csv"],
+        keyword="Exception",
+        sort_by="time",
+        ignore_case=False,
+        level_summary=[("ERROR", 10)],
+        matched_logs=[
+            {
+                "count": 4,
+                "timestamp": "2026-06-06 10:00:00.001",
+                "stacktrace": "",
+                "message": "Fail A",
+                "message_body": "",
+            },
+            {
+                "count": 2,
+                "timestamp": "2026-06-06 10:30:00.001",
+                "stacktrace": "",
+                "message": "Fail B",
+                "message_body": "",
+            },
+            {
+                "count": 3,
+                "timestamp": "2026-06-06 11:00:00.001",
+                "stacktrace": "",
+                "message": "Fail C",
+                "message_body": "",
+            },
+        ],
+    )
+
+    console = Console(width=120, record=True, color_system=None)
+    console.print(build_dashboard_view(result, compact=False))
+    output = console.export_text()
+
+    assert "時間熱點" in output
+    assert "2026-06-06 10:00" in output
+    assert "2026-06-06 11:00" in output
+    assert "2 群組" in output
+    assert "6 次" in output
+
+
+def test_dashboard_view_includes_logger_thread_distribution():
+    result = SimpleNamespace(
+        total_logs=8,
+        matched_groups=3,
+        matched_occurrences=8,
+        format_name="csv",
+        input_path="/in",
+        output_path="/out/report.csv",
+        exported_files=["/out/report.csv"],
+        keyword="Exception",
+        sort_by="time",
+        ignore_case=False,
+        level_summary=[("ERROR", 8)],
+        matched_logs=[
+            {
+                "count": 3,
+                "timestamp": "2026-06-06 10:00:00.001",
+                "logger": "com.test.Api",
+                "thread": "http-1",
+                "stacktrace": "",
+                "message": "Fail A",
+                "message_body": "",
+            },
+            {
+                "count": 2,
+                "timestamp": "2026-06-06 10:30:00.001",
+                "logger": "com.test.Api",
+                "thread": "http-1",
+                "stacktrace": "",
+                "message": "Fail B",
+                "message_body": "",
+            },
+            {
+                "count": 3,
+                "timestamp": "2026-06-06 11:00:00.001",
+                "logger": "com.test.Job",
+                "thread": "worker-7",
+                "stacktrace": "",
+                "message": "Fail C",
+                "message_body": "",
+            },
+        ],
+    )
+
+    console = Console(width=120, record=True, color_system=None)
+    console.print(build_dashboard_view(result, compact=False))
+    output = console.export_text()
+
+    assert "Logger / Thread 分布" in output
+    assert "com.test.Api" in output
+    assert "http-1" in output
+    assert "worker-7" in output
+    assert "2 群組" in output
+    assert "5 次" in output
 
 
 def test_apply_selected_directory_autofills_logback_settings(monkeypatch, tmp_path):
