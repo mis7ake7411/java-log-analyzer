@@ -9,6 +9,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..application.analysis_service import AnalysisResult
+from .error_messages import get_error_hint
 
 
 def build_idle_view() -> Panel:
@@ -33,7 +34,7 @@ def build_error_view(title: str, message: str) -> Panel:
     body = Group(
         Text(title, style="bold red"),
         Text(message, style="white"),
-        Text(_error_hint(title), style="dim"),
+        Text(get_error_hint(title, message), style="dim"),
     )
     return Panel(body, title="執行失敗", border_style="red", padding=(1, 2))
 
@@ -49,7 +50,7 @@ def build_dashboard_view(result: AnalysisResult, compact: bool) -> Group:
     overview = Panel(
         Group(
             Text("分析完成", style="bold green"),
-            Text("以下以單欄卡片方式呈現本次分析結果。", style="dim"),
+            Text("先看摘要，再往下看細節。", style="dim"),
         ),
         border_style="green",
         padding=(1, 2),
@@ -88,31 +89,32 @@ def build_dashboard_view(result: AnalysisResult, compact: bool) -> Group:
     else:
         level_table.add_row("N/A", "-", "沒有可顯示的統計")
 
+    summary_panels = Columns(
+        [
+            Panel(metadata, title="分析資訊", border_style="blue", padding=(1, 2)),
+            Panel(level_table, title="Level 分布", border_style="green", padding=(1, 2)),
+        ],
+        equal=True,
+        expand=True,
+    )
+
     if compact:
         return Group(
             overview,
             *metric_cards,
+            summary_panels,
             exception_panel,
             hotspot_panel,
             distribution_panel,
-            Panel(metadata, title="分析資訊", border_style="blue", padding=(1, 2)),
-            Panel(level_table, title="Level 分布", border_style="green", padding=(1, 2)),
         )
 
     return Group(
         overview,
         Columns(metric_cards, equal=True, expand=True),
+        summary_panels,
         exception_panel,
         hotspot_panel,
         distribution_panel,
-        Columns(
-            [
-                Panel(metadata, title="分析資訊", border_style="blue", padding=(1, 2)),
-                Panel(level_table, title="Level 分布", border_style="green", padding=(1, 2)),
-            ],
-            equal=True,
-            expand=True,
-        ),
     )
 
 
@@ -120,18 +122,6 @@ def _status_text(message: str, color: str) -> Text:
     text = Text()
     text.append(message, style=color)
     return text
-
-
-def _error_hint(title: str) -> str:
-    hints = {
-        "權限不足": "請確認路徑權限，或改用可讀/可寫的目錄。",
-        "找不到資料夾": "請檢查路徑是否存在，或重新選擇 Log 目錄。",
-        "找不到可用的 Logback pattern": "請改選其他 logback.xml，或手動切換到進階 Pattern。",
-        "輸入錯誤": "請先修正上方欄位後再試一次。",
-        "無可分析資料": "請確認 Log 目錄、時間區間與關鍵字條件。",
-        "執行失敗": "若問題持續發生，請先縮小條件範圍再重試。",
-    }
-    return hints.get(title, "請檢查輸入條件後再試一次。")
 
 
 def _metric_card(title: str, value: str, accent: str, caption: str) -> Panel:

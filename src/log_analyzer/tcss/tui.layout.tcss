@@ -1,3 +1,5 @@
+/* ── 內容容器 ── */
+
 #content {
     height: 1fr;
     min-height: 0;
@@ -19,6 +21,8 @@
     padding: 1 0 1 2;
 }
 
+/* ── 路徑列 ── */
+
 .path-row {
     height: auto;
     width: 1fr;
@@ -37,6 +41,8 @@
 .path-row.compact-buttons Button {
     width: 8;
 }
+
+/* ── 結果與動作區 ── */
 
 #output-panel {
     height: 18;

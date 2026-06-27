@@ -9,7 +9,15 @@ from .cli_runtime import (
     resolve_output_path,
     resolve_target_dir,
 )
+from .error_messages import get_error_hint
 from ..version import get_package_version
+
+
+def _print_error(title: str, message: str) -> None:
+    print(f"錯誤：{message}")
+    hint = get_error_hint(title, message)
+    if hint:
+        print(f"提示：{hint}")
 
 
 def main():
@@ -37,11 +45,6 @@ def main():
     try:
         start_dt = parse_datetime_value(args.start, "開始時間")
         end_dt = parse_datetime_value(args.end, "結束時間")
-    except ValueError as e:
-        print(f"錯誤：{e}")
-        sys.exit(1)
-    
-    try:
         print(f"正在分析目錄：{os.path.abspath(target_dir)}")
         if args.keyword:
             msg = f"正在搜尋關鍵字：'{args.keyword}'"
@@ -57,7 +60,7 @@ def main():
                 selected_pattern,
             )
         except ValueError as exc:
-            print(f"錯誤：{exc}")
+            _print_error("輸入錯誤" if not str(exc).startswith("找不到符合條件的 log") else "無可分析資料", str(exc))
             sys.exit(1)
         if logback_notice:
             print(logback_notice)
@@ -90,10 +93,19 @@ def main():
                 print(f"  {level}: {count}")
             
     except UnsupportedLogbackPatternError as e:
-        print(f"錯誤：{e}")
+        _print_error("輸入錯誤", str(e))
+        sys.exit(1)
+    except PermissionError as e:
+        _print_error("權限不足", str(e))
+        sys.exit(1)
+    except FileNotFoundError as e:
+        _print_error("找不到資料夾", str(e))
+        sys.exit(1)
+    except ValueError as e:
+        _print_error("輸入錯誤", str(e))
         sys.exit(1)
     except Exception as e:
-        print(f"執行時發生錯誤：{e}")
+        _print_error("執行失敗", str(e))
         sys.exit(1)
 
 if __name__ == '__main__':

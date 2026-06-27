@@ -61,6 +61,8 @@
     min-height: 8;
 }
 
+/* ── Form Panel 基底 ── */
+
 #form-panel.wide {
     padding: 1 0 1 2;
 }
@@ -71,8 +73,6 @@
 
 #form-panel.wide .field,
 #form-panel.wide .field-row,
-#form-panel.wide .field-body,
-#form-panel.wide .path-row,
 #form-panel.wide .time-section,
 #form-panel.wide #actions,
 #form-panel.wide .helper {
@@ -87,144 +87,22 @@
 
 #form-panel.compact .field,
 #form-panel.compact .field-row,
-#form-panel.compact .field-body,
-#form-panel.compact .path-row,
 #form-panel.compact .time-section,
 #form-panel.compact #actions,
 #form-panel.compact .helper {
     margin-right: 2;
 }
 
+/* ── 標準欄位 ── */
+
 #form-panel.wide .field {
     layout: horizontal;
     margin-bottom: 0;
 }
 
-#form-panel.wide .field-row {
-    layout: horizontal;
-    width: 1fr;
-    margin-bottom: 0;
-}
-
-#form-panel.wide .field-row .field--ignore {
-    width: 16;
-    margin-right: 1;
-}
-
-#form-panel.wide .field-row .field--sort {
-    width: 1fr;
-    margin-right: 1;
-}
-
-#form-panel.wide #start-date-group,
-#form-panel.wide #end-date-group {
-    width: 1fr;
-    margin-right: 1;
-}
-
-#form-panel.wide #advanced-settings #start-date-group,
-#form-panel.wide #advanced-settings #end-date-group {
-    width: 1fr;
-    margin-right: 1;
-}
-
-#form-panel.wide #start-time-group,
-#form-panel.wide #end-time-group {
-    width: 1fr;
-}
-
-#form-panel.wide #advanced-settings #start-time-group,
-#form-panel.wide #advanced-settings #end-time-group {
-    width: 1fr;
-}
-
 #form-panel.compact .field {
     layout: vertical;
     margin-bottom: 0;
-}
-
-#form-panel.compact .field-row {
-    layout: vertical;
-    margin-bottom: 1;
-}
-
-#form-panel.compact .field-row .field--ignore,
-#form-panel.compact .field-row .field--sort,
-#form-panel.compact .field-row .field--format {
-    width: auto;
-    margin-bottom: 0;
-}
-
-#form-panel.compact .time-group {
-    width: auto;
-    margin-right: 0;
-    margin-bottom: 0;
-}
-
-#form-panel.wide .time-section {
-    layout: horizontal;
-    margin-bottom: 0;
-}
-
-#form-panel.wide #advanced-settings .time-section {
-    layout: vertical;
-    width: 1fr;
-    margin-bottom: 0;
-}
-
-#form-panel.compact .time-section {
-    layout: vertical;
-    margin-bottom: 1;
-}
-
-#form-panel.wide .time-stack {
-    width: 1fr;
-}
-
-#form-panel.wide #advanced-settings .time-stack {
-    width: 1fr;
-    min-width: 0;
-}
-
-#form-panel.wide #advanced-settings .time-row {
-    width: 1fr;
-    min-width: 0;
-}
-
-#form-panel.wide #advanced-settings .time-group {
-    min-width: 14;
-}
-
-#form-panel.compact .time-stack {
-    width: auto;
-}
-
-#form-panel.wide .time-section > Label {
-    width: 10;
-    margin-right: 1;
-    margin-bottom: 0;
-}
-
-#form-panel.wide #advanced-settings .time-section > Label {
-    margin-bottom: 1;
-}
-
-#form-panel.compact .time-section > Label {
-    margin-bottom: 0;
-}
-
-#form-panel.compact .path-row {
-    layout: horizontal;
-}
-
-#form-panel.compact .path-row Button {
-    width: 8;
-    margin-left: 1;
-    margin-top: 0;
-}
-
-#form-panel.compact .path-row.compact-buttons Button {
-    width: 8;
 }
 
 #form-panel.wide .field > Label {
@@ -242,6 +120,53 @@
     width: auto;
 }
 
+#form-panel.compact .time-section > Label {
+    margin-bottom: 0;
+}
+
+/* ── 列型欄位 ── */
+
+#form-panel.wide .field-row {
+    layout: horizontal;
+    width: 1fr;
+    margin-bottom: 0;
+}
+
+#form-panel.compact .field-row {
+    layout: vertical;
+    margin-bottom: 1;
+}
+
+#form-panel.wide .field-row .field--ignore {
+    width: auto;
+    layout: horizontal;
+    align: left middle;
+    margin-right: 1;
+}
+
+#form-panel.wide .field-row .field--display-mode {
+    width: 1fr;
+    margin-right: 0;
+}
+
+#form-panel.wide .field-row .field--sort {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#form-panel.wide .field-row .field--format {
+    width: 1fr;
+    margin-right: 0;
+}
+
+#form-panel.compact .field-row .field--ignore,
+#form-panel.compact .field-row .field--display-mode,
+#form-panel.compact .field-row .field--sort,
+#form-panel.compact .field-row .field--format {
+    width: auto;
+    margin-bottom: 0;
+}
+
 #form-panel.wide .field-row .field--format > Select {
     width: 1fr;
     margin-right: 2;
@@ -253,6 +178,120 @@
 
 #form-panel.wide .field-row .field--ignore > Checkbox {
     width: auto;
+    margin-top: 0;
+    margin-left: 1;
+}
+
+#form-panel.compact .field-row .field--format > Select {
+    width: 1fr;
+}
+
+#form-panel.compact .field-row .field--sort > Select {
+    width: 1fr;
+}
+
+/* ── 路徑與按鈕 ── */
+
+#form-panel.wide .path-row Button {
+    margin-right: 2;
+}
+
+#form-panel.compact .path-row {
+    layout: horizontal;
+}
+
+#form-panel.compact .path-row Input {
+    width: 1fr;
+}
+
+#form-panel.compact .path-row Button {
+    width: 8;
+    margin-left: 1;
+    margin-top: 0;
+}
+
+#form-panel.compact .path-row.compact-buttons Button {
+    width: 8;
+}
+
+#form-panel.wide .path-status {
+    margin-left: 11;
+}
+
+#form-panel.compact .path-status {
+    margin-left: 0;
+}
+
+/* ── 時間區間 ── */
+
+#form-panel.wide .time-section {
+    layout: horizontal;
+    margin-bottom: 0;
+}
+
+#form-panel.compact .time-section {
+    layout: vertical;
+    margin-bottom: 1;
+}
+
+#form-panel.wide .time-section > Label {
+    width: 10;
+    margin-right: 1;
+    margin-bottom: 0;
+}
+
+#form-panel.wide .time-stack {
+    width: 1fr;
+}
+
+#form-panel.compact .time-stack {
+    width: auto;
+}
+
+#form-panel.compact .time-group {
+    width: auto;
+    margin-right: 0;
+    margin-bottom: 0;
+}
+
+/* ── 進階區塊專用 ── */
+
+#form-panel.wide #advanced-settings .time-section {
+    layout: vertical;
+    width: 1fr;
+    margin-bottom: 0;
+}
+
+#form-panel.wide #advanced-settings .time-stack {
+    width: 1fr;
+    min-width: 0;
+}
+
+#form-panel.wide #advanced-settings .field > Label {
+    width: 14;
+}
+
+#form-panel.wide #advanced-settings .path-row Button {
+    min-width: 0;
+}
+
+#form-panel.wide #advanced-settings .time-row {
+    width: 1fr;
+    min-width: 0;
+}
+
+#form-panel.wide #advanced-settings .time-group {
+    min-width: 14;
+}
+
+#form-panel.wide #advanced-settings .time-section > Label {
+    margin-bottom: 1;
+}
+
+/* ── 進階按鈕列 ── */
+
+#form-panel.wide .advanced-toggle {
+    margin-right: 2;
 }
 
 #form-panel.compact .helper {
@@ -274,26 +313,6 @@
 #actions.wide Button {
     width: 1fr;
     min-width: 0;
-}
-
-#form-panel.wide .path-status {
-    margin-left: 11;
-}
-
-#form-panel.compact .path-status {
-    margin-left: 0;
-}
-
-#form-panel.compact .path-row Input {
-    width: 1fr;
-}
-
-#form-panel.compact .field-row .field--format > Select {
-    width: 1fr;
-}
-
-#form-panel.compact .field-row .field--sort > Select {
-    width: 1fr;
 }
 
 #actions.compact {

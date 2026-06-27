@@ -15,6 +15,7 @@ from ..application.analysis_service import AnalysisResult, build_output_path, ru
 from ..domain.logback_pattern import DEFAULT_LOGBACK_PATTERN
 from ..domain.logback_xml import find_best_logback_pattern
 from .tui_dialogs import DirectoryPickerScreen, FilePickerScreen, ShortcutInput
+from .recent_form_state import load_recent_tui_state, save_recent_tui_state
 from .tui_inputs import (
     get_default_end_date_text,
     get_default_end_time_text,
@@ -89,8 +90,10 @@ class LogAnalyzerApp(App):
                     yield Static("", classes="field-hint")
 
                     yield Button("展開進階設定", id="toggle_advanced_settings", classes="advanced-toggle")
+                    yield Static("", classes="field-hint")
                     with Container(id="advanced-settings", classes="advanced-settings"):
-                        yield Static("進階設定", classes="section-title section-title--sub")
+                        with Container(id="advanced-settings-title-row"):
+                            yield Static("進階設定", classes="section-title section-title--sub")
 
                         with Container(classes="field"):
                             yield Label("輸出檔名")
@@ -124,7 +127,7 @@ class LogAnalyzerApp(App):
                             )
                         yield Static("", classes="field-hint")
 
-                        with Container(classes="field"):
+                        with Container(classes="field", id="pattern-field"):
                             yield Label("Pattern")
                             with Container(classes="field-body"):
                                 yield ShortcutInput(
@@ -173,6 +176,20 @@ class LogAnalyzerApp(App):
                                 yield Label("忽略大小寫")
                                 yield Checkbox(value=True, id="ignore_case")
 
+                            with Container(classes="field field--inline field--format"):
+                                yield Label("輸出格式")
+                                yield Select(
+                                    [
+                                        ("CSV (Excel)", "csv"),
+                                        ("JSON", "json"),
+                                        ("Markdown", "md"),
+                                    ],
+                                    value="csv",
+                                    id="format",
+                                )
+                        yield Static("", classes="path-status", id="path-status")
+
+                        with Container(classes="field-row"):
                             with Container(classes="field field--inline field--sort"):
                                 yield Label("排序方式")
                                 yield Select(
@@ -184,16 +201,15 @@ class LogAnalyzerApp(App):
                                     id="sort_by",
                                 )
 
-                            with Container(classes="field field--inline field--format"):
-                                yield Label("輸出格式")
+                            with Container(classes="field field--inline field--display-mode"):
+                                yield Label("顯示模式")
                                 yield Select(
                                     [
-                                        ("CSV (Excel)", "csv"),
-                                        ("JSON", "json"),
-                                        ("Markdown", "md"),
+                                        ("預設摘要", "full"),
+                                        ("濃縮摘要", "summary"),
                                     ],
-                                    value="csv",
-                                    id="format",
+                                    value="summary",
+                                    id="display_mode",
                                 )
                         yield Static("", classes="field-hint")
 
@@ -223,7 +239,9 @@ class LogAnalyzerApp(App):
         path_input = self.query_one("#path", Input)
         output_path_input = self.query_one("#output_path", Input)
         self.query_one("#result-box", RichLog).can_focus = False
-        path_input.focus()
+        self._restore_recent_form_state()
+        self._sync_pattern_field_visibility()
+        self.call_after_refresh(self.set_focus, None)
         self._set_advanced_settings_visible(False)
         self._sync_layout(self.size.width, self.size.height)
         self.update_path_preview(path_input.value)
@@ -235,7 +253,10 @@ class LogAnalyzerApp(App):
         last_result = getattr(self, "_last_result", None)
         if last_result is not None:
             result_box = self.query_one("#result-box", RichLog)
-            self._set_result(result_box, build_dashboard_view(last_result, self._is_compact(self.size.width, self.size.height)))
+            self._set_result(
+                result_box,
+                build_dashboard_view(last_result, self._should_compact_dashboard(self.size.width, self.size.height)),
+            )
             return
 
         self.update_path_preview(self.query_one("#path", Input).value)
@@ -310,6 +331,24 @@ class LogAnalyzerApp(App):
             self.action_clear_keyword()
         elif event.button.id == "browse_logback_xml":
             self.action_browse_logback_xml()
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "display_mode":
+            last_result = getattr(self, "_last_result", None)
+            if last_result is None:
+                return
+
+            result_box = self.query_one("#result-box", RichLog)
+            self._set_result(
+                result_box,
+                build_dashboard_view(last_result, self._should_compact_dashboard(self.size.width, self.size.height)),
+            )
+            return
+
+        if event.select.id != "pattern_mode":
+            return
+
+        self._sync_pattern_field_visibility()
 
     def update_path_preview(self, path: str, status_id: str = "#path-status", require_writable: bool = False) -> None:
         preview = self.query_one(status_id, Static)
@@ -417,6 +456,7 @@ class LogAnalyzerApp(App):
                 keyword,
                 pattern_mode,
                 log_pattern,
+                display_mode,
                 sort_by,
                 ignore_case,
                 fmt,
@@ -426,6 +466,21 @@ class LogAnalyzerApp(App):
                 start_time_text,
                 end_date_text,
                 end_time_text,
+            )
+            self._save_recent_form_state(
+                {
+                    "path": path,
+                    "output_path": output_path,
+                    "keyword": keyword,
+                    "ignore_case": ignore_case,
+                    "display_mode": display_mode,
+                    "sort_by": sort_by,
+                    "format": fmt,
+                    "start_date": start_date_text,
+                    "start_time": start_time_text,
+                    "end_date": end_date_text,
+                    "end_time": end_time_text,
+                }
             )
             normalized_output = build_output_path(output_path, output_name, fmt)
             selected_pattern = log_pattern if pattern_mode == "custom" else None
@@ -448,7 +503,10 @@ class LogAnalyzerApp(App):
                 ),
             )
             self._last_result = result
-            self._set_result(result_box, build_dashboard_view(result, self._is_compact(self.size.width, self.size.height)))
+            self._set_result(
+                result_box,
+                build_dashboard_view(result, self._should_compact_dashboard(self.size.width, self.size.height)),
+            )
             self._refresh_output_name_default(output_name)
         except PermissionError as exc:
             self._last_result = None
@@ -511,6 +569,7 @@ class LogAnalyzerApp(App):
         pattern_input = self.query_one("#log_pattern", Input)
         pattern_input.value = best_pattern.pattern
         pattern_input.focus()
+        self._sync_pattern_field_visibility()
         status.update(
             f"已載入 {best_pattern.name}，命中 {best_pattern.matches}/{best_pattern.checked}。"
         )
@@ -557,6 +616,7 @@ class LogAnalyzerApp(App):
             pattern_input.value = best_pattern.pattern
             self._auto_log_pattern = best_pattern.pattern
             self.query_one("#pattern_mode", Select).value = "custom"
+            self._sync_pattern_field_visibility()
 
         self.query_one("#logback-xml-status", Static).update(
             f"已自動載入 {Path(best_xml_path).name}，命中 {best_pattern.matches}/{best_pattern.checked}。"
@@ -590,7 +650,7 @@ class LogAnalyzerApp(App):
         output_name_input = self.query_one("#output_name", Input)
         output_name_input.value = self._auto_output_name
 
-    def _collect_form_values(self) -> Tuple[str, str, str, str, str, str, str, str, str, str, str, bool, str]:
+    def _collect_form_values(self) -> Tuple[str, str, str, str, str, str, str, str, str, str, str, str, bool, str]:
         path = self.query_one("#path", Input).value.strip() or "."
         output_path = self.query_one("#output_path", Input).value.strip() or "."
         output_name = self.query_one("#output_name", Input).value.strip()
@@ -601,6 +661,7 @@ class LogAnalyzerApp(App):
         keyword = self.query_one("#keyword", Input).value.strip()
         pattern_mode = self.query_one("#pattern_mode", Select).value or "default"
         log_pattern = self.query_one("#log_pattern", Input).value.strip()
+        display_mode = self.query_one("#display_mode", Select).value or "summary"
         sort_by = self.query_one("#sort_by", Select).value or "time"
         ignore_case = self.query_one("#ignore_case", Checkbox).value
         fmt = self.query_one("#format", Select).value or "csv"
@@ -615,15 +676,52 @@ class LogAnalyzerApp(App):
             keyword,
             str(pattern_mode),
             log_pattern,
+            str(display_mode),
             str(sort_by),
             ignore_case,
             str(fmt),
         )
 
+    def _should_compact_dashboard(self, width: int, height: int) -> bool:
+        if self._is_compact(width, height):
+            return True
+        display_mode = self.query_one("#display_mode", Select).value or "summary"
+        return str(display_mode) != "full"
+
     def _set_result(self, result_box: RichLog, renderable: object) -> None:
         result_box.clear()
         result_box.write(renderable)
         result_box.scroll_home()
+
+    def _sync_pattern_field_visibility(self) -> None:
+        pattern_mode = self.query_one("#pattern_mode", Select).value or "default"
+        try:
+            pattern_field = self.query_one("#pattern-field", Container)
+        except (KeyError, LookupError):
+            return
+        pattern_field.display = pattern_mode == "custom"
+
+    def _restore_recent_form_state(self) -> None:
+        state = load_recent_tui_state()
+        if not state:
+            return
+
+        for selector in ("#path", "#output_path", "#keyword", "#start_date", "#start_time", "#end_date", "#end_time"):
+            value = state.get(selector.lstrip("#"))
+            if value is not None:
+                self.query_one(selector, Input).value = str(value)
+
+        if isinstance(state.get("ignore_case"), bool):
+            self.query_one("#ignore_case", Checkbox).value = state["ignore_case"]
+        if state.get("display_mode") in {"full", "summary"}:
+            self.query_one("#display_mode", Select).value = str(state["display_mode"])
+        if state.get("sort_by") in {"time", "level"}:
+            self.query_one("#sort_by", Select).value = str(state["sort_by"])
+        if state.get("format") in {"csv", "json", "md"}:
+            self.query_one("#format", Select).value = str(state["format"])
+
+    def _save_recent_form_state(self, state: dict[str, object]) -> None:
+        save_recent_tui_state(state)
 
 
 if __name__ == "__main__":

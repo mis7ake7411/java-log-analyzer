@@ -20,6 +20,11 @@ from log_analyzer.presentation.tui import (
     get_system_root_path,
     parse_datetime_range_inputs,
 )
+from log_analyzer.presentation.error_messages import get_error_hint
+from log_analyzer.presentation.recent_form_state import (
+    load_recent_tui_state,
+    save_recent_tui_state,
+)
 from log_analyzer.version import get_package_version
 
 
@@ -265,6 +270,7 @@ def test_collect_form_values_includes_time_fields():
         "#keyword": FakeInput("RuntimeException"),
         "#pattern_mode": FakeSelect("custom"),
         "#log_pattern": FakeInput("%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"),
+        "#display_mode": FakeSelect("summary"),
         "#sort_by": FakeSelect("level"),
         "#ignore_case": FakeCheckbox(True),
         "#format": FakeSelect("json"),
@@ -286,10 +292,158 @@ def test_collect_form_values_includes_time_fields():
         "RuntimeException",
         "custom",
         "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n",
+        "summary",
         "level",
         True,
         "json",
     )
+
+
+def test_format_row_places_format_next_to_ignore_case():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            advanced = app.query_one("#advanced-settings")
+            field_rows = [child for child in advanced.children if child.has_class("field-row")]
+
+            assert len(field_rows) == 2
+
+            first_row = field_rows[0]
+            second_row = field_rows[1]
+
+            first_row_classes = [
+                frozenset(child.classes)
+                for child in first_row.children
+                if child.has_class("field")
+            ]
+            second_row_classes = [
+                frozenset(child.classes)
+                for child in second_row.children
+                if child.has_class("field")
+            ]
+
+            assert frozenset({"field", "field--inline", "field--ignore"}) in first_row_classes
+            assert frozenset({"field", "field--inline", "field--format"}) in first_row_classes
+            assert frozenset({"field", "field--inline", "field--sort"}) in second_row_classes
+            assert frozenset({"field", "field--inline", "field--display-mode"}) in second_row_classes
+
+    asyncio.run(run_check())
+
+
+def test_recent_tui_state_round_trip_only_keeps_selected_fields(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    save_recent_tui_state(
+        {
+            "path": "./logs",
+            "output_path": "./exports",
+            "keyword": "RuntimeException",
+            "ignore_case": True,
+            "display_mode": "summary",
+            "sort_by": "level",
+            "format": "json",
+            "start_date": "2026-06-07",
+            "start_time": "00:00",
+            "end_date": "2026-06-07",
+            "end_time": "12:00",
+            "output_name": "should-not-be-saved",
+            "log_pattern": "should-not-be-saved",
+            "pattern_mode": "custom",
+        }
+    )
+
+    state = load_recent_tui_state()
+
+    assert state == {
+        "path": "./logs",
+        "output_path": "./exports",
+        "keyword": "RuntimeException",
+        "ignore_case": True,
+        "display_mode": "summary",
+        "sort_by": "level",
+        "format": "json",
+        "start_date": "2026-06-07",
+        "start_time": "00:00",
+        "end_date": "2026-06-07",
+        "end_time": "12:00",
+    }
+
+
+def test_recent_tui_state_missing_file_returns_empty_state(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    state = load_recent_tui_state()
+
+    assert state == {}
+
+
+def test_tui_restores_recent_state_on_mount(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    save_recent_tui_state(
+        {
+            "path": "./logs",
+            "output_path": "./exports",
+            "keyword": "RuntimeException",
+            "ignore_case": True,
+            "display_mode": "full",
+            "sort_by": "level",
+            "format": "md",
+            "start_date": "2026-06-07",
+            "start_time": "00:00",
+            "end_date": "2026-06-08",
+            "end_time": "12:00",
+        }
+    )
+
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            assert app.query_one("#path").value == "./logs"
+            assert app.query_one("#output_path").value == "./exports"
+            assert app.query_one("#keyword").value == "RuntimeException"
+            assert app.query_one("#ignore_case").value is True
+            assert app.query_one("#display_mode").value == "full"
+            assert app.query_one("#sort_by").value == "level"
+            assert app.query_one("#format").value == "md"
+            assert app.query_one("#start_date").value == "2026-06-07"
+            assert app.query_one("#start_time").value == "00:00"
+            assert app.query_one("#end_date").value == "2026-06-08"
+            assert app.query_one("#end_time").value == "12:00"
+            assert app.query_one("#output_name").value != ""
+            assert app.query_one("#output_name").value != "should-not-be-saved"
+
+    asyncio.run(run_check())
+
+
+def test_tui_does_not_focus_input_on_startup():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
+
+            assert app.focused is None
+
+    asyncio.run(run_check())
+
+
+def test_tui_shortcut_works_without_input_focus():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
+
+            await pilot.press("a")
+            await pilot.pause()
+
+            assert app.query_one("#advanced-settings").display is True
+
+    asyncio.run(run_check())
 
 
 def test_time_range_rows_have_two_inputs_each():
@@ -314,6 +468,75 @@ def test_log_pattern_controls_exist():
 
             assert app.query_one("#pattern_mode")
             assert app.query_one("#log_pattern")
+
+    asyncio.run(run_check())
+
+
+def test_log_pattern_field_is_hidden_until_custom_pattern_mode_is_selected():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            pattern_field = app.query_one("#pattern-field")
+            assert pattern_field.display is False
+
+            app.query_one("#pattern_mode").value = "custom"
+            await pilot.pause()
+
+            assert pattern_field.display is True
+
+    asyncio.run(run_check())
+
+
+def test_advanced_settings_title_stays_at_top_of_panel():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test(size=(1400, 980)) as pilot:
+            await pilot.pause()
+            app.action_toggle_advanced_settings()
+            await pilot.pause()
+
+            advanced_title = app.query_one("#advanced-settings .section-title--sub")
+            advanced_settings = app.query_one("#advanced-settings")
+            advanced_title_row = app.query_one("#advanced-settings-title-row")
+
+            assert advanced_title_row.region.height <= 2
+            assert advanced_title.region.y <= advanced_settings.region.y + 3
+            assert advanced_title.region.width == advanced_title_row.region.width
+
+    asyncio.run(run_check())
+
+
+def test_advanced_settings_logback_browse_button_keeps_right_edge_aligned():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test(size=(1606, 979)) as pilot:
+            await pilot.pause()
+            app.action_toggle_advanced_settings()
+            await pilot.pause()
+
+            output_name = app.query_one("#output_name")
+            logback_xml_path = app.query_one("#logback_xml_path")
+            browse_button = app.query_one("#browse_logback_xml")
+
+            assert browse_button.region.width <= 10
+            assert browse_button.region.x + browse_button.region.width == output_name.region.x + output_name.region.width - 2
+            assert logback_xml_path.region.x + logback_xml_path.region.width < browse_button.region.x + browse_button.region.width
+
+    asyncio.run(run_check())
+
+
+def test_advanced_toggle_aligns_with_action_buttons():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test(size=(1606, 979)) as pilot:
+            await pilot.pause()
+
+            toggle = app.query_one("#toggle_advanced_settings")
+            actions = app.query_one("#actions")
+
+            assert toggle.region.x + toggle.region.width == actions.region.x + actions.region.width
 
     asyncio.run(run_check())
 
@@ -479,6 +702,20 @@ def test_error_view_includes_next_step_hint():
     assert "重新選擇 Log 目錄" in lines[2]
 
 
+def test_error_hint_reflects_datetime_format_errors():
+    hint = get_error_hint("輸入錯誤", "開始日期時間格式不正確。")
+
+    assert "日期" in hint
+    assert "YYYY-MM-DD" in hint
+
+
+def test_error_hint_reflects_logback_pattern_errors():
+    hint = get_error_hint("執行失敗", "不支援的 Logback pattern token：%replace")
+
+    assert "Logback pattern" in hint
+    assert "%replace" in hint
+
+
 def test_dashboard_view_includes_exception_group_summary():
     result = SimpleNamespace(
         total_logs=9,
@@ -627,6 +864,49 @@ def test_dashboard_view_includes_logger_thread_distribution():
     assert "worker-7" in output
     assert "2 群組" in output
     assert "5 次" in output
+
+
+def test_dashboard_view_shows_summary_before_detail_panels():
+    result = SimpleNamespace(
+        total_logs=8,
+        matched_groups=3,
+        matched_occurrences=8,
+        format_name="csv",
+        input_path="/in",
+        output_path="/out/report.csv",
+        exported_files=["/out/report.csv"],
+        keyword="Exception",
+        sort_by="time",
+        ignore_case=False,
+        level_summary=[("ERROR", 8)],
+        matched_logs=[
+            {
+                "count": 3,
+                "timestamp": "2026-06-06 10:00:00.001",
+                "logger": "com.test.Api",
+                "thread": "http-1",
+                "stacktrace": "java.lang.RuntimeException: boom",
+                "message": "Fail A",
+                "message_body": "",
+            },
+            {
+                "count": 2,
+                "timestamp": "2026-06-06 10:30:00.001",
+                "logger": "com.test.Api",
+                "thread": "http-1",
+                "stacktrace": "",
+                "message": "Fail B",
+                "message_body": "",
+            },
+        ],
+    )
+
+    console = Console(width=120, record=True, color_system=None)
+    console.print(build_dashboard_view(result, compact=False))
+    output = console.export_text()
+
+    assert output.index("分析資訊") < output.index("例外群組摘要")
+    assert output.index("Level 分布") < output.index("例外群組摘要")
 
 
 def test_apply_selected_directory_autofills_logback_settings(monkeypatch, tmp_path):
@@ -780,6 +1060,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(
                 await pilot.pause()
 
             assert sequence == [
+                None,
                 "path",
                 "browse_path",
                 "output_path",
@@ -788,7 +1069,6 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(
                 "clear_keyword",
                 "toggle_advanced_settings",
                 "run",
-                "clear",
             ]
 
     asyncio.run(run_check())
@@ -799,17 +1079,20 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
         app = LogAnalyzerApp()
         async with app.run_test(size=(1400, 980)) as pilot:
             await pilot.pause()
+            app.query_one("#pattern_mode").value = "custom"
+            await pilot.pause()
             app.action_toggle_advanced_settings()
             await pilot.pause()
 
             sequence = []
-            for _ in range(19):
+            for _ in range(20):
                 focused = app.focused
                 sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
                 await pilot.press("tab")
                 await pilot.pause()
 
             assert sequence == [
+                None,
                 "path",
                 "browse_path",
                 "output_path",
@@ -827,8 +1110,8 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
                 "end_date",
                 "end_time",
                 "ignore_case",
-                "sort_by",
                 "format",
+                "sort_by",
             ]
 
     asyncio.run(run_check())

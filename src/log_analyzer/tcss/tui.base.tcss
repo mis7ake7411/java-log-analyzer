@@ -3,6 +3,8 @@ Screen {
     color: #e2e8f0;
 }
 
+/* ── Shell 與 Hero ── */
+
 #shell {
     height: 100%;
     padding: 1 2;
@@ -44,6 +46,8 @@ Screen {
     width: auto;
 }
 
+/* ── 標題與一般欄位 ── */
+
 .section-title {
     text-style: bold;
     color: #e2e8f0;
@@ -52,9 +56,16 @@ Screen {
 }
 
 .section-title--sub {
-    color: #cbd5e1;
+    color: #e2e8f0;
+    text-style: bold;
     margin-bottom: 1;
-    text-align: left;
+    width: 1fr;
+    text-align: center;
+}
+
+#advanced-settings-title-row {
+    height: auto;
+    width: 1fr;
 }
 
 .field {
@@ -103,6 +114,8 @@ Screen {
 .field-body > .field-hint {
     margin-top: 0;
 }
+
+/* ── 時間區間與提示文字 ── */
 
 .time-section {
     height: auto;
@@ -159,6 +172,8 @@ Screen {
     color: #94a3b8;
 }
 
+/* ── 進階設定 ── */
+
 .advanced-toggle {
     width: 1fr;
     margin-bottom: 1;
@@ -169,10 +184,12 @@ Screen {
     width: 1fr;
     layout: vertical;
     margin-bottom: 1;
-    padding: 1 1 0 1;
+    padding: 1 0 0 0;
     border: round #1e293b;
     background: #0f172a;
 }
+
+/* ── 互動狀態 ── */
 
 Button:focus {
     background: #1e293b;
