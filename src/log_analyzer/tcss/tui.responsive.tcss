@@ -79,6 +79,12 @@
     margin-right: 2;
 }
 
+#form-panel.wide #advanced-settings .time-section,
+#form-panel.wide #advanced-settings #actions,
+#form-panel.wide #advanced-settings .helper {
+    margin-right: 2;
+}
+
 #form-panel.compact .field,
 #form-panel.compact .field-row,
 #form-panel.compact .field-body,
@@ -116,8 +122,19 @@
     margin-right: 1;
 }
 
+#form-panel.wide #advanced-settings #start-date-group,
+#form-panel.wide #advanced-settings #end-date-group {
+    width: 1fr;
+    margin-right: 1;
+}
+
 #form-panel.wide #start-time-group,
 #form-panel.wide #end-time-group {
+    width: 1fr;
+}
+
+#form-panel.wide #advanced-settings #start-time-group,
+#form-panel.wide #advanced-settings #end-time-group {
     width: 1fr;
 }
 
@@ -149,6 +166,12 @@
     margin-bottom: 0;
 }
 
+#form-panel.wide #advanced-settings .time-section {
+    layout: vertical;
+    width: 1fr;
+    margin-bottom: 0;
+}
+
 #form-panel.compact .time-section {
     layout: vertical;
     margin-bottom: 1;
@@ -156,6 +179,20 @@
 
 #form-panel.wide .time-stack {
     width: 1fr;
+}
+
+#form-panel.wide #advanced-settings .time-stack {
+    width: 1fr;
+    min-width: 0;
+}
+
+#form-panel.wide #advanced-settings .time-row {
+    width: 1fr;
+    min-width: 0;
+}
+
+#form-panel.wide #advanced-settings .time-group {
+    min-width: 14;
 }
 
 #form-panel.compact .time-stack {
@@ -166,6 +203,10 @@
     width: 10;
     margin-right: 1;
     margin-bottom: 0;
+}
+
+#form-panel.wide #advanced-settings .time-section > Label {
+    margin-bottom: 1;
 }
 
 #form-panel.compact .time-section > Label {

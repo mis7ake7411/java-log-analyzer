@@ -105,12 +105,14 @@ def add_to_grouped_logs(grouped_logs, entry):
     """
     內部輔助函式：將新的 log 加入分組中。
     """
-    message_text = entry["message"]
-    if entry.get("message_body"):
-        message_text = f"{message_text}\n{entry['message_body']}"
-
     stacktrace_text = "".join(entry["stacktrace_lines"]).strip()
-    key = (entry["level"], entry["logger"], message_text, stacktrace_text)
+    key = (
+        entry["level"],
+        entry["logger"],
+        entry["message"],
+        entry.get("message_body", ""),
+        stacktrace_text,
+    )
 
     if key in grouped_logs:
         grouped_logs[key].count += 1
@@ -127,7 +129,7 @@ def add_to_grouped_logs(grouped_logs, entry):
             thread=entry["thread"],
             logger=entry["logger"],
             filename=entry["filename"],
-            message=message_text,
+            message=entry["message"],
             message_body=entry.get("message_body", ""),
             stacktrace=stacktrace_text,
         )

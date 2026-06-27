@@ -51,6 +51,12 @@ Screen {
     text-align: center;
 }
 
+.section-title--sub {
+    color: #cbd5e1;
+    margin-bottom: 1;
+    text-align: left;
+}
+
 .field {
     height: auto;
     margin-bottom: 1;
@@ -151,6 +157,21 @@ Screen {
 .field-hint {
     margin-top: 0;
     color: #94a3b8;
+}
+
+.advanced-toggle {
+    width: 1fr;
+    margin-bottom: 1;
+}
+
+#advanced-settings {
+    height: auto;
+    width: 1fr;
+    layout: vertical;
+    margin-bottom: 1;
+    padding: 1 1 0 1;
+    border: round #1e293b;
+    background: #0f172a;
 }
 
 Button:focus {

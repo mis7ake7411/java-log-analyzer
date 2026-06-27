@@ -7,6 +7,8 @@ from log_analyzer.presentation.tui import (
     DirectoryPickerScreen,
     FilePickerScreen,
     LogAnalyzerApp,
+    build_error_view,
+    build_loading_view,
     get_default_end_date_text,
     get_default_end_time_text,
     get_default_output_name_text,
@@ -454,18 +456,227 @@ def test_apply_and_load_logback_xml_updates_pattern(monkeypatch, tmp_path):
     assert "命中 2/2" in mapping["#logback-xml-status"].value
 
 
+def test_loading_view_explains_processing_state():
+    panel = build_loading_view()
+    lines = [str(renderable) for renderable in panel.renderable.renderables]
+
+    assert panel.title == "執行中"
+    assert "分析中，請稍候..." in lines[0]
+    assert "正在掃描 Log 目錄" in lines[1]
+    assert "大型資料夾" in lines[2]
+
+
+def test_error_view_includes_next_step_hint():
+    panel = build_error_view("找不到資料夾", "路徑不存在：/tmp/missing")
+    lines = [str(renderable) for renderable in panel.renderable.renderables]
+
+    assert panel.title == "執行失敗"
+    assert "找不到資料夾" in lines[0]
+    assert "路徑不存在" in lines[1]
+    assert "重新選擇 Log 目錄" in lines[2]
+
+
+def test_apply_selected_directory_autofills_logback_settings(monkeypatch, tmp_path):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "app.log").write_text(
+        "2026-06-06 10:00:00.000 [main] INFO  com.test - Hello\n",
+        encoding="utf-8",
+    )
+    xml_file = log_dir / "logback-spring.xml"
+    xml_file.write_text("<configuration />", encoding="utf-8")
+
+    class FakeInput:
+        def __init__(self, value: str = "") -> None:
+            self.value = value
+            self.focused = False
+
+        def focus(self) -> None:
+            self.focused = True
+
+    class FakeSelect:
+        def __init__(self, value: str) -> None:
+            self.value = value
+
+    class FakeStatic:
+        def __init__(self) -> None:
+            self.value = ""
+
+        def update(self, value) -> None:
+            self.value = value
+
+    class FakePattern:
+        name = "FILE Pattern"
+        pattern = "%d %-5level [%thread] %logger{36} - %msg%n"
+        matches = 2
+        checked = 2
+
+        @property
+        def score(self) -> float:
+            return self.matches / self.checked
+
+    mapping = {
+        "#path": FakeInput(str(log_dir)),
+        "#path-status": FakeStatic(),
+        "#logback_xml_path": FakeInput(),
+        "#log_pattern": FakeInput(),
+        "#pattern_mode": FakeSelect("default"),
+        "#logback-xml-status": FakeStatic(),
+    }
+
+    monkeypatch.setattr("log_analyzer.presentation.tui.find_best_logback_pattern", lambda *_args: FakePattern())
+
+    app = LogAnalyzerApp()
+    app.query_one = lambda selector, *_args, **_kwargs: mapping[selector]  # type: ignore[assignment]
+
+    app._apply_selected_directory("path", str(log_dir))
+
+    assert mapping["#logback_xml_path"].value == str(xml_file)
+    assert mapping["#log_pattern"].value == "%d %-5level [%thread] %logger{36} - %msg%n"
+    assert mapping["#pattern_mode"].value == "custom"
+    assert "已自動載入" in mapping["#logback-xml-status"].value
+    assert xml_file.name in mapping["#logback-xml-status"].value
+
+
+def test_apply_selected_directory_does_not_override_manual_logback_values(monkeypatch, tmp_path):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "app.log").write_text(
+        "2026-06-06 10:00:00.000 [main] INFO  com.test - Hello\n",
+        encoding="utf-8",
+    )
+    (log_dir / "logback-spring.xml").write_text("<configuration />", encoding="utf-8")
+
+    class FakeInput:
+        def __init__(self, value: str = "") -> None:
+            self.value = value
+            self.focused = False
+
+        def focus(self) -> None:
+            self.focused = True
+
+    class FakeSelect:
+        def __init__(self, value: str) -> None:
+            self.value = value
+
+    class FakeStatic:
+        def __init__(self) -> None:
+            self.value = ""
+
+        def update(self, value) -> None:
+            self.value = value
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("手動值不應觸發自動掃描")
+
+    mapping = {
+        "#path": FakeInput(str(log_dir)),
+        "#path-status": FakeStatic(),
+        "#logback_xml_path": FakeInput("/manual/logback.xml"),
+        "#log_pattern": FakeInput("manual pattern"),
+        "#pattern_mode": FakeSelect("default"),
+        "#logback-xml-status": FakeStatic(),
+    }
+
+    monkeypatch.setattr("log_analyzer.presentation.tui.find_best_logback_pattern", fail_if_called)
+
+    app = LogAnalyzerApp()
+    app.query_one = lambda selector, *_args, **_kwargs: mapping[selector]  # type: ignore[assignment]
+
+    app._apply_selected_directory("path", str(log_dir))
+
+    assert mapping["#logback_xml_path"].value == "/manual/logback.xml"
+    assert mapping["#log_pattern"].value == "manual pattern"
+    assert mapping["#pattern_mode"].value == "default"
+    assert mapping["#logback-xml-status"].value == ""
+
+
 def test_time_range_inputs_are_not_collapsed_in_wide_layout():
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(1920, 980)) as pilot:
             await pilot.pause()
+            app.action_toggle_advanced_settings()
+            await pilot.pause()
 
-            time_stack = app.query_one(".time-stack")
-            assert time_stack.region.width > 20
+            time_section = app.query_one(".time-section")
+            assert time_section.region.width > 20
+
+            for selector in ("#start-date-group", "#start-time-group", "#end-date-group", "#end-time-group"):
+                group = app.query_one(selector)
+                assert group.region.width > 10
 
             for selector in ("#start_date", "#start_time", "#end_date", "#end_time"):
                 field = app.query_one(selector)
                 assert field.region.width > 10
+
+    asyncio.run(run_check())
+
+
+def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test(size=(1400, 980)) as pilot:
+            await pilot.pause()
+
+            sequence = []
+            for _ in range(9):
+                focused = app.focused
+                sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
+                await pilot.press("tab")
+                await pilot.pause()
+
+            assert sequence == [
+                "path",
+                "browse_path",
+                "output_path",
+                "browse_output_path",
+                "keyword",
+                "clear_keyword",
+                "toggle_advanced_settings",
+                "run",
+                "clear",
+            ]
+
+    asyncio.run(run_check())
+
+
+def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test(size=(1400, 980)) as pilot:
+            await pilot.pause()
+            app.action_toggle_advanced_settings()
+            await pilot.pause()
+
+            sequence = []
+            for _ in range(19):
+                focused = app.focused
+                sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
+                await pilot.press("tab")
+                await pilot.pause()
+
+            assert sequence == [
+                "path",
+                "browse_path",
+                "output_path",
+                "browse_output_path",
+                "keyword",
+                "clear_keyword",
+                "toggle_advanced_settings",
+                "output_name",
+                "logback_xml_path",
+                "browse_logback_xml",
+                "pattern_mode",
+                "log_pattern",
+                "start_date",
+                "start_time",
+                "end_date",
+                "end_time",
+                "ignore_case",
+                "sort_by",
+                "format",
+            ]
 
     asyncio.run(run_check())
 
@@ -527,3 +738,24 @@ def test_refresh_output_name_default_updates_only_auto_value(monkeypatch):
     app.query_one = lambda *_args, **_kwargs: custom_input  # type: ignore[assignment]
     app._refresh_output_name_default("custom_report")
     assert custom_input.value == "custom_report"
+
+
+def test_advanced_settings_toggle_changes_visibility_and_label():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test():
+            advanced = app.query_one("#advanced-settings")
+            toggle = app.query_one("#toggle_advanced_settings")
+
+            assert advanced.display is False
+            assert str(toggle.label) == "展開進階設定"
+
+            app.action_toggle_advanced_settings()
+            assert advanced.display is True
+            assert str(toggle.label) == "收合進階設定"
+
+            app.action_toggle_advanced_settings()
+            assert advanced.display is False
+            assert str(toggle.label) == "展開進階設定"
+
+    asyncio.run(run_check())

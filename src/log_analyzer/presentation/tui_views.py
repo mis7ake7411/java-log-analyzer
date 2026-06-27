@@ -8,24 +8,29 @@ from ..application.analysis_service import AnalysisResult
 
 
 def build_idle_view() -> Panel:
-    body = Text()
-    body.append("尚未產生分析結果\n", style="bold cyan")
-    body.append("\n")
-    body.append("請先在上方填入條件，然後按「開始分析」。\n", style="white")
-    body.append("\n")
-    body.append("Enter 開始分析，c 清除結果，q 離開。", style="dim")
+    body = Group(
+        Text("尚未產生分析結果", style="bold cyan"),
+        Text("請先在上方填入條件，然後按「開始分析」。", style="white"),
+        Text("Enter 開始分析，c 清除結果，q 離開。", style="dim"),
+    )
     return Panel(body, title="結果區", border_style="cyan", padding=(1, 2))
 
 
 def build_loading_view() -> Panel:
-    body = Text("分析中，請稍候...", style="bold cyan")
+    body = Group(
+        Text("分析中，請稍候...", style="bold cyan"),
+        Text("正在掃描 Log 目錄、套用條件並產生輸出。", style="white"),
+        Text("大型資料夾可能需要較久時間。", style="dim"),
+    )
     return Panel(body, title="執行中", border_style="cyan", padding=(1, 2))
 
 
 def build_error_view(title: str, message: str) -> Panel:
-    body = Text()
-    body.append(f"{title}\n", style="bold red")
-    body.append(message, style="white")
+    body = Group(
+        Text(title, style="bold red"),
+        Text(message, style="white"),
+        Text(_error_hint(title), style="dim"),
+    )
     return Panel(body, title="執行失敗", border_style="red", padding=(1, 2))
 
 
@@ -102,6 +107,18 @@ def _status_text(message: str, color: str) -> Text:
     text = Text()
     text.append(message, style=color)
     return text
+
+
+def _error_hint(title: str) -> str:
+    hints = {
+        "權限不足": "請確認路徑權限，或改用可讀/可寫的目錄。",
+        "找不到資料夾": "請檢查路徑是否存在，或重新選擇 Log 目錄。",
+        "找不到可用的 Logback pattern": "請改選其他 logback.xml，或手動切換到進階 Pattern。",
+        "輸入錯誤": "請先修正上方欄位後再試一次。",
+        "無可分析資料": "請確認 Log 目錄、時間區間與關鍵字條件。",
+        "執行失敗": "若問題持續發生，請先縮小條件範圍再重試。",
+    }
+    return hints.get(title, "請檢查輸入條件後再試一次。")
 
 
 def _metric_card(title: str, value: str, accent: str, caption: str) -> Panel:

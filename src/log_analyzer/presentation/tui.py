@@ -50,10 +50,15 @@ class LogAnalyzerApp(App):
         str(_PACKAGE_ROOT / "tcss" / "tui.responsive.tcss"),
     ]
     _last_result: Optional[AnalysisResult] = None
+    _advanced_settings_visible: bool = False
+    _auto_logback_xml_path: str = ""
+    _auto_log_pattern: str = ""
+    _last_logback_autofill_source: str = ""
     BINDINGS = [
         ("q", "quit", "離開"),
         ("enter", "run_analysis", "開始分析"),
         ("c", "clear_result", "清除結果"),
+        ("a", "toggle_advanced_settings", "進階設定"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -67,8 +72,8 @@ class LogAnalyzerApp(App):
                     yield Static("·", id="hero-separator")
                     yield Static("分析、篩選並匯出 Java Logback 記錄", id="hero-subtitle")
 
-            with ScrollableContainer(id="content"):
-                with ScrollableContainer(id="form-panel"):
+            with ScrollableContainer(id="content", can_focus=False):
+                with ScrollableContainer(id="form-panel", can_focus=False):
                     yield Static("輸入設定", classes="section-title")
 
                     with Container(classes="field"):
@@ -86,16 +91,6 @@ class LogAnalyzerApp(App):
                     yield Static("", classes="path-status", id="output-path-status")
 
                     with Container(classes="field"):
-                        yield Label("輸出檔名")
-                        with Container(classes="field-body"):
-                            yield ShortcutInput(
-                                placeholder="例如：analysis_123000",
-                                value=self._auto_output_name,
-                                id="output_name",
-                            )
-                            yield Static("副檔名由輸出格式自動決定。", classes="field-hint")
-
-                    with Container(classes="field"):
                         yield Label("關鍵字")
                         with Container(classes="path-row"):
                             yield ShortcutInput(
@@ -105,100 +100,114 @@ class LogAnalyzerApp(App):
                             yield Button("清除", id="clear_keyword")
                     yield Static("", classes="field-hint")
 
-                    with Container(classes="field"):
-                        yield Label("Logback XML")
-                        with Container(classes="path-row compact-buttons"):
-                            yield ShortcutInput(
-                                placeholder="例如：./logback-spring.xml",
-                                id="logback_xml_path",
+                    yield Button("展開進階設定", id="toggle_advanced_settings", classes="advanced-toggle")
+                    with Container(id="advanced-settings", classes="advanced-settings"):
+                        yield Static("進階設定", classes="section-title section-title--sub")
+
+                        with Container(classes="field"):
+                            yield Label("輸出檔名")
+                            with Container(classes="field-body"):
+                                yield ShortcutInput(
+                                    placeholder="例如：analysis_123000",
+                                    value=self._auto_output_name,
+                                    id="output_name",
+                                )
+                                yield Static("副檔名由輸出格式自動決定。", classes="field-hint")
+
+                        with Container(classes="field"):
+                            yield Label("Logback XML")
+                            with Container(classes="path-row compact-buttons"):
+                                yield ShortcutInput(
+                                    placeholder="例如：./logback-spring.xml",
+                                    id="logback_xml_path",
+                                )
+                                yield Button("瀏覽", id="browse_logback_xml")
+                        yield Static("", classes="field-hint", id="logback-xml-status")
+
+                        with Container(classes="field"):
+                            yield Label("Log 格式")
+                            yield Select(
+                                [
+                                    ("預設 Logback", "default"),
+                                    ("進階 Pattern", "custom"),
+                                ],
+                                value="default",
+                                id="pattern_mode",
                             )
-                            yield Button("瀏覽", id="browse_logback_xml")
-                    yield Static("", classes="field-hint", id="logback-xml-status")
+                        yield Static("", classes="field-hint")
 
-                    with Container(classes="field"):
-                        yield Label("Log 格式")
-                        yield Select(
-                            [
-                                ("預設 Logback", "default"),
-                                ("進階 Pattern", "custom"),
-                            ],
-                            value="default",
-                            id="pattern_mode",
-                        )
-                    yield Static("", classes="field-hint")
+                        with Container(classes="field"):
+                            yield Label("Pattern")
+                            with Container(classes="field-body"):
+                                yield ShortcutInput(
+                                    placeholder=DEFAULT_LOGBACK_PATTERN,
+                                    id="log_pattern",
+                                )
+                                yield Static("進階模式才會套用；僅支援常見 Logback token。", classes="field-hint")
 
-                    with Container(classes="field"):
-                        yield Label("Pattern")
-                        with Container(classes="field-body"):
-                            yield ShortcutInput(
-                                placeholder=DEFAULT_LOGBACK_PATTERN,
-                                id="log_pattern",
-                            )
-                            yield Static("進階模式才會套用；僅支援常見 Logback token。", classes="field-hint")
-
-                    with Container(classes="time-section"):
-                        yield Label("時間區間")
-                        with Container(classes="time-stack"):
-                            with Container(id="start-time-row", classes="time-row"):
-                                with Container(id="start-date-group", classes="time-group"):
-                                    yield Label("開始日期")
-                                    yield ShortcutInput(
-                                        value=get_default_start_date_text(),
-                                        placeholder="YYYY-MM-DD",
-                                        id="start_date",
-                                    )
-                                with Container(id="start-time-group", classes="time-group"):
-                                    yield Label("開始時間")
-                                    yield ShortcutInput(
-                                        value=get_default_start_time_text(),
-                                        placeholder="HH:MM",
-                                        id="start_time",
-                                    )
-                            with Container(id="end-time-row", classes="time-row"):
-                                with Container(id="end-date-group", classes="time-group"):
-                                    yield Label("結束日期")
-                                    yield ShortcutInput(
-                                        value=get_default_end_date_text(),
-                                        placeholder="YYYY-MM-DD",
-                                        id="end_date",
-                                    )
-                                with Container(id="end-time-group", classes="time-group"):
-                                    yield Label("結束時間")
-                                    yield ShortcutInput(
-                                        value=get_default_end_time_text(),
-                                        placeholder="HH:MM",
-                                        id="end_time",
-                                    )
+                        with Container(classes="time-section"):
+                            yield Label("時間區間")
+                            with Container(classes="time-stack"):
+                                with Container(id="start-time-row", classes="time-row"):
+                                    with Container(id="start-date-group", classes="time-group"):
+                                        yield Label("開始日期")
+                                        yield ShortcutInput(
+                                            value=get_default_start_date_text(),
+                                            placeholder="YYYY-MM-DD",
+                                            id="start_date",
+                                        )
+                                    with Container(id="start-time-group", classes="time-group"):
+                                        yield Label("開始時間")
+                                        yield ShortcutInput(
+                                            value=get_default_start_time_text(),
+                                            placeholder="HH:MM",
+                                            id="start_time",
+                                        )
+                                with Container(id="end-time-row", classes="time-row"):
+                                    with Container(id="end-date-group", classes="time-group"):
+                                        yield Label("結束日期")
+                                        yield ShortcutInput(
+                                            value=get_default_end_date_text(),
+                                            placeholder="YYYY-MM-DD",
+                                            id="end_date",
+                                        )
+                                    with Container(id="end-time-group", classes="time-group"):
+                                        yield Label("結束時間")
+                                        yield ShortcutInput(
+                                            value=get_default_end_time_text(),
+                                            placeholder="HH:MM",
+                                            id="end_time",
+                                        )
                             yield Static("", classes="field-hint")
 
-                    with Container(classes="field-row"):
-                        with Container(classes="field field--inline field--ignore"):
-                            yield Label("忽略大小寫")
-                            yield Checkbox(value=True, id="ignore_case")
+                        with Container(classes="field-row"):
+                            with Container(classes="field field--inline field--ignore"):
+                                yield Label("忽略大小寫")
+                                yield Checkbox(value=True, id="ignore_case")
 
-                        with Container(classes="field field--inline field--sort"):
-                            yield Label("排序方式")
-                            yield Select(
-                                [
-                                    ("時間排序", "time"),
-                                    ("Level 分組", "level"),
-                                ],
-                                value="time",
-                                id="sort_by",
-                            )
+                            with Container(classes="field field--inline field--sort"):
+                                yield Label("排序方式")
+                                yield Select(
+                                    [
+                                        ("時間排序", "time"),
+                                        ("Level 分組", "level"),
+                                    ],
+                                    value="time",
+                                    id="sort_by",
+                                )
 
-                        with Container(classes="field field--inline field--format"):
-                            yield Label("輸出格式")
-                            yield Select(
-                                [
-                                    ("CSV (Excel)", "csv"),
-                                    ("JSON", "json"),
-                                    ("Markdown", "md"),
-                                ],
-                                value="csv",
-                                id="format",
-                            )
-                    yield Static("", classes="field-hint")
+                            with Container(classes="field field--inline field--format"):
+                                yield Label("輸出格式")
+                                yield Select(
+                                    [
+                                        ("CSV (Excel)", "csv"),
+                                        ("JSON", "json"),
+                                        ("Markdown", "md"),
+                                    ],
+                                    value="csv",
+                                    id="format",
+                                )
+                        yield Static("", classes="field-hint")
 
                     with Container(id="actions"):
                         yield Button("開始分析", variant="primary", id="run")
@@ -225,7 +234,9 @@ class LogAnalyzerApp(App):
     def on_mount(self) -> None:
         path_input = self.query_one("#path", Input)
         output_path_input = self.query_one("#output_path", Input)
+        self.query_one("#result-box", RichLog).can_focus = False
         path_input.focus()
+        self._set_advanced_settings_visible(False)
         self._sync_layout(self.size.width, self.size.height)
         self.update_path_preview(path_input.value)
         self.update_path_preview(output_path_input.value, "#output-path-status", require_writable=True)
@@ -301,6 +312,8 @@ class LogAnalyzerApp(App):
             await self.action_run_analysis()
         elif event.button.id == "clear":
             self.action_clear_result()
+        elif event.button.id == "toggle_advanced_settings":
+            self.action_toggle_advanced_settings()
         elif event.button.id == "browse_path":
             self.action_browse_path()
         elif event.button.id == "browse_output_path":
@@ -373,6 +386,8 @@ class LogAnalyzerApp(App):
             "#output-path-status" if target_id == "output_path" else "#path-status",
             require_writable=target_id == "output_path",
         )
+        if target_id == "path":
+            self._autofill_logback_settings(selected_path)
 
     def _apply_selected_logback_xml(self, selected_path: Optional[str]) -> None:
         if not selected_path:
@@ -402,6 +417,7 @@ class LogAnalyzerApp(App):
         self._set_result(result_box, build_loading_view())
 
         try:
+            self._autofill_logback_settings(self.query_one("#path", Input).value.strip() or ".")
             (
                 path,
                 output_path,
@@ -476,6 +492,17 @@ class LogAnalyzerApp(App):
         keyword_input.value = ""
         keyword_input.focus()
 
+    def action_toggle_advanced_settings(self) -> None:
+        self._set_advanced_settings_visible(not self._advanced_settings_visible)
+
+    def _set_advanced_settings_visible(self, visible: bool) -> None:
+        self._advanced_settings_visible = visible
+        advanced_settings = self.query_one("#advanced-settings", Container)
+        advanced_settings.display = visible
+
+        toggle_button = self.query_one("#toggle_advanced_settings", Button)
+        toggle_button.label = "收合進階設定" if visible else "展開進階設定"
+
     def action_load_logback_xml(self) -> None:
         status = self.query_one("#logback-xml-status", Static)
         xml_path = self.query_one("#logback_xml_path", Input).value.strip()
@@ -499,6 +526,72 @@ class LogAnalyzerApp(App):
         status.update(
             f"已載入 {best_pattern.name}，命中 {best_pattern.matches}/{best_pattern.checked}。"
         )
+
+    def _autofill_logback_settings(self, log_dir: str) -> None:
+        normalized_dir = os.path.abspath(os.path.expanduser(log_dir.strip() or "."))
+        if not os.path.isdir(normalized_dir):
+            return
+
+        xml_input = self.query_one("#logback_xml_path", Input)
+        pattern_input = self.query_one("#log_pattern", Input)
+        current_xml = xml_input.value.strip()
+        current_pattern = pattern_input.value.strip()
+        can_update_xml = not current_xml or current_xml == self._auto_logback_xml_path
+        can_update_pattern = not current_pattern or current_pattern == self._auto_log_pattern
+
+        if (
+            normalized_dir == self._last_logback_autofill_source
+            and current_xml == self._auto_logback_xml_path
+        ):
+            return
+
+        if not can_update_xml:
+            return
+
+        best_xml_path = ""
+        best_pattern = None
+        for xml_path in self._find_logback_xml_candidates(normalized_dir):
+            candidate = find_best_logback_pattern(xml_path, normalized_dir)
+            if candidate is None:
+                continue
+            if best_pattern is None or (candidate.matches, candidate.score) > (best_pattern.matches, best_pattern.score):
+                best_xml_path = xml_path
+                best_pattern = candidate
+
+        if best_pattern is None:
+            return
+
+        if can_update_xml:
+            xml_input.value = best_xml_path
+            self._auto_logback_xml_path = best_xml_path
+
+        if can_update_pattern:
+            pattern_input.value = best_pattern.pattern
+            self._auto_log_pattern = best_pattern.pattern
+            self.query_one("#pattern_mode", Select).value = "custom"
+
+        self.query_one("#logback-xml-status", Static).update(
+            f"已自動載入 {Path(best_xml_path).name}，命中 {best_pattern.matches}/{best_pattern.checked}。"
+        )
+        self._last_logback_autofill_source = normalized_dir
+
+    def _find_logback_xml_candidates(self, log_dir: str) -> list[str]:
+        candidates: list[str] = []
+        try:
+            filenames = sorted(os.listdir(log_dir))
+        except OSError:
+            return candidates
+
+        for filename in filenames:
+            lower = filename.lower()
+            if not lower.startswith("logback") or not lower.endswith(".xml"):
+                continue
+
+            candidate_path = os.path.join(log_dir, filename)
+            if os.path.isfile(candidate_path):
+                candidates.append(candidate_path)
+
+        return candidates
 
     def _refresh_output_name_default(self, previous_output_name: str) -> None:
         previous_clean = previous_output_name.strip()
