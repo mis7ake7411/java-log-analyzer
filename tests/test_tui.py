@@ -1,6 +1,5 @@
 import asyncio
 from pathlib import Path
-from importlib.metadata import version as package_version
 from datetime import date
 from types import SimpleNamespace
 
@@ -18,10 +17,10 @@ from log_analyzer.presentation.tui import (
     get_default_output_name_text,
     get_default_start_date_text,
     get_default_start_time_text,
-    get_package_version,
     get_system_root_path,
     parse_datetime_range_inputs,
 )
+from log_analyzer.version import get_package_version
 
 
 def test_get_system_root_path_returns_current_drive_root():
@@ -110,7 +109,7 @@ def test_ctrl_u_clears_focused_input_text():
 
 
 def test_get_package_version_matches_installed_package():
-    assert get_package_version() == package_version("java-log-analyzer")
+    assert get_package_version() == "1.0.8"
 
 
 def test_default_datetime_field_texts():

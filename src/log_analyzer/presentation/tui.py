@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import os
 from functools import partial
-from importlib.metadata import PackageNotFoundError, version as package_version
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -26,18 +25,7 @@ from .tui_inputs import (
 )
 from .tui_views import build_dashboard_view, build_error_view, build_idle_view, build_loading_view, format_path_status
 from ..infrastructure.paths import get_system_root_path, inspect_directory_path
-
-
-"""
-Java Log Analyzer 的 TUI 應用程式。
-使用 Textual 框架打造互動式介面。
-"""
-def get_package_version() -> str:
-    """讀取目前安裝的套件版本，找不到時回退到未知。"""
-    try:
-        return package_version("java-log-analyzer")
-    except PackageNotFoundError:
-        return "unknown"
+from ..version import get_package_version
 
 
 class LogAnalyzerApp(App):

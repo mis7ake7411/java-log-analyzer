@@ -1,6 +1,5 @@
 import os
 import sys
-from importlib.metadata import PackageNotFoundError, version as package_version
 from ..application.analysis_service import run_analysis
 from ..domain.logback_pattern import UnsupportedLogbackPatternError
 from .cli_args import build_argument_parser
@@ -10,13 +9,7 @@ from .cli_runtime import (
     resolve_output_path,
     resolve_target_dir,
 )
-
-
-def get_package_version() -> str:
-    try:
-        return package_version("java-log-analyzer")
-    except PackageNotFoundError:
-        return "unknown"
+from ..version import get_package_version
 
 
 def main():
