@@ -10,3 +10,4 @@ venv/
 *.csv
 *.log
 *.xml
+docs/superpowers/specs/*.md
