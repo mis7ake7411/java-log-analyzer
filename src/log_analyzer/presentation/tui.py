@@ -690,7 +690,9 @@ class LogAnalyzerApp(App):
 
     def _set_result(self, result_box: RichLog, renderable: object) -> None:
         result_box.clear()
-        result_box.write(renderable)
+        content_region = getattr(result_box, "scrollable_content_region", None)
+        width = getattr(content_region, "width", None)
+        result_box.write(renderable, width=width if width and width > 0 else None, expand=True)
         result_box.scroll_home()
 
     def _sync_pattern_field_visibility(self) -> None:

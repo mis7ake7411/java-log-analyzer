@@ -51,6 +51,7 @@
 
 #result-box {
     height: 1fr;
+    width: 1fr;
     min-height: 0;
     border: round #334155;
     background: #111827;

@@ -13,30 +13,39 @@ from .error_messages import get_error_hint
 
 
 def build_idle_view() -> Panel:
-    body = Group(
-        Text("尚未產生分析結果", style="bold cyan"),
-        Text("請先在上方填入條件，然後按「開始分析」", style="white"),
-        Text("Enter 開始分析，c 清除結果，q 離開", style="dim"),
+    return _build_status_panel(
+        "結果區",
+        "cyan",
+        (
+            Text("尚未產生分析結果", style="bold cyan"),
+            Text("請先在上方填入條件，然後按「開始分析」", style="white"),
+            Text("Enter 開始分析，c 清除結果，q 離開", style="dim"),
+        ),
     )
-    return Panel(body, title="結果區", border_style="cyan", padding=(1, 2))
 
 
 def build_loading_view() -> Panel:
-    body = Group(
-        Text("分析中，請稍候...", style="bold cyan"),
-        Text("正在掃描 Log 目錄、套用條件並產生輸出", style="white"),
-        Text("大型資料夾可能需要較久時間", style="dim"),
+    return _build_status_panel(
+        "執行中",
+        "cyan",
+        (
+            Text("分析中，請稍候...", style="bold cyan"),
+            Text("正在掃描 Log 目錄、套用條件並產生輸出", style="white"),
+            Text("大型資料夾可能需要較久時間", style="dim"),
+        ),
     )
-    return Panel(body, title="執行中", border_style="cyan", padding=(1, 2))
 
 
 def build_error_view(title: str, message: str) -> Panel:
-    body = Group(
-        Text(title, style="bold red"),
-        Text(message, style="white"),
-        Text(get_error_hint(title, message), style="dim"),
+    return _build_status_panel(
+        "執行失敗",
+        "red",
+        (
+            Text(title, style="bold red"),
+            Text(message, style="white"),
+            Text(get_error_hint(title, message), style="dim"),
+        ),
     )
-    return Panel(body, title="執行失敗", border_style="red", padding=(1, 2))
 
 
 def format_path_status(message: str, color: str, require_writable: bool) -> Text:
@@ -122,6 +131,10 @@ def _status_text(message: str, color: str) -> Text:
     text = Text()
     text.append(message, style=color)
     return text
+
+
+def _build_status_panel(title: str, border_style: str, lines: tuple[Text, ...]) -> Panel:
+    return Panel(Group(*lines), title=title, border_style=border_style, padding=(1, 2))
 
 
 def _metric_card(title: str, value: str, accent: str, caption: str) -> Panel:

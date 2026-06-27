@@ -716,6 +716,31 @@ def test_error_hint_reflects_logback_pattern_errors():
     assert "%replace" in hint
 
 
+def test_set_result_uses_scrollable_content_width():
+    class FakeBox:
+        def __init__(self) -> None:
+            self.scrollable_content_region = SimpleNamespace(width=88)
+            self.calls = []
+
+        def clear(self) -> None:
+            self.calls.append("clear")
+
+        def write(self, renderable, width=None, expand=False):  # noqa: ANN001
+            self.calls.append(("write", renderable, width, expand))
+
+        def scroll_home(self) -> None:
+            self.calls.append("scroll_home")
+
+    app = LogAnalyzerApp()
+    box = FakeBox()
+
+    app._set_result(box, "renderable")
+
+    assert box.calls[0] == "clear"
+    assert box.calls[1] == ("write", "renderable", 88, True)
+    assert box.calls[2] == "scroll_home"
+
+
 def test_dashboard_view_includes_exception_group_summary():
     result = SimpleNamespace(
         total_logs=9,
