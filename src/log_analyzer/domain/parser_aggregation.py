@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass
 
 LEVEL_SORT_ORDER = {
     "ERROR": 0,
@@ -10,6 +11,66 @@ LEVEL_SORT_ORDER = {
     "DEBUG": 3,
     "TRACE": 4,
 }
+
+_LOG_FIELDS = {
+    "count",
+    "line_numbers",
+    "timestamp",
+    "last_timestamp",
+    "level",
+    "thread",
+    "logger",
+    "filename",
+    "message",
+    "message_body",
+    "stacktrace",
+}
+
+
+@dataclass(slots=True)
+class GroupedLog:
+    count: int
+    line_numbers: tuple[int, ...]
+    timestamp: str
+    last_timestamp: str
+    level: str
+    thread: str
+    logger: str
+    filename: str
+    message: str
+    message_body: str
+    stacktrace: str
+
+    def __getitem__(self, key):
+        if key == "line_numbers":
+            return normalize_line_numbers(self.line_numbers)
+        if key in _LOG_FIELDS:
+            return getattr(self, key)
+        raise KeyError(key)
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def __contains__(self, key):
+        return key in _LOG_FIELDS
+
+    def to_dict(self):
+        return {
+            "count": self.count,
+            "line_numbers": normalize_line_numbers(self.line_numbers),
+            "timestamp": self.timestamp,
+            "last_timestamp": self.last_timestamp,
+            "level": self.level,
+            "thread": self.thread,
+            "logger": self.logger,
+            "filename": self.filename,
+            "message": self.message,
+            "message_body": self.message_body,
+            "stacktrace": self.stacktrace,
+        }
 
 
 def normalize_keyword(keyword, ignore_case):
@@ -52,16 +113,47 @@ def add_to_grouped_logs(grouped_logs, entry):
     key = (entry["level"], entry["logger"], message_text, stacktrace_text)
 
     if key in grouped_logs:
-        grouped_logs[key]["count"] += 1
-        grouped_logs[key]["last_timestamp"] = entry["timestamp"]
+        grouped_logs[key].count += 1
+        grouped_logs[key].last_timestamp = entry["timestamp"]
         # 記錄重複項出現的行號
-        grouped_logs[key]["line_numbers"].append(entry["line_num"])
+        _append_line_number(grouped_logs[key], entry["line_num"])
     else:
-        entry["count"] = 1
-        entry["last_timestamp"] = entry["timestamp"]
-        entry["stacktrace"] = stacktrace_text
-        entry["message_body"] = entry.get("message_body", "")
-        grouped_logs[key] = entry
+        grouped_logs[key] = GroupedLog(
+            count=1,
+            line_numbers=(entry["line_num"],),
+            timestamp=entry["timestamp"],
+            last_timestamp=entry["timestamp"],
+            level=entry["level"],
+            thread=entry["thread"],
+            logger=entry["logger"],
+            filename=entry["filename"],
+            message=message_text,
+            message_body=entry.get("message_body", ""),
+            stacktrace=stacktrace_text,
+        )
+
+
+def _append_line_number(entry, line_num):
+    line_numbers = entry.line_numbers
+    if isinstance(line_numbers, tuple):
+        entry.line_numbers = line_numbers + (line_num,)
+        return
+
+    if line_numbers is None:
+        entry.line_numbers = (line_num,)
+        return
+
+    entry.line_numbers = (line_numbers, line_num)
+
+
+def normalize_line_numbers(line_numbers):
+    if isinstance(line_numbers, list):
+        return line_numbers
+    if isinstance(line_numbers, tuple):
+        return list(line_numbers)
+    if line_numbers is None:
+        return []
+    return [line_numbers]
 
 
 def should_include(text, keyword, ignore_case):

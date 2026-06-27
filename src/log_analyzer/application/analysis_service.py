@@ -11,7 +11,7 @@ from ..infrastructure.exporter import export_results
 from ..infrastructure.paths import ensure_readable_directory, ensure_writable_directory
 
 
-@dataclass
+@dataclass(slots=True)
 class AnalysisResult:
     """一次分析執行的完整結果。"""
 
@@ -26,7 +26,8 @@ class AnalysisResult:
     level_summary: list[tuple[str, int]]
     sort_by: str
     counts: Counter[str]
-    matched_logs: list[dict[str, Any]]
+    matched_logs: Any
+    exported_files: list[str]
 
 
 def build_output_path(output_dir: str, output_name: str, fmt: str) -> str:
@@ -53,6 +54,8 @@ def run_analysis(
     sort_by: str,
     fmt: str,
     log_pattern: Optional[str] = None,
+    max_export_bytes: Optional[int] = None,
+    include_details: bool = True,
 ) -> AnalysisResult:
     """執行分析、匯出，並回傳摘要結果。"""
     normalized_path = ensure_readable_directory(path)
@@ -69,16 +72,20 @@ def run_analysis(
     if not counts and not matched_logs:
         raise ValueError("找不到符合條件的 log。請確認目錄、關鍵字或資料內容。")
 
-    export_results(counts, matched_logs, output_path, fmt)
+    exported_files = [os.path.abspath(path) for path in export_results(counts, matched_logs, output_path, fmt, max_export_bytes)]
 
     total_logs = sum(counts.values())
     matched_groups = len(matched_logs)
     matched_occurrences = sum(entry.get("count", 1) for entry in matched_logs)
     level_summary = [(level, count) for level, count in sorted(counts.items()) if count > 0]
+    detail_logs = matched_logs if include_details else []
+    if not include_details and hasattr(matched_logs, "release"):
+        matched_logs.release()
+    del matched_logs
 
     return AnalysisResult(
         input_path=os.path.abspath(normalized_path),
-        output_path=os.path.abspath(output_path),
+        output_path=os.path.abspath(exported_files[0]),
         format_name=fmt,
         keyword=keyword or "未設定",
         ignore_case=ignore_case,
@@ -88,5 +95,6 @@ def run_analysis(
         level_summary=level_summary,
         sort_by=sort_by,
         counts=counts,
-        matched_logs=matched_logs,
+        matched_logs=detail_logs,
+        exported_files=exported_files,
     )

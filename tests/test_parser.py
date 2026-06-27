@@ -1,8 +1,9 @@
 import pytest
 import os
 import shutil
+import pickle
 from datetime import datetime
-from log_analyzer.domain.parser import parse_logs
+from log_analyzer.domain.parser import iter_logs, parse_logs
 import log_analyzer.domain.parser as parser_module
 
 @pytest.fixture
@@ -23,6 +24,22 @@ def test_parse_logs_counts(temp_log_dir):
     counts, errors = parse_logs(temp_log_dir)
     assert counts['INFO'] == 2
     assert counts['ERROR'] == 1
+
+
+def test_parse_logs_compacts_single_line_numbers_and_expands_on_duplicates(tmp_path):
+    d = tmp_path / "logs"
+    d.mkdir()
+    log_file = d / "duplicate.log"
+    log_file.write_text(
+        "2026-06-06 10:00:00.000 [main] INFO  com.test - Same message\n"
+        "2026-06-06 10:01:00.000 [main] INFO  com.test - Same message\n",
+        encoding="utf-8",
+    )
+
+    _counts, errors = parse_logs(str(d))
+
+    assert errors[0]["line_numbers"] == [1, 2]
+
 
 def test_parse_logs_keyword(temp_log_dir):
     # Test keyword filtering
@@ -54,6 +71,26 @@ def test_parse_logs_separates_multiline_message_and_exception(tmp_path):
     assert "payload=abc" in errors[0]["message_body"]
     assert "requestId=123" in errors[0]["message_body"]
     assert errors[0]["stacktrace"] == ""
+    assert "full_text" not in errors[0]
+    assert "stacktrace_lines" not in errors[0]
+    assert "line_num" not in errors[0]
+
+
+def test_iter_logs_yields_entries_in_parse_order(tmp_path):
+    d = tmp_path / "logs"
+    d.mkdir()
+    log_file = d / "ordered.log"
+    log_file.write_text(
+        "2026-06-06 10:00:00.000 [main] INFO  com.test - Info first\n"
+        "2026-06-06 10:01:00.000 [main] ERROR com.test - Error second\n",
+        encoding="utf-8",
+    )
+
+    entries = list(iter_logs(str(d)))
+
+    assert [entry["message"] for entry in entries] == ["Info first", "Error second"]
+    assert entries[0]["full_text"] == "Info first"
+    assert entries[0]["stacktrace_lines"] == []
 
 
 def test_parse_logs_defaults_to_time_order(tmp_path):
@@ -96,6 +133,70 @@ def test_parse_logs_can_sort_by_level_then_time(tmp_path):
         ("INFO", "Info first"),
         ("DEBUG", "Debug later"),
     ]
+
+
+def test_parse_logs_uses_external_sort_when_entries_exceed_threshold(tmp_path, monkeypatch):
+    d = tmp_path / "logs"
+    d.mkdir()
+    log_file = d / "external-sort.log"
+    log_file.write_text(
+        "2026-06-06 10:00:00.000 [main] INFO  com.test - Info first\n"
+        "2026-06-06 10:01:00.000 [main] ERROR com.test - Error second\n"
+        "2026-06-06 10:02:00.000 [main] WARN  com.test - Warn third\n"
+    )
+
+    monkeypatch.setattr(parser_module, "MAX_SORT_GROUPS_IN_MEMORY", 1)
+
+    _counts, errors = parse_logs(str(d), sort_by="level")
+
+    assert [(entry["level"], entry["message"]) for entry in errors] == [
+        ("ERROR", "Error second"),
+        ("WARN", "Warn third"),
+        ("INFO", "Info first"),
+    ]
+
+
+def test_parse_logs_spills_grouped_logs_and_merges_across_spills(tmp_path, monkeypatch):
+    d = tmp_path / "logs"
+    d.mkdir()
+    log_file = d / "spilled.log"
+    log_file.write_text(
+        "2026-06-06 10:00:00.000 [main] INFO  com.test - Same message\n"
+        "2026-06-06 10:01:00.000 [main] INFO  com.test - Same message\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(parser_module, "MAX_GROUPS_IN_MEMORY", 1)
+
+    counts, errors = parse_logs(str(d))
+
+    assert counts["INFO"] == 2
+    assert len(errors) == 1
+    assert errors[0]["count"] == 2
+    assert errors[0]["line_numbers"] == [1, 2]
+
+
+def test_matched_logs_store_caches_index_access(tmp_path, monkeypatch):
+    store_path = tmp_path / "logs.pkl"
+    with open(store_path, "wb") as file_handle:
+        pickle.dump({"message": "first"}, file_handle, protocol=pickle.HIGHEST_PROTOCOL)
+        pickle.dump({"message": "second"}, file_handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    store = parser_module.MatchedLogsStore(path=str(store_path), length=2)
+    load_calls = []
+    original_load = parser_module.pickle.load
+
+    def counting_load(file_handle):
+        load_calls.append(1)
+        return original_load(file_handle)
+
+    monkeypatch.setattr(parser_module.pickle, "load", counting_load)
+
+    assert store[0]["message"] == "first"
+    assert load_calls == [1]
+
+    assert store[0]["message"] == "first"
+    assert load_calls == [1]
 
 
 def test_parse_logs_with_custom_logback_pattern(tmp_path):

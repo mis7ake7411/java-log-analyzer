@@ -59,6 +59,8 @@ def build_dashboard_view(result: AnalysisResult, compact: bool) -> Group:
     metadata.add_column(ratio=1)
     metadata.add_row("輸入目錄", result.input_path)
     metadata.add_row("輸出檔案", result.output_path)
+    if len(result.exported_files) > 1:
+        metadata.add_row("分割檔案", f"{len(result.exported_files)} 個")
     metadata.add_row("關鍵字", result.keyword)
     metadata.add_row("排序方式", "Level 分組" if result.sort_by == "level" else "時間排序")
     metadata.add_row("忽略大小寫", "是" if result.ignore_case else "否")

@@ -439,6 +439,8 @@ class LogAnalyzerApp(App):
                     sort_by,
                     fmt,
                     selected_pattern,
+                    None,
+                    False,
                 ),
             )
             self._last_result = result

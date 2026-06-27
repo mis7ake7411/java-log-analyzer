@@ -79,9 +79,17 @@ def main():
             args.sort,
             args.format,
             selected_pattern,
+            None if args.max_export_mb is None else args.max_export_mb * 1024 * 1024,
+            False,
         )
 
         print(f"分析完成！報表已儲存至：{result.output_path} (格式: {args.format.upper()})")
+        if len(result.exported_files) > 1:
+            print(f"已自動分割為 {len(result.exported_files)} 個檔案：")
+            for file_path in result.exported_files:
+                print(f"  - {file_path}")
+        if args.max_export_mb is not None:
+            print(f"分割門檻：{args.max_export_mb} MB")
         
         print("\n符合條件的統計摘要 (Summary)：")
         for level, count in sorted(result.counts.items()):

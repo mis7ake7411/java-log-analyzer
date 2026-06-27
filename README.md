@@ -151,6 +151,12 @@ TUI 小提示：
     log-analyzer --version
     ```
 
+- **調整單一輸出檔大小門檻**：
+
+    ```bash
+    log-analyzer /path/to/logs --max-export-mb 20
+    ```
+
 ## Logback Pattern 支援範圍
 
 預設模式使用內建 pattern：
@@ -168,10 +174,18 @@ TUI 小提示：
 
 ## 專案結構
 
-- `src/log_analyzer/parser.py`: 核心解析邏輯（內含詳細中文註解）。
-- `src/log_analyzer/exporter.py`: 多格式匯出邏輯 (CSV, JSON, MD)。
-- `src/log_analyzer/tui.py`: Textual 互動介面實作。
-- `src/log_analyzer/cli.py`: 命令列進入點與參數處理。
+- `src/log_analyzer/domain/parser.py`: 核心解析邏輯。
+- `src/log_analyzer/infrastructure/exporter.py`: 多格式匯出與自動分割邏輯。
+- `src/log_analyzer/presentation/tui.py`: Textual 互動介面實作。
+- `src/log_analyzer/presentation/cli.py`: 命令列進入點與參數處理。
+
+## 匯出行為
+
+- 預設會先輸出單一報表。
+- 當匯出內容超過大小門檻時，工具會自動產生摘要檔與多個分割檔。
+- 目前分割門檻預設為 `50MB`，適合一般 Excel 與文件預覽使用情境。
+- 分割後的摘要檔會列出實際產生的分割檔案，方便快速定位內容。
+- CLI 可透過 `--max-export-mb` 調整單一檔案大小門檻。
 
 ## 適用環境
 

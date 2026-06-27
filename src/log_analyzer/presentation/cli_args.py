@@ -17,6 +17,7 @@ def build_argument_parser(get_package_version):
     parser.add_argument("--pattern", help="自訂 Logback pattern，可貼上 logback.xml 的 <pattern> 內容")
     parser.add_argument("--logback-xml", help="從 logback.xml / logback-spring.xml 匯入並自動選擇最符合 log 樣本的 pattern")
     parser.add_argument("--sort", choices=["time", "level"], default="time", help="結果排序方式：time 時間排序，level 依 Log Level 分組排序")
+    parser.add_argument("--max-export-mb", type=int, help="單一輸出檔案的最大大小 (MB)，超過時自動分割")
     parser.add_argument("--tui", action="store_true", help="啟動互動式介面 (TUI)")
     parser.add_argument("--version", action="version", version=f"%(prog)s {get_package_version()}")
     return parser
