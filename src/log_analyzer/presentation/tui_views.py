@@ -15,8 +15,8 @@ from .error_messages import get_error_hint
 def build_idle_view() -> Panel:
     body = Group(
         Text("尚未產生分析結果", style="bold cyan"),
-        Text("請先在上方填入條件，然後按「開始分析」。", style="white"),
-        Text("Enter 開始分析，c 清除結果，q 離開。", style="dim"),
+        Text("請先在上方填入條件，然後按「開始分析」", style="white"),
+        Text("Enter 開始分析，c 清除結果，q 離開", style="dim"),
     )
     return Panel(body, title="結果區", border_style="cyan", padding=(1, 2))
 
@@ -24,8 +24,8 @@ def build_idle_view() -> Panel:
 def build_loading_view() -> Panel:
     body = Group(
         Text("分析中，請稍候...", style="bold cyan"),
-        Text("正在掃描 Log 目錄、套用條件並產生輸出。", style="white"),
-        Text("大型資料夾可能需要較久時間。", style="dim"),
+        Text("正在掃描 Log 目錄、套用條件並產生輸出", style="white"),
+        Text("大型資料夾可能需要較久時間", style="dim"),
     )
     return Panel(body, title="執行中", border_style="cyan", padding=(1, 2))
 
@@ -50,7 +50,7 @@ def build_dashboard_view(result: AnalysisResult, compact: bool) -> Group:
     overview = Panel(
         Group(
             Text("分析完成", style="bold green"),
-            Text("先看摘要，再往下看細節。", style="dim"),
+            Text("先看摘要，再往下看細節", style="dim"),
         ),
         border_style="green",
         padding=(1, 2),
@@ -148,7 +148,7 @@ def _build_exception_summary_panel(result: AnalysisResult) -> Panel:
     return Panel(
         Group(
             Text("尚未偵測到例外群組", style="bold red"),
-            Text("目前結果沒有可歸類的 stacktrace 或例外標題。", style="dim"),
+            Text("目前結果沒有可歸類的 stacktrace 或例外標題", style="dim"),
         ),
         title="例外群組摘要",
         border_style="red",
@@ -172,7 +172,7 @@ def _build_time_hotspot_panel(result: AnalysisResult) -> Panel:
     return Panel(
         Group(
             Text("尚未偵測到時間熱點", style="bold yellow"),
-            Text("目前結果沒有可用的時間戳記。", style="dim"),
+            Text("目前結果沒有可用的時間戳記", style="dim"),
         ),
         title="時間熱點",
         border_style="yellow",
@@ -198,7 +198,7 @@ def _build_logger_thread_distribution_panel(result: AnalysisResult) -> Panel:
     return Panel(
         Group(
             Text("尚未偵測到 Logger / Thread 分布", style="bold blue"),
-            Text("目前結果沒有足夠的 logger 或 thread 資訊。", style="dim"),
+            Text("目前結果沒有足夠的 logger 或 thread 資訊", style="dim"),
         ),
         title="Logger / Thread 分布",
         border_style="blue",
@@ -221,7 +221,7 @@ def _distribution_table(label: str, summary: list[tuple[str, int, int]], accent:
     return Panel(
         Group(
             Text(f"尚無 {label}", style=f"bold {accent}"),
-            Text("目前沒有可顯示的分布資訊。", style="dim"),
+            Text("目前沒有可顯示的分布資訊", style="dim"),
         ),
         title=label,
         border_style=accent,

@@ -17,13 +17,13 @@ MAX_EXPORT_BYTES_PER_FILE = 50 * 1024 * 1024
 
 def export_results(counts, matched_logs, output_path, format='csv', max_export_bytes: int | None = None):
     """
-    根據指定的格式匯出分析結果。
+    根據指定的格式匯出分析結果
 
     參數:
-        counts (Counter): 統計數據。
-        matched_logs (list): 符合條件的日誌詳情。
-        output_path (str): 輸出路徑。
-        format (str): 格式 ('csv', 'json', 'md')。
+        counts (Counter): 統計數據
+        matched_logs (list): 符合條件的日誌詳情
+        output_path (str): 輸出路徑
+        format (str): 格式 ('csv', 'json', 'md')
     """
     output = Path(output_path)
     format_name = format.lower()
@@ -82,8 +82,8 @@ def _export_streaming(counts, matched_logs, output: Path, format_name: str, thre
             break
 
     if format_name == 'md' and not has_any_logs:
-        current_handle.write("無符合條件的記錄。\n")
-        current_size += _rendered_size("無符合條件的記錄。\n", format_name)
+        current_handle.write("無符合條件的記錄\n")
+        current_size += _rendered_size("無符合條件的記錄\n", format_name)
 
     if split_occurred:
         current_handle = _close_part_file(current_handle, format_name)
@@ -105,7 +105,7 @@ def _render_log_block(index: int, log, format_name: str, has_previous_logs: bool
         block = serialize_markdown_log(index, log)
         return block, _rendered_size(block, format_name)
 
-    # CSV 以逐行寫入，不需要額外分隔符。
+    # CSV 以逐行寫入，不需要額外分隔符
     block = serialize_csv_log(log)
     return block, _rendered_size(block, format_name)
 

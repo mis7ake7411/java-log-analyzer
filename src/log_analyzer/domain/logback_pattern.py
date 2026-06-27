@@ -177,7 +177,7 @@ _WRAPPER_TOKENS = {
 
 
 def _strip_wrapper_converters(pattern: str) -> str:
-    """移除包裹型 converter，保留內層可解析 pattern。"""
+    """移除包裹型 converter，保留內層可解析 pattern"""
     stripped = pattern
     for _ in range(20):
         next_stripped, changed = _strip_wrapper_converters_once(stripped)

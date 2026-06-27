@@ -74,7 +74,7 @@ class GroupedLog:
 
 
 def normalize_keyword(keyword, ignore_case):
-    """統一關鍵字比對前的大小寫處理。"""
+    """統一關鍵字比對前的大小寫處理"""
     if keyword and ignore_case:
         return keyword.lower()
     return keyword
@@ -92,7 +92,7 @@ def sort_key(entry, sort_by):
 
 def commit_entry(grouped_logs, counts, entry, keyword, ignore_case):
     """
-    內部輔助函式：套用文字過濾後，才將 log 納入統計與分組。
+    內部輔助函式：套用文字過濾後，才將 log 納入統計與分組
     """
     if not should_include(entry["full_text"], keyword, ignore_case):
         return
@@ -103,7 +103,7 @@ def commit_entry(grouped_logs, counts, entry, keyword, ignore_case):
 
 def add_to_grouped_logs(grouped_logs, entry):
     """
-    內部輔助函式：將新的 log 加入分組中。
+    內部輔助函式：將新的 log 加入分組中
     """
     stacktrace_text = "".join(entry["stacktrace_lines"]).strip()
     key = (
@@ -160,7 +160,7 @@ def normalize_line_numbers(line_numbers):
 
 def should_include(text, keyword, ignore_case):
     """
-    內部輔助函式：判斷文字是否包含關鍵字。
+    內部輔助函式：判斷文字是否包含關鍵字
     """
     if not keyword:
         return True

@@ -4,7 +4,7 @@ import argparse
 
 
 def build_argument_parser(get_package_version):
-    """建立 CLI 參數解析器。"""
+    """建立 CLI 參數解析器"""
     parser = argparse.ArgumentParser(prog="log-analyzer", description="Java Logback 日誌分析工具")
 
     parser.add_argument("dir", nargs="?", default=".", help="包含 .log 檔案的目錄路徑 (預設: 當前目錄)")

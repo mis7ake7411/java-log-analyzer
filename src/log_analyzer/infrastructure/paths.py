@@ -5,10 +5,10 @@ from pathlib import Path
 
 
 def inspect_directory_path(path: str, require_writable: bool = False) -> tuple[str, str, bool, str]:
-    """檢查資料夾路徑是否存在、可讀，必要時也要可寫。"""
+    """檢查資料夾路徑是否存在、可讀，必要時也要可寫"""
     cleaned = path.strip()
     if not cleaned:
-        return "yellow", "請輸入資料夾路徑。", False, ""
+        return "yellow", "請輸入資料夾路徑", False, ""
 
     abspath = os.path.abspath(os.path.expanduser(cleaned))
     if not os.path.exists(abspath):
@@ -27,10 +27,10 @@ def inspect_directory_path(path: str, require_writable: bool = False) -> tuple[s
 
 
 def inspect_file_path(path: str) -> tuple[str, str, bool, str]:
-    """檢查檔案路徑是否存在且可讀。"""
+    """檢查檔案路徑是否存在且可讀"""
     cleaned = path.strip()
     if not cleaned:
-        return "yellow", "請輸入檔案路徑。", False, ""
+        return "yellow", "請輸入檔案路徑", False, ""
 
     abspath = os.path.abspath(os.path.expanduser(cleaned))
     if not os.path.exists(abspath):
@@ -43,7 +43,7 @@ def inspect_file_path(path: str) -> tuple[str, str, bool, str]:
 
 
 def ensure_readable_directory(path: str) -> str:
-    """確認分析來源資料夾可讀，並回傳正規化後路徑。"""
+    """確認分析來源資料夾可讀，並回傳正規化後路徑"""
     color, message, is_valid, abspath = inspect_directory_path(path)
     if is_valid:
         return abspath
@@ -53,7 +53,7 @@ def ensure_readable_directory(path: str) -> str:
 
 
 def ensure_writable_directory(path: str) -> str:
-    """確認輸出資料夾可寫，並回傳正規化後路徑。"""
+    """確認輸出資料夾可寫，並回傳正規化後路徑"""
     color, message, is_valid, abspath = inspect_directory_path(path, require_writable=True)
     if is_valid:
         return abspath
@@ -63,5 +63,5 @@ def ensure_writable_directory(path: str) -> str:
 
 
 def get_system_root_path() -> Path:
-    """回傳目前作業系統的根目錄。"""
+    """回傳目前作業系統的根目錄"""
     return Path(Path.cwd().anchor or os.sep)

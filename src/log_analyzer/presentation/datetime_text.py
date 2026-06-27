@@ -13,7 +13,7 @@ _DATETIME_COMPACT_HM_RE = re.compile(r"^\d{12}$")
 
 
 def normalize_date_text(value: str) -> str:
-    """將純數字日期轉成 YYYY-MM-DD。"""
+    """將純數字日期轉成 YYYY-MM-DD"""
     clean = value.strip()
     if _DATE_COMPACT_RE.fullmatch(clean):
         return f"{clean[:4]}-{clean[4:6]}-{clean[6:]}"
@@ -21,7 +21,7 @@ def normalize_date_text(value: str) -> str:
 
 
 def normalize_time_text(value: str) -> str:
-    """將純數字時間轉成 HH:MM 或 HH:MM:SS。"""
+    """將純數字時間轉成 HH:MM 或 HH:MM:SS"""
     clean = value.strip()
     if _TIME_HM_COMPACT_RE.fullmatch(clean):
         return f"{clean[:2]}:{clean[2:]}"
@@ -31,7 +31,7 @@ def normalize_time_text(value: str) -> str:
 
 
 def parse_datetime_value(value: Optional[str], label: str):
-    """解析 CLI 單一時間字串，支援常見純數字格式。"""
+    """解析 CLI 單一時間字串，支援常見純數字格式"""
     if not value:
         return None
 
@@ -43,13 +43,13 @@ def parse_datetime_value(value: Optional[str], label: str):
             continue
 
     raise ValueError(
-        f"{label}格式不正確。請使用 YYYY-MM-DD HH:MM:SS、YYYY-MM-DD HH:MM、"
-        "YYYY-MM-DD、YYYYMMDDHHMMSS、YYYYMMDDHHMM 或 YYYYMMDD。"
+        f"{label}格式不正確請使用 YYYY-MM-DD HH:MM:SS、YYYY-MM-DD HH:MM、"
+        "YYYY-MM-DD、YYYYMMDDHHMMSS、YYYYMMDDHHMM 或 YYYYMMDD"
     )
 
 
 def _build_datetime_candidates(value: str) -> Iterator[Tuple[str, str]]:
-    """依字串形狀組出可嘗試解析的日期時間候選。"""
+    """依字串形狀組出可嘗試解析的日期時間候選"""
     if _DATETIME_COMPACT_RE.fullmatch(value):
         yield value, "%Y%m%d%H%M%S"
         return

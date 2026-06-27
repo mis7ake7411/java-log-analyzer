@@ -7,7 +7,7 @@ from ..domain.parser_aggregation import normalize_line_numbers
 
 
 def render_csv_report(counts, matched_logs) -> str:
-    """將分析結果渲染為 CSV 內容字串。"""
+    """將分析結果渲染為 CSV 內容字串"""
     parts = [render_csv_prefix(counts)]
     for log in matched_logs:
         parts.append(serialize_csv_log(log))
@@ -15,7 +15,7 @@ def render_csv_report(counts, matched_logs) -> str:
 
 
 def render_csv_prefix(counts) -> str:
-    """渲染 CSV 報表前綴，不包含詳細列資料。"""
+    """渲染 CSV 報表前綴，不包含詳細列資料"""
     buffer = StringIO()
     writer = csv.writer(buffer)
     writer.writerow(['--- 統計摘要 ---'])
@@ -30,7 +30,7 @@ def render_csv_prefix(counts) -> str:
 
 
 def render_csv_summary(counts, split_files=None) -> str:
-    """渲染僅包含摘要的 CSV 內容字串。"""
+    """渲染僅包含摘要的 CSV 內容字串"""
     buffer = StringIO()
     writer = csv.writer(buffer)
     writer.writerow(['--- 統計摘要 ---'])
@@ -47,7 +47,7 @@ def render_csv_summary(counts, split_files=None) -> str:
 
 
 def serialize_csv_log(log) -> str:
-    """渲染單筆 CSV 詳細列。"""
+    """渲染單筆 CSV 詳細列"""
     buffer = StringIO()
     writer = csv.writer(buffer)
     writer.writerow(_csv_log_row(log))

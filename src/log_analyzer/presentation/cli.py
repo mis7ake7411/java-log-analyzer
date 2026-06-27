@@ -22,7 +22,7 @@ def _print_error(title: str, message: str) -> None:
 
 def main():
     """
-    程式的主要進入點，負責處理命令列參數與執行流程。
+    程式的主要進入點，負責處理命令列參數與執行流程
     """
     parser = build_argument_parser(get_package_version)
     args = parser.parse_args()

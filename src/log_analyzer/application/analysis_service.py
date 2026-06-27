@@ -13,7 +13,7 @@ from ..infrastructure.paths import ensure_readable_directory, ensure_writable_di
 
 @dataclass(slots=True)
 class AnalysisResult:
-    """一次分析執行的完整結果。"""
+    """一次分析執行的完整結果"""
 
     input_path: str
     output_path: str
@@ -31,7 +31,7 @@ class AnalysisResult:
 
 
 def build_output_path(output_dir: str, output_name: str, fmt: str) -> str:
-    """把輸出資料夾與檔名組合成完整輸出路徑。"""
+    """把輸出資料夾與檔名組合成完整輸出路徑"""
     normalized_dir = ensure_writable_directory(output_dir)
     cleaned = output_name.strip()
     if not cleaned:
@@ -57,7 +57,7 @@ def run_analysis(
     max_export_bytes: Optional[int] = None,
     include_details: bool = True,
 ) -> AnalysisResult:
-    """執行分析、匯出，並回傳摘要結果。"""
+    """執行分析、匯出，並回傳摘要結果"""
     normalized_path = ensure_readable_directory(path)
     counts, matched_logs = parse_logs(
         normalized_path,
@@ -70,7 +70,7 @@ def run_analysis(
     )
 
     if not counts and not matched_logs:
-        raise ValueError("找不到符合條件的 log。請確認目錄、關鍵字或資料內容。")
+        raise ValueError("找不到符合條件的 log請確認目錄、關鍵字或資料內容")
 
     exported_files = [os.path.abspath(path) for path in export_results(counts, matched_logs, output_path, fmt, max_export_bytes)]
 

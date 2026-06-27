@@ -9,7 +9,7 @@ _PYPROJECT_VERSION_RE = re.compile(r'^version\s*=\s*"([^"]+)"\s*$', re.MULTILINE
 
 
 def get_package_version() -> str:
-    """先讀取專案版本，失敗時回退到已安裝套件版本。"""
+    """先讀取專案版本，失敗時回退到已安裝套件版本"""
     source_version = _get_source_version()
     if source_version:
         return source_version

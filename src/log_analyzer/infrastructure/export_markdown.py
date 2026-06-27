@@ -4,10 +4,10 @@ from ..domain.parser_aggregation import normalize_line_numbers
 
 
 def render_markdown_report(counts, matched_logs) -> str:
-    """將分析結果渲染為 Markdown 內容字串。"""
+    """將分析結果渲染為 Markdown 內容字串"""
     parts = [render_markdown_prefix(counts)]
     if not matched_logs:
-        parts.append("無符合條件的記錄。\n")
+        parts.append("無符合條件的記錄\n")
     else:
         for i, log in enumerate(matched_logs, 1):
             parts.append(serialize_markdown_log(i, log))
@@ -15,7 +15,7 @@ def render_markdown_report(counts, matched_logs) -> str:
 
 
 def render_markdown_prefix(counts) -> str:
-    """渲染 Markdown 報表前綴，不包含詳細記錄。"""
+    """渲染 Markdown 報表前綴，不包含詳細記錄"""
     parts = ["# Java Log 分析報告\n\n"]
     parts.append("## 統計摘要\n")
     parts.append("| 日誌等級 | 數量 |\n")
@@ -28,7 +28,7 @@ def render_markdown_prefix(counts) -> str:
 
 
 def render_markdown_summary(counts, split_files=None) -> str:
-    """渲染僅包含摘要的 Markdown 內容字串。"""
+    """渲染僅包含摘要的 Markdown 內容字串"""
     parts = ["# Java Log 分析報告\n\n"]
     parts.append("## 統計摘要\n")
     parts.append("| 日誌等級 | 數量 |\n")
@@ -44,7 +44,7 @@ def render_markdown_summary(counts, split_files=None) -> str:
 
 
 def serialize_markdown_log(index: int, log) -> str:
-    """渲染單筆 Markdown 詳細區塊。"""
+    """渲染單筆 Markdown 詳細區塊"""
     parts = [f"### {index}. [{log['level']}] {log['message']}\n"]
     lines_str = ", ".join(map(str, normalize_line_numbers(log.get('line_numbers'))))
     parts.append(f"- **出現行號**: `{lines_str}`\n")

@@ -6,7 +6,7 @@ from ..domain.parser_aggregation import normalize_line_numbers
 
 
 def render_json_report(counts, matched_logs) -> str:
-    """將分析結果渲染為 JSON 內容字串。"""
+    """將分析結果渲染為 JSON 內容字串"""
     data = {
         'summary': dict(counts),
         'results': [_log_to_dict(log) for log in matched_logs],
@@ -15,7 +15,7 @@ def render_json_report(counts, matched_logs) -> str:
 
 
 def render_json_summary(counts, split_files=None) -> str:
-    """渲染僅包含摘要的 JSON 內容字串。"""
+    """渲染僅包含摘要的 JSON 內容字串"""
     data = {
         'summary': dict(counts),
         'results': [],
@@ -28,18 +28,18 @@ def render_json_summary(counts, split_files=None) -> str:
 
 
 def render_json_prefix(counts) -> str:
-    """渲染 JSON 報表前綴，保留結果陣列開頭。"""
+    """渲染 JSON 報表前綴，保留結果陣列開頭"""
     summary = json.dumps(dict(counts), ensure_ascii=False)
     return '{\n    "summary": ' + summary + ',\n    "results": [\n'
 
 
 def render_json_suffix() -> str:
-    """渲染 JSON 報表結尾。"""
+    """渲染 JSON 報表結尾"""
     return '\n    ]\n}\n'
 
 
 def serialize_json_log(log, indent: int = 8) -> str:
-    """渲染單筆 JSON 詳細項目。"""
+    """渲染單筆 JSON 詳細項目"""
     payload = _log_to_dict(log)
     rendered = json.dumps(payload, indent=4, ensure_ascii=False)
     prefix = " " * indent

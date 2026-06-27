@@ -103,7 +103,7 @@ class LogAnalyzerApp(App):
                                     value=self._auto_output_name,
                                     id="output_name",
                                 )
-                                yield Static("副檔名由輸出格式自動決定。", classes="field-hint")
+                                yield Static("副檔名由輸出格式自動決定", classes="field-hint")
 
                         with Container(classes="field"):
                             yield Label("Logback XML")
@@ -134,7 +134,7 @@ class LogAnalyzerApp(App):
                                     placeholder=DEFAULT_LOGBACK_PATTERN,
                                     id="log_pattern",
                                 )
-                                yield Static("進階模式才會套用；僅支援常見 Logback token。", classes="field-hint")
+                                yield Static("進階模式才會套用；僅支援常見 Logback token", classes="field-hint")
 
                         with Container(classes="time-section"):
                             yield Label("時間區間")
@@ -218,7 +218,7 @@ class LogAnalyzerApp(App):
                         yield Button("清除結果", id="clear")
 
                     yield Static(
-                        "快捷鍵：Enter 開始分析，c 清除結果，q 離開。",
+                        "快捷鍵：Enter 開始分析，c 清除結果，q 離開",
                         classes="helper",
                     )
 
@@ -291,8 +291,8 @@ class LogAnalyzerApp(App):
             hero_title_row.add_class("wide")
 
     def _is_compact(self, width: int, height: int) -> bool:
-        # 當寬度小於 90，或者高度小於 18 時，才使用單欄（compact）垂直版面。
-        # 否則使用雙欄（左右分欄）版面。
+        # 當寬度小於 90，或者高度小於 18 時，才使用單欄（compact）垂直版面
+        # 否則使用雙欄（左右分欄）版面
         return width < 90 or height < 18
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -352,7 +352,7 @@ class LogAnalyzerApp(App):
 
     def update_path_preview(self, path: str, status_id: str = "#path-status", require_writable: bool = False) -> None:
         preview = self.query_one(status_id, Static)
-        # 狀態列即時反映路徑可用性，避免要按執行才發現權限或拼字錯誤。
+        # 狀態列即時反映路徑可用性，避免要按執行才發現權限或拼字錯誤
         color, message, _, _ = inspect_directory_path(path, require_writable=require_writable)
         preview.update(format_path_status(message, color, require_writable=require_writable))
 
@@ -360,7 +360,7 @@ class LogAnalyzerApp(App):
         self._open_directory_picker(
             target_id="path",
             title="選擇 Log 目錄",
-            hint="可用樹狀瀏覽，或直接手動輸入路徑。",
+            hint="可用樹狀瀏覽，或直接手動輸入路徑",
             confirm_label="使用此路徑",
             require_writable=False,
         )
@@ -369,7 +369,7 @@ class LogAnalyzerApp(App):
         self._open_directory_picker(
             target_id="output_path",
             title="選擇目標資料夾",
-            hint="可用樹狀瀏覽，或直接手動輸入路徑。",
+            hint="可用樹狀瀏覽，或直接手動輸入路徑",
             confirm_label="使用此資料夾",
             require_writable=True,
         )
@@ -380,7 +380,7 @@ class LogAnalyzerApp(App):
             FilePickerScreen(
                 current_path,
                 "選擇 Logback XML",
-                "請選擇 logback.xml 或 logback-spring.xml。",
+                "請選擇 logback.xml 或 logback-spring.xml",
                 "載入",
             ),
             callback=self._apply_and_load_logback_xml,
@@ -395,7 +395,7 @@ class LogAnalyzerApp(App):
         require_writable: bool,
     ) -> None:
         current_path = self.query_one(f"#{target_id}", Input).value.strip() or "."
-        # 瀏覽成功後直接回填到對應欄位，手動輸入仍保留為 fallback。
+        # 瀏覽成功後直接回填到對應欄位，手動輸入仍保留為 fallback
         self.push_screen(
             DirectoryPickerScreen(current_path, title, hint, confirm_label, require_writable=require_writable),
             callback=lambda selected_path: self._apply_selected_directory(target_id, selected_path),
@@ -553,7 +553,7 @@ class LogAnalyzerApp(App):
         status = self.query_one("#logback-xml-status", Static)
         xml_path = self.query_one("#logback_xml_path", Input).value.strip()
         if not xml_path:
-            status.update("請輸入 logback.xml / logback-spring.xml 路徑。")
+            status.update("請輸入 logback.xml / logback-spring.xml 路徑")
             return
         if not os.path.isfile(xml_path):
             status.update(f"找不到檔案：{os.path.abspath(xml_path)}")
@@ -562,7 +562,7 @@ class LogAnalyzerApp(App):
         log_dir = self.query_one("#path", Input).value.strip() or "."
         best_pattern = find_best_logback_pattern(xml_path, log_dir)
         if best_pattern is None:
-            status.update("找不到可用的 Logback pattern。")
+            status.update("找不到可用的 Logback pattern")
             return
 
         self.query_one("#pattern_mode", Select).value = "custom"
@@ -571,7 +571,7 @@ class LogAnalyzerApp(App):
         pattern_input.focus()
         self._sync_pattern_field_visibility()
         status.update(
-            f"已載入 {best_pattern.name}，命中 {best_pattern.matches}/{best_pattern.checked}。"
+            f"已載入 {best_pattern.name}，命中 {best_pattern.matches}/{best_pattern.checked}"
         )
 
     def _autofill_logback_settings(self, log_dir: str) -> None:
@@ -619,7 +619,7 @@ class LogAnalyzerApp(App):
             self._sync_pattern_field_visibility()
 
         self.query_one("#logback-xml-status", Static).update(
-            f"已自動載入 {Path(best_xml_path).name}，命中 {best_pattern.matches}/{best_pattern.checked}。"
+            f"已自動載入 {Path(best_xml_path).name}，命中 {best_pattern.matches}/{best_pattern.checked}"
         )
         self._last_logback_autofill_source = normalized_dir
 

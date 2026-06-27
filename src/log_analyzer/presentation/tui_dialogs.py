@@ -18,14 +18,14 @@ from ..infrastructure.paths import (
 
 
 class FolderOnlyDirectoryTree(DirectoryTree):
-    """只保留資料夾節點，避免選到檔案。"""
+    """只保留資料夾節點，避免選到檔案"""
 
     def filter_paths(self, paths: Iterable[Path]) -> Iterable[Path]:
         return [path for path in paths if path.is_dir()]
 
 
 class ShortcutInput(Input):
-    """補上符合一般編輯習慣的輸入框快捷鍵。"""
+    """補上符合一般編輯習慣的輸入框快捷鍵"""
 
     def on_key(self, event: Key) -> None:
         if event.key == "ctrl+a":
@@ -39,7 +39,7 @@ class ShortcutInput(Input):
 
 
 class DirectoryPickerScreen(ModalScreen[Optional[str]]):
-    """資料夾選擇彈窗，支援樹狀瀏覽與手動輸入。"""
+    """資料夾選擇彈窗，支援樹狀瀏覽與手動輸入"""
 
     def __init__(
         self,
@@ -110,7 +110,7 @@ class DirectoryPickerScreen(ModalScreen[Optional[str]]):
 
 
 class FilePickerScreen(ModalScreen[Optional[str]]):
-    """檔案選擇彈窗，支援樹狀瀏覽與手動輸入。"""
+    """檔案選擇彈窗，支援樹狀瀏覽與手動輸入"""
 
     def __init__(
         self,
@@ -156,7 +156,7 @@ class FilePickerScreen(ModalScreen[Optional[str]]):
         picker_path = self.query_one("#picker-path", Input)
         picker_path.value = str(event.path)
         self.query_one("#picker-status", Static).update(
-            self._status_text("請選擇檔案，或手動輸入完整檔案路徑。", "yellow")
+            self._status_text("請選擇檔案，或手動輸入完整檔案路徑", "yellow")
         )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

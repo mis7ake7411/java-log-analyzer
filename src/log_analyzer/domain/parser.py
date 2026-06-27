@@ -98,7 +98,7 @@ def parse_logs(
     sort_by="time",
 ):
     """
-    解析指定資料夾中的所有 Logback 日誌檔案。
+    解析指定資料夾中的所有 Logback 日誌檔案
 
     回傳:
         tuple: (各等級的統計數量, 所有符合條件的日誌詳情列表)
@@ -134,7 +134,7 @@ def iter_logs(
     end_time=None,
     log_pattern=None,
 ):
-    """逐筆產生已解析、已套用時間區間過濾的日誌 entry。"""
+    """逐筆產生已解析、已套用時間區間過濾的日誌 entry"""
     entry_pattern = compile_logback_pattern(log_pattern) if log_pattern else DEFAULT_LOGBACK_REGEX
 
     if not os.path.exists(directory):
@@ -146,7 +146,7 @@ def iter_logs(
 
 
 def iter_sorted_logs(entries, sort_by="time", max_in_memory_groups=MAX_SORT_GROUPS_IN_MEMORY):
-    """將已分組的 entries 依指定排序輸出，必要時改用外部合併排序。"""
+    """將已分組的 entries 依指定排序輸出，必要時改用外部合併排序"""
     entries = list(entries)
     if len(entries) <= max_in_memory_groups:
         yield from sorted(entries, key=lambda entry: sort_key(entry, sort_by))
@@ -230,7 +230,7 @@ def _persist_matched_logs(logs):
 
 
 def _iter_sorted_logs_external(entries, sort_by, chunk_size):
-    """把大量 entries 切成排序區塊後，透過暫存檔合併輸出。"""
+    """把大量 entries 切成排序區塊後，透過暫存檔合併輸出"""
     with tempfile.TemporaryDirectory() as temp_dir:
         chunk_paths = []
         for index in range(0, len(entries), chunk_size):
@@ -245,14 +245,14 @@ def _iter_sorted_logs_external(entries, sort_by, chunk_size):
 
 
 def _load_sorted_chunk(path):
-    """讀取單一已排序區塊並逐筆吐出。"""
+    """讀取單一已排序區塊並逐筆吐出"""
     with open(path, "rb") as file_handle:
         for entry in pickle.load(file_handle):
             yield entry
 
 
 def _list_log_files(directory):
-    """回傳資料夾內符合副檔名條件的 log 檔案。"""
+    """回傳資料夾內符合副檔名條件的 log 檔案"""
     return sorted(filename for filename in os.listdir(directory) if filename.endswith(".log"))
 
 
@@ -263,7 +263,7 @@ def _iter_entries_from_file(
     start_time,
     end_time,
 ):
-    """逐行讀取檔案，產生已完成的 log entry。"""
+    """逐行讀取檔案，產生已完成的 log entry"""
     current_entry = None
 
     with open(filepath, "r", encoding="utf-8", errors="ignore") as file_handle:
@@ -298,7 +298,7 @@ def _iter_entries_from_file(
 
 
 def _create_entry(match, filename, line_num):
-    """把正則比對結果轉成內部 entry 結構。"""
+    """把正則比對結果轉成內部 entry 結構"""
     timestamp_str = match.group("timestamp")
     thread = match.group("thread")
     level = match.group("level")
@@ -320,7 +320,7 @@ def _create_entry(match, filename, line_num):
 
 
 def _parse_entry_time(timestamp_str):
-    """從日誌時間戳取出可比較的 datetime。"""
+    """從日誌時間戳取出可比較的 datetime"""
     try:
         return datetime.strptime(timestamp_str[:19], "%Y-%m-%d %H:%M:%S")
     except ValueError:
@@ -328,7 +328,7 @@ def _parse_entry_time(timestamp_str):
 
 
 def _append_continuation_line(entry, line_num, line):
-    """把後續續行附加到目前 entry。"""
+    """把後續續行附加到目前 entry"""
     line_text = line.rstrip("\n")
     entry["full_text"] += f"\n{line_text}"
 
