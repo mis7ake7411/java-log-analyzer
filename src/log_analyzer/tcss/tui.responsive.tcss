@@ -156,13 +156,21 @@
 
 #form-panel.wide .field-row .field--format {
     width: 1fr;
+    margin-right: 1;
+}
+
+#form-panel.wide .field-row .field--split-output {
+    width: auto;
+    layout: horizontal;
+    align: left middle;
     margin-right: 0;
 }
 
 #form-panel.compact .field-row .field--ignore,
 #form-panel.compact .field-row .field--display-mode,
 #form-panel.compact .field-row .field--sort,
-#form-panel.compact .field-row .field--format {
+#form-panel.compact .field-row .field--format,
+#form-panel.compact .field-row .field--split-output {
     width: auto;
     margin-bottom: 0;
 }
@@ -182,12 +190,59 @@
     margin-left: 1;
 }
 
+#form-panel.wide .field-row .field--split-output > Checkbox {
+    width: auto;
+    margin-top: 0;
+    margin-left: 1;
+}
+
 #form-panel.compact .field-row .field--format > Select {
     width: 1fr;
 }
 
 #form-panel.compact .field-row .field--sort > Select {
     width: 1fr;
+}
+
+#form-panel.wide .level-filter-row {
+    layout: grid;
+    grid-size: 3;
+    grid-columns: 1fr 1fr 1fr;
+    grid-rows: auto;
+}
+
+#form-panel.wide .level-filter-row Checkbox {
+    width: 1fr;
+    margin-right: 0;
+}
+
+#form-panel.wide #clear_levels {
+    margin-left: 1;
+}
+
+#form-panel.compact .level-filter-row {
+    layout: grid;
+    grid-size: 2;
+    grid-columns: 1fr 1fr;
+    grid-rows: auto;
+}
+
+#form-panel.compact .level-filter-row Checkbox {
+    width: 1fr;
+    margin-right: 0;
+}
+
+#form-panel.compact .level-filter-actions {
+    layout: vertical;
+}
+
+#form-panel.compact .level-filter-actions Button {
+    width: 1fr;
+}
+
+#form-panel.compact #clear_levels {
+    margin-top: 1;
+    margin-left: 0;
 }
 
 /* ── 路徑與按鈕 ── */

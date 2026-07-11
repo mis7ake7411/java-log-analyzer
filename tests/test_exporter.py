@@ -22,6 +22,14 @@ def _build_log(index: int, payload: str) -> dict:
     }
 
 
+def _build_level_log(index: int, level: str, payload: str = "short") -> dict:
+    log = _build_log(index, payload)
+    log["level"] = level
+    log["message"] = f"{level} message {index} {payload}"
+    log["message_body"] = f"{level} body {index} {payload}"
+    return log
+
+
 @pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")])
 def test_export_results_keeps_single_file_when_within_limit(tmp_path, monkeypatch, fmt, expected_suffix):
     monkeypatch.setattr("log_analyzer.infrastructure.exporter.MAX_EXPORT_BYTES_PER_FILE", 10_000)
@@ -85,3 +93,126 @@ def test_export_results_accepts_iterable_input(tmp_path, monkeypatch):
     ]
     assert Path(files[1]).exists()
     assert Path(files[2]).exists()
+
+
+def test_export_results_keeps_single_file_when_level_split_disabled(tmp_path):
+    output_path = tmp_path / "report.csv"
+
+    files = export_results(
+        {"ERROR": 1, "WARN": 1},
+        [_build_level_log(1, "ERROR"), _build_level_log(2, "WARN")],
+        str(output_path),
+        "csv",
+        split_by_level=False,
+    )
+
+    assert files == [str(output_path)]
+    text = output_path.read_text(encoding="utf-8-sig")
+    assert "ERROR message" in text
+    assert "WARN message" in text
+
+
+def test_export_results_keeps_single_file_when_only_one_level_has_data(tmp_path):
+    output_path = tmp_path / "report.csv"
+
+    files = export_results(
+        {"ERROR": 2, "WARN": 0},
+        [_build_level_log(1, "ERROR"), _build_level_log(2, "ERROR")],
+        str(output_path),
+        "csv",
+        split_by_level=True,
+    )
+
+    assert files == [str(output_path)]
+    assert output_path.exists()
+    assert not (tmp_path / "report_ERROR.csv").exists()
+
+
+@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")])
+def test_export_results_splits_by_level_when_multiple_levels_have_data(tmp_path, fmt, expected_suffix):
+    output_path = tmp_path / f"report{expected_suffix}"
+
+    files = export_results(
+        {"ERROR": 1, "WARN": 1, "INFO": 0},
+        [_build_level_log(1, "ERROR"), _build_level_log(2, "WARN")],
+        str(output_path),
+        fmt,
+        split_by_level=True,
+    )
+
+    expected_files = [
+        str(tmp_path / f"report_summary{expected_suffix}"),
+        str(tmp_path / f"report_ERROR{expected_suffix}"),
+        str(tmp_path / f"report_WARN{expected_suffix}"),
+    ]
+    assert files == expected_files
+    for file_path in files:
+        assert Path(file_path).exists()
+
+    error_text = Path(files[1]).read_text(encoding="utf-8-sig" if fmt == "csv" else "utf-8")
+    warn_text = Path(files[2]).read_text(encoding="utf-8-sig" if fmt == "csv" else "utf-8")
+    assert "ERROR message" in error_text
+    assert "WARN message" not in error_text
+    assert "WARN message" in warn_text
+    assert "ERROR message" not in warn_text
+
+    summary_text = Path(files[0]).read_text(encoding="utf-8-sig" if fmt == "csv" else "utf-8")
+    assert "report_ERROR" in summary_text
+    assert "report_WARN" in summary_text
+
+    if fmt == "json":
+        for file_path in files:
+            json.loads(Path(file_path).read_text(encoding="utf-8"))
+
+
+def test_export_results_splits_by_level_and_size(tmp_path):
+    output_path = tmp_path / "report.csv"
+    payload = "X" * 900
+
+    files = export_results(
+        {"ERROR": 3, "WARN": 1},
+        [
+            _build_level_log(1, "ERROR", payload),
+            _build_level_log(2, "ERROR", payload),
+            _build_level_log(3, "ERROR", payload),
+            _build_level_log(4, "WARN", "short"),
+        ],
+        str(output_path),
+        "csv",
+        max_export_bytes=5_000,
+        split_by_level=True,
+    )
+
+    assert files == [
+        str(tmp_path / "report_summary.csv"),
+        str(tmp_path / "report_ERROR_part001.csv"),
+        str(tmp_path / "report_ERROR_part002.csv"),
+        str(tmp_path / "report_WARN.csv"),
+    ]
+    for file_path in files:
+        assert Path(file_path).exists()
+
+
+def test_export_results_splits_by_level_accepts_iterable_input(tmp_path):
+    output_path = tmp_path / "report.csv"
+    yielded = []
+
+    def log_iter():
+        for index, level in enumerate(("ERROR", "WARN"), start=1):
+            yielded.append(level)
+            yield _build_level_log(index, level)
+
+    files = export_results(
+        {"ERROR": 1, "WARN": 1},
+        log_iter(),
+        str(output_path),
+        "csv",
+        split_by_level=True,
+    )
+
+    assert yielded == ["ERROR", "WARN"]
+    assert files == [
+        str(tmp_path / "report_summary.csv"),
+        str(tmp_path / "report_ERROR.csv"),
+        str(tmp_path / "report_WARN.csv"),
+    ]

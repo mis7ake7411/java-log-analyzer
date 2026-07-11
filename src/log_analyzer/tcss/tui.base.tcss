@@ -115,6 +115,28 @@ Screen {
     margin-top: 0;
 }
 
+.level-filter-row {
+    height: auto;
+    width: 1fr;
+    layout: horizontal;
+}
+
+.level-filter-row Checkbox {
+    width: auto;
+    margin-right: 1;
+}
+
+.level-filter-actions {
+    height: auto;
+    width: 1fr;
+    layout: horizontal;
+    margin-top: 1;
+}
+
+.level-filter-actions Button {
+    width: 1fr;
+}
+
 /* ── 時間區間與提示文字 ── */
 
 .time-section {

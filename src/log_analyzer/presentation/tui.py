@@ -11,7 +11,7 @@ from textual.containers import Container, ScrollableContainer
 from textual.events import Resize
 from textual.widgets import Button, Checkbox, Footer, Header, Input, Label, RichLog, Select, Static
 
-from ..application.analysis_service import AnalysisResult, build_output_path, run_analysis
+from ..application.analysis_service import DEFAULT_SELECTED_LEVELS, AnalysisResult, build_output_path, run_analysis
 from ..domain.logback_pattern import DEFAULT_LOGBACK_PATTERN
 from ..domain.logback_xml import find_best_logback_pattern
 from .tui_dialogs import DirectoryPickerScreen, FilePickerScreen, ShortcutInput
@@ -187,6 +187,10 @@ class LogAnalyzerApp(App):
                                     value="csv",
                                     id="format",
                                 )
+
+                            with Container(classes="field field--inline field--split-output"):
+                                yield Label("依 Level 分檔")
+                                yield Checkbox(value=False, id="split_by_level")
                         yield Static("", classes="path-status", id="path-status")
 
                         with Container(classes="field-row"):
@@ -212,6 +216,17 @@ class LogAnalyzerApp(App):
                                     id="display_mode",
                                 )
                         yield Static("", classes="field-hint")
+
+                        with Container(classes="field"):
+                            yield Label("Log 層級")
+                            with Container(classes="field-body"):
+                                with Container(classes="level-filter-row"):
+                                    for level in ("ERROR", "WARN", "INFO", "DEBUG", "TRACE"):
+                                        yield Checkbox(level, value=level in DEFAULT_SELECTED_LEVELS, id=f"level_{level}")
+                                with Container(classes="level-filter-actions"):
+                                    yield Button("全選", id="select_all_levels")
+                                    yield Button("清空", id="clear_levels")
+                                yield Static("預設分析 ERROR / WARN / INFO", classes="field-hint")
 
                     with Container(id="actions"):
                         yield Button("開始分析", variant="primary", id="run")
@@ -331,6 +346,10 @@ class LogAnalyzerApp(App):
             self.action_clear_keyword()
         elif event.button.id == "browse_logback_xml":
             self.action_browse_logback_xml()
+        elif event.button.id == "select_all_levels":
+            self._set_all_levels(True)
+        elif event.button.id == "clear_levels":
+            self._set_all_levels(False)
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "display_mode":
@@ -458,6 +477,8 @@ class LogAnalyzerApp(App):
                 log_pattern,
                 display_mode,
                 sort_by,
+                selected_levels,
+                split_by_level,
                 ignore_case,
                 fmt,
             ) = self._collect_form_values()
@@ -475,6 +496,8 @@ class LogAnalyzerApp(App):
                     "ignore_case": ignore_case,
                     "display_mode": display_mode,
                     "sort_by": sort_by,
+                    "levels": list(selected_levels),
+                    "split_by_level": split_by_level,
                     "format": fmt,
                     "start_date": start_date_text,
                     "start_time": start_time_text,
@@ -489,17 +512,19 @@ class LogAnalyzerApp(App):
                 None,
                 partial(
                     run_analysis,
-                    path,
-                    normalized_output,
-                    start_dt,
-                    end_dt,
-                    keyword or None,
-                    ignore_case,
-                    sort_by,
-                    fmt,
-                    selected_pattern,
-                    None,
-                    False,
+                    path=path,
+                    output_path=normalized_output,
+                    start_dt=start_dt,
+                    end_dt=end_dt,
+                    keyword=keyword or None,
+                    ignore_case=ignore_case,
+                    sort_by=sort_by,
+                    fmt=fmt,
+                    log_pattern=selected_pattern,
+                    max_export_bytes=None,
+                    include_details=False,
+                    levels=selected_levels,
+                    split_by_level=split_by_level,
                 ),
             )
             self._last_result = result
@@ -650,7 +675,7 @@ class LogAnalyzerApp(App):
         output_name_input = self.query_one("#output_name", Input)
         output_name_input.value = self._auto_output_name
 
-    def _collect_form_values(self) -> Tuple[str, str, str, str, str, str, str, str, str, str, str, str, bool, str]:
+    def _collect_form_values(self) -> Tuple[str, str, str, str, str, str, str, str, str, str, str, str, tuple[str, ...], bool, bool, str]:
         path = self.query_one("#path", Input).value.strip() or "."
         output_path = self.query_one("#output_path", Input).value.strip() or "."
         output_name = self.query_one("#output_name", Input).value.strip()
@@ -663,6 +688,8 @@ class LogAnalyzerApp(App):
         log_pattern = self.query_one("#log_pattern", Input).value.strip()
         display_mode = self.query_one("#display_mode", Select).value or "summary"
         sort_by = self.query_one("#sort_by", Select).value or "time"
+        selected_levels = self._collect_selected_levels()
+        split_by_level = self.query_one("#split_by_level", Checkbox).value
         ignore_case = self.query_one("#ignore_case", Checkbox).value
         fmt = self.query_one("#format", Select).value or "csv"
         return (
@@ -678,9 +705,25 @@ class LogAnalyzerApp(App):
             log_pattern,
             str(display_mode),
             str(sort_by),
+            selected_levels,
+            split_by_level,
             ignore_case,
             str(fmt),
         )
+
+    def _collect_selected_levels(self) -> tuple[str, ...]:
+        levels = tuple(
+            level
+            for level in ("ERROR", "WARN", "INFO", "DEBUG", "TRACE")
+            if self.query_one(f"#level_{level}", Checkbox).value
+        )
+        if not levels:
+            raise ValueError("至少選擇一個 Log 層級")
+        return levels
+
+    def _set_all_levels(self, selected: bool) -> None:
+        for level in ("ERROR", "WARN", "INFO", "DEBUG", "TRACE"):
+            self.query_one(f"#level_{level}", Checkbox).value = selected
 
     def _should_compact_dashboard(self, width: int, height: int) -> bool:
         if self._is_compact(width, height):
@@ -721,6 +764,13 @@ class LogAnalyzerApp(App):
             self.query_one("#sort_by", Select).value = str(state["sort_by"])
         if state.get("format") in {"csv", "json", "md"}:
             self.query_one("#format", Select).value = str(state["format"])
+        if isinstance(state.get("split_by_level"), bool):
+            self.query_one("#split_by_level", Checkbox).value = state["split_by_level"]
+        levels = state.get("levels")
+        if isinstance(levels, list):
+            selected_levels = {str(level).upper() for level in levels}
+            for level in ("ERROR", "WARN", "INFO", "DEBUG", "TRACE"):
+                self.query_one(f"#level_{level}", Checkbox).value = level in selected_levels
 
     def _save_recent_form_state(self, state: dict[str, object]) -> None:
         save_recent_tui_state(state)

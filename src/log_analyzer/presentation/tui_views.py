@@ -84,6 +84,9 @@ def build_dashboard_view(result: AnalysisResult, compact: bool) -> Group:
     if len(result.exported_files) > 1:
         metadata.add_row("分割檔案", f"{len(result.exported_files)} 個")
     metadata.add_row("關鍵字", result.keyword)
+    levels = getattr(result, "selected_levels", ())
+    selected_levels = ", ".join(levels) if levels else "全部"
+    metadata.add_row("Log 層級", selected_levels)
     metadata.add_row("排序方式", "Level 分組" if result.sort_by == "level" else "時間排序")
     metadata.add_row("忽略大小寫", "是" if result.ignore_case else "否")
 

@@ -12,6 +12,8 @@ _ALLOWED_KEYS = {
     "ignore_case",
     "display_mode",
     "sort_by",
+    "levels",
+    "split_by_level",
     "format",
     "start_date",
     "start_time",

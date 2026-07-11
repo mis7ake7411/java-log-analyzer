@@ -10,6 +10,8 @@ from ..domain.parser import parse_logs
 from ..infrastructure.exporter import export_results
 from ..infrastructure.paths import ensure_readable_directory, ensure_writable_directory
 
+DEFAULT_SELECTED_LEVELS = ("ERROR", "WARN", "INFO")
+
 
 @dataclass(slots=True)
 class AnalysisResult:
@@ -24,6 +26,7 @@ class AnalysisResult:
     matched_groups: int
     matched_occurrences: int
     level_summary: list[tuple[str, int]]
+    selected_levels: tuple[str, ...]
     sort_by: str
     counts: Counter[str]
     matched_logs: Any
@@ -56,6 +59,8 @@ def run_analysis(
     log_pattern: Optional[str] = None,
     max_export_bytes: Optional[int] = None,
     include_details: bool = True,
+    levels: Optional[tuple[str, ...]] = DEFAULT_SELECTED_LEVELS,
+    split_by_level: bool = False,
 ) -> AnalysisResult:
     """執行分析、匯出，並回傳摘要結果"""
     normalized_path = ensure_readable_directory(path)
@@ -67,12 +72,23 @@ def run_analysis(
         ignore_case=ignore_case,
         log_pattern=log_pattern,
         sort_by=sort_by,
+        levels=levels,
     )
 
     if not counts and not matched_logs:
         raise ValueError("找不到符合條件的 log請確認目錄、關鍵字或資料內容")
 
-    exported_files = [os.path.abspath(path) for path in export_results(counts, matched_logs, output_path, fmt, max_export_bytes)]
+    exported_files = [
+        os.path.abspath(path)
+        for path in export_results(
+            counts,
+            matched_logs,
+            output_path,
+            fmt,
+            max_export_bytes=max_export_bytes,
+            split_by_level=split_by_level,
+        )
+    ]
 
     total_logs = sum(counts.values())
     matched_groups = len(matched_logs)
@@ -93,6 +109,7 @@ def run_analysis(
         matched_groups=matched_groups,
         matched_occurrences=matched_occurrences,
         level_summary=level_summary,
+        selected_levels=tuple(levels or ()),
         sort_by=sort_by,
         counts=counts,
         matched_logs=detail_logs,

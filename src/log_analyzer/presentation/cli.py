@@ -5,6 +5,7 @@ from ..domain.logback_pattern import UnsupportedLogbackPatternError
 from .cli_args import build_argument_parser
 from .cli_runtime import (
     parse_datetime_value,
+    resolve_levels,
     resolve_logback_pattern,
     resolve_output_path,
     resolve_target_dir,
@@ -45,7 +46,9 @@ def main():
     try:
         start_dt = parse_datetime_value(args.start, "開始時間")
         end_dt = parse_datetime_value(args.end, "結束時間")
+        selected_levels = resolve_levels(args.level)
         print(f"正在分析目錄：{os.path.abspath(target_dir)}")
+        print(f"分析 Level：{', '.join(selected_levels)}")
         if args.keyword:
             msg = f"正在搜尋關鍵字：'{args.keyword}'"
             if args.ignore_case:
@@ -66,17 +69,19 @@ def main():
             print(logback_notice)
 
         result = run_analysis(
-            target_dir,
-            args.output,
-            start_dt,
-            end_dt,
-            args.keyword,
-            args.ignore_case,
-            args.sort,
-            args.format,
-            selected_pattern,
-            None if args.max_export_mb is None else args.max_export_mb * 1024 * 1024,
-            False,
+            path=target_dir,
+            output_path=args.output,
+            start_dt=start_dt,
+            end_dt=end_dt,
+            keyword=args.keyword,
+            ignore_case=args.ignore_case,
+            sort_by=args.sort,
+            fmt=args.format,
+            log_pattern=selected_pattern,
+            max_export_bytes=None if args.max_export_mb is None else args.max_export_mb * 1024 * 1024,
+            include_details=False,
+            levels=selected_levels,
+            split_by_level=args.split_by_level,
         )
 
         print(f"分析完成！報表已儲存至：{result.output_path} (格式: {args.format.upper()})")
@@ -86,6 +91,8 @@ def main():
                 print(f"  - {file_path}")
         if args.max_export_mb is not None:
             print(f"分割門檻：{args.max_export_mb} MB")
+        if args.split_by_level:
+            print("Level 分檔：啟用")
         
         print("\n符合條件的統計摘要 (Summary)：")
         for level, count in sorted(result.counts.items()):

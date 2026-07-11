@@ -96,6 +96,7 @@ def parse_logs(
     ignore_case=False,
     log_pattern=None,
     sort_by="time",
+    levels=None,
 ):
     """
     解析指定資料夾中的所有 Logback 日誌檔案
@@ -105,6 +106,7 @@ def parse_logs(
     """
     counts = Counter()
     search_keyword = normalize_keyword(keyword, ignore_case)
+    selected_levels = _normalize_levels(levels)
     grouped_logs = {}
     spilled_to_disk = False
 
@@ -112,6 +114,8 @@ def parse_logs(
         shard_paths = _build_group_shard_paths(temp_dir)
 
         for entry in iter_logs(directory, start_time, end_time, log_pattern):
+            if selected_levels is not None and entry["level"].upper() not in selected_levels:
+                continue
             commit_entry(grouped_logs, counts, entry, search_keyword, ignore_case)
             if len(grouped_logs) >= MAX_GROUPS_IN_MEMORY:
                 _spill_grouped_logs(grouped_logs, shard_paths)
@@ -126,6 +130,12 @@ def parse_logs(
             sorted_logs = iter_sorted_logs(grouped_logs.values(), sort_by)
 
     return counts, _persist_matched_logs(sorted_logs)
+
+
+def _normalize_levels(levels):
+    if levels is None:
+        return None
+    return {str(level).strip().upper() for level in levels if str(level).strip()}
 
 
 def iter_logs(

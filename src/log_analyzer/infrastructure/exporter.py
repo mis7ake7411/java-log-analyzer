@@ -15,7 +15,14 @@ from .export_markdown import render_markdown_prefix, render_markdown_summary, se
 MAX_EXPORT_BYTES_PER_FILE = 50 * 1024 * 1024
 
 
-def export_results(counts, matched_logs, output_path, format='csv', max_export_bytes: int | None = None):
+def export_results(
+    counts,
+    matched_logs,
+    output_path,
+    format='csv',
+    max_export_bytes: int | None = None,
+    split_by_level: bool = False,
+):
     """
     根據指定的格式匯出分析結果
 
@@ -28,7 +35,130 @@ def export_results(counts, matched_logs, output_path, format='csv', max_export_b
     output = Path(output_path)
     format_name = format.lower()
     threshold = MAX_EXPORT_BYTES_PER_FILE if max_export_bytes is None else max_export_bytes
+    active_levels = [str(level) for level, count in counts.items() if count > 0]
+    if split_by_level and len(active_levels) > 1:
+        return _export_by_level(counts, matched_logs, output, format_name, threshold, active_levels)
+
     return _export_streaming(counts, matched_logs, output, format_name, threshold)
+
+
+def _export_by_level(
+    counts,
+    matched_logs,
+    output: Path,
+    format_name: str,
+    threshold: int,
+    active_levels: list[str],
+) -> list[str]:
+    base_name = output.stem
+    suffix = output.suffix or f".{format_name}"
+    writers = {
+        level: _LevelFileWriter(
+            output.with_name(f"{base_name}_{_safe_filename_part(level)}{suffix}"),
+            {level: counts[level]},
+            format_name,
+            threshold,
+        )
+        for level in active_levels
+    }
+    created_paths: list[str] = []
+
+    try:
+        for log in matched_logs:
+            level = str(log.get("level", ""))
+            writer = writers.get(level)
+            if writer is None:
+                continue
+            writer.write(log)
+
+        for level in active_levels:
+            created_paths.extend(writers[level].close())
+
+        summary_path = output.with_name(f"{base_name}_summary{suffix}")
+        _write_text(summary_path, _render_summary(counts, created_paths, format_name), _encoding_for(format_name))
+        return [str(summary_path)] + created_paths
+    except Exception:
+        for writer in writers.values():
+            writer.abort()
+        for file_path in created_paths:
+            _unlink_if_exists(Path(file_path))
+        raise
+
+
+class _LevelFileWriter:
+    def __init__(self, output: Path, counts, format_name: str, threshold: int) -> None:
+        self.output = output
+        self.counts = counts
+        self.format_name = format_name
+        self.threshold = threshold
+        self.base_name = output.stem
+        self.suffix = output.suffix or f".{format_name}"
+        self.encoding = _encoding_for(format_name)
+        self.part_paths: list[Path] = []
+        self.current_part_index = 1
+        self.current_has_logs = False
+        self.current_part_log_index = 0
+        self.split_occurred = False
+        self.current_path = output
+        self.current_handle = _open_part_file(output, counts, format_name, self.encoding)
+        self.current_size = _rendered_size(_report_prefix(counts, format_name), format_name)
+        self.closed = False
+
+    def write(self, log) -> None:
+        while True:
+            self.current_part_log_index += 1
+            block, block_size = _render_log_block(
+                self.current_part_log_index,
+                log,
+                self.format_name,
+                self.current_has_logs,
+            )
+
+            if self.current_has_logs and self.current_size + block_size > self.threshold:
+                self.current_handle, self.current_path = _rotate_part(
+                    self.current_handle,
+                    self.current_path,
+                    self.output,
+                    self.base_name,
+                    self.suffix,
+                    self.encoding,
+                    self.part_paths,
+                    self.current_part_index,
+                    self.split_occurred,
+                    self.counts,
+                    self.format_name,
+                )
+                self.current_part_index += 1
+                self.split_occurred = True
+                self.current_size = _rendered_size(_report_prefix(self.counts, self.format_name), self.format_name)
+                self.current_has_logs = False
+                self.current_part_log_index = 0
+                continue
+
+            self.current_handle.write(block)
+            self.current_size += block_size
+            self.current_has_logs = True
+            break
+
+    def close(self) -> list[str]:
+        if self.closed:
+            return []
+
+        self.current_handle = _close_part_file(self.current_handle, self.format_name)
+        self.closed = True
+        if self.split_occurred:
+            self.part_paths.append(self.current_path)
+            return [str(path) for path in self.part_paths]
+        return [str(self.output)]
+
+    def abort(self) -> None:
+        if not self.closed and self.current_handle is not None:
+            self.current_handle.close()
+            self.closed = True
+        _unlink_if_exists(self.output)
+        _unlink_if_exists(self.current_path)
+        for path in self.part_paths:
+            _unlink_if_exists(path)
 
 
 def _export_streaming(counts, matched_logs, output: Path, format_name: str, threshold: int) -> list[str]:
@@ -172,6 +302,18 @@ def _render_summary(counts, split_files, format_name: str) -> str:
 def _write_text(output: Path, text: str, encoding: str) -> None:
     with open(output, 'w', encoding=encoding, newline='' if encoding == 'utf-8-sig' else None) as file_handle:
         file_handle.write(text)
+
+
+def _safe_filename_part(value: str) -> str:
+    safe = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in value.strip())
+    return safe or "UNKNOWN"
+
+
+def _unlink_if_exists(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        return
 
 
 def _encoding_for(format_name: str) -> str:

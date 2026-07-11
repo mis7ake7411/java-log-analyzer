@@ -272,6 +272,12 @@ def test_collect_form_values_includes_time_fields():
         "#log_pattern": FakeInput("%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"),
         "#display_mode": FakeSelect("summary"),
         "#sort_by": FakeSelect("level"),
+        "#level_ERROR": FakeCheckbox(True),
+        "#level_WARN": FakeCheckbox(True),
+        "#level_INFO": FakeCheckbox(False),
+        "#level_DEBUG": FakeCheckbox(True),
+        "#level_TRACE": FakeCheckbox(False),
+        "#split_by_level": FakeCheckbox(True),
         "#ignore_case": FakeCheckbox(True),
         "#format": FakeSelect("json"),
     }
@@ -294,6 +300,8 @@ def test_collect_form_values_includes_time_fields():
         "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n",
         "summary",
         "level",
+        ("ERROR", "WARN", "DEBUG"),
+        True,
         True,
         "json",
     )
@@ -343,6 +351,8 @@ def test_recent_tui_state_round_trip_only_keeps_selected_fields(tmp_path, monkey
             "ignore_case": True,
             "display_mode": "summary",
             "sort_by": "level",
+            "levels": ["ERROR", "WARN"],
+            "split_by_level": True,
             "format": "json",
             "start_date": "2026-06-07",
             "start_time": "00:00",
@@ -363,6 +373,8 @@ def test_recent_tui_state_round_trip_only_keeps_selected_fields(tmp_path, monkey
         "ignore_case": True,
         "display_mode": "summary",
         "sort_by": "level",
+        "levels": ["ERROR", "WARN"],
+        "split_by_level": True,
         "format": "json",
         "start_date": "2026-06-07",
         "start_time": "00:00",
@@ -389,6 +401,8 @@ def test_tui_restores_recent_state_on_mount(tmp_path, monkeypatch):
             "ignore_case": True,
             "display_mode": "full",
             "sort_by": "level",
+            "levels": ["ERROR", "DEBUG"],
+            "split_by_level": True,
             "format": "md",
             "start_date": "2026-06-07",
             "start_time": "00:00",
@@ -408,6 +422,12 @@ def test_tui_restores_recent_state_on_mount(tmp_path, monkeypatch):
             assert app.query_one("#ignore_case").value is True
             assert app.query_one("#display_mode").value == "full"
             assert app.query_one("#sort_by").value == "level"
+            assert app.query_one("#level_ERROR").value is True
+            assert app.query_one("#level_WARN").value is False
+            assert app.query_one("#level_INFO").value is False
+            assert app.query_one("#level_DEBUG").value is True
+            assert app.query_one("#level_TRACE").value is False
+            assert app.query_one("#split_by_level").value is True
             assert app.query_one("#format").value == "md"
             assert app.query_one("#start_date").value == "2026-06-07"
             assert app.query_one("#start_time").value == "00:00"
@@ -548,6 +568,90 @@ def test_sort_control_exists():
             await pilot.pause()
 
             assert app.query_one("#sort_by")
+
+    asyncio.run(run_check())
+
+
+def test_level_filter_defaults_to_common_levels(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            assert app.query_one("#level_ERROR").value is True
+            assert app.query_one("#level_WARN").value is True
+            assert app.query_one("#level_INFO").value is True
+            assert app.query_one("#level_DEBUG").value is False
+            assert app.query_one("#level_TRACE").value is False
+
+    asyncio.run(run_check())
+
+
+def test_level_filter_select_all_and_clear_actions():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            app._set_all_levels(False)
+            assert app.query_one("#level_ERROR").value is False
+            assert app.query_one("#level_TRACE").value is False
+
+            app._set_all_levels(True)
+            assert app.query_one("#level_ERROR").value is True
+            assert app.query_one("#level_TRACE").value is True
+
+    asyncio.run(run_check())
+
+
+def test_level_filter_controls_use_full_field_body_width_in_wide_layout():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test(size=(184, 90)) as pilot:
+            await pilot.pause()
+            app.action_toggle_advanced_settings()
+            await pilot.pause()
+
+            level_row = app.query_one(".level-filter-row")
+            actions = app.query_one(".level-filter-actions")
+            error_checkbox = app.query_one("#level_ERROR")
+            info_checkbox = app.query_one("#level_INFO")
+            debug_checkbox = app.query_one("#level_DEBUG")
+            trace_checkbox = app.query_one("#level_TRACE")
+            select_all = app.query_one("#select_all_levels")
+            clear_levels = app.query_one("#clear_levels")
+
+            assert level_row.region.width >= 40
+            assert actions.region.width == level_row.region.width
+            assert error_checkbox.region.width > 5
+            assert info_checkbox.region.y == error_checkbox.region.y
+            assert debug_checkbox.region.y > error_checkbox.region.y
+            assert trace_checkbox.region.x + trace_checkbox.region.width <= level_row.region.x + level_row.region.width
+            assert select_all.region.x + select_all.region.width < clear_levels.region.x
+
+    asyncio.run(run_check())
+
+
+def test_level_filter_controls_reflow_in_compact_layout():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test(size=(70, 40)) as pilot:
+            await pilot.pause()
+            app.action_toggle_advanced_settings()
+            await pilot.pause()
+
+            level_row = app.query_one(".level-filter-row")
+            error_checkbox = app.query_one("#level_ERROR")
+            info_checkbox = app.query_one("#level_INFO")
+            select_all = app.query_one("#select_all_levels")
+            clear_levels = app.query_one("#clear_levels")
+
+            assert app.query_one("#form-panel").has_class("compact")
+            assert info_checkbox.region.y > error_checkbox.region.y
+            assert error_checkbox.region.x + error_checkbox.region.width <= level_row.region.x + level_row.region.width
+            assert clear_levels.region.y > select_all.region.y
 
     asyncio.run(run_check())
 
@@ -1110,7 +1214,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
             await pilot.pause()
 
             sequence = []
-            for _ in range(20):
+            for _ in range(21):
                 focused = app.focused
                 sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
                 await pilot.press("tab")
@@ -1136,6 +1240,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
                 "end_time",
                 "ignore_case",
                 "format",
+                "split_by_level",
                 "sort_by",
             ]
 

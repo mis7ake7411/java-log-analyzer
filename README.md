@@ -8,9 +8,9 @@
 - **自訂 Pattern**：可直接貼上 `logback.xml` 的 `<pattern>` 內容，分析非預設格式的日誌
 - **TUI 介面**：提供全螢幕互動式操作，適合手動分析與快速排查
 - **多格式匯出**：支援 `CSV`、`JSON`、`Markdown`
-- **精準篩選**：支援關鍵字、忽略大小寫、時間區間與排序方式設定
+- **精準篩選**：支援 Log Level、關鍵字、忽略大小寫、時間區間與排序方式設定
 - **分析摘要**：可快速查看例外群組、時間熱點，以及 Logger / Thread 分布
-- **自動分割**：匯出檔案過大時，會自動拆分成多個檔案
+- **自動分割**：匯出檔案過大時，會自動拆分成多個檔案，也可依 Log Level 分檔輸出
 
 ## 安裝方式
 
@@ -72,6 +72,8 @@ log-analyzer /path/to/logs
 - `Logback XML` 可載入 `logback.xml` 或 `logback-spring.xml`，並自動挑選最符合樣本的 Pattern
 - `Log` 格式可使用預設模式，也可切換到進階 Pattern 手動指定
 - `時間區間` 採日期與時間分開輸入
+- `Log 層級` 預設分析 `ERROR / WARN / INFO`，可手動勾選 `DEBUG / TRACE` 或使用全選
+- `依 Level 分檔` 會依實際有資料的 Log Level 分開匯出；只有一個 Level 有資料時仍維持單檔
 - `關鍵字` 旁提供清除按鈕
 - 輸入框支援 `Ctrl+A` 全選、`Ctrl+U` 清空
 - 介面會記住上次使用的主要條件
@@ -103,6 +105,22 @@ log-analyzer -f md -o report.md
 ```bash
 log-analyzer /path/to/logs --sort level
 ```
+
+### 指定分析 Level
+
+預設只分析 `ERROR / WARN / INFO`。若要指定層級，可重複使用 `--level`：
+
+```bash
+log-analyzer /path/to/logs --level ERROR --level WARN
+```
+
+若要分析所有常見層級：
+
+```bash
+log-analyzer /path/to/logs --level ALL
+```
+
+`ALL` 代表 `ERROR / WARN / INFO / DEBUG / TRACE`；若和其他 `--level` 混用，會以 `ALL` 為準。
 
 ### 指定時間區間
 
@@ -137,6 +155,14 @@ log-analyzer /path/to/logs --logback-xml /path/to/logback-spring.xml
 log-analyzer /path/to/logs --max-export-mb 50
 ```
 
+### 依 Log Level 分檔輸出
+
+```bash
+log-analyzer /path/to/logs --split-by-level
+```
+
+啟用後會先判斷各 Level 是否有資料；若只有一個 Level 有資料，仍輸出單一檔案，避免產生不必要的分檔。
+
 ### 查看版本
 
 ```bash
@@ -161,7 +187,10 @@ log-analyzer --version
 ## 匯出行為
 
 - 預設會先輸出單一報表
+- 可用 TUI 的 `依 Level 分檔` 或 CLI 的 `--split-by-level` 依 Log Level 分檔
+- Level 分檔只會對實際有資料的 Level 建檔；只有一個 Level 有資料時維持單檔
 - 當匯出內容超過大小門檻時，工具會自動拆分成多個檔案
+- 若同時啟用 Level 分檔與大小分割，檔名會包含 Level，例如 `report_ERROR_part001.csv`
 - 目前預設分割門檻為 `50MB`
 - CLI 可透過 `--max-export-mb` 調整門檻
 - 若發生分割，摘要檔會列出實際產生的檔案，方便追蹤

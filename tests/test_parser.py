@@ -26,6 +26,15 @@ def test_parse_logs_counts(temp_log_dir):
     assert counts['ERROR'] == 1
 
 
+def test_parse_logs_filters_selected_levels(temp_log_dir):
+    counts, errors = parse_logs(temp_log_dir, levels=("ERROR",))
+
+    assert counts["ERROR"] == 1
+    assert counts["INFO"] == 0
+    assert len(errors) == 1
+    assert errors[0]["level"] == "ERROR"
+
+
 def test_parse_logs_compacts_single_line_numbers_and_expands_on_duplicates(tmp_path):
     d = tmp_path / "logs"
     d.mkdir()
