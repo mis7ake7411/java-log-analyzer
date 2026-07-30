@@ -4,7 +4,6 @@ import asyncio
 import os
 from functools import partial
 from pathlib import Path
-from typing import Optional, Tuple
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, ScrollableContainer
@@ -40,7 +39,7 @@ class LogAnalyzerApp(App):
         str(_PACKAGE_ROOT / "tcss" / "tui.dialog.tcss"),
         str(_PACKAGE_ROOT / "tcss" / "tui.responsive.tcss"),
     ]
-    _last_result: Optional[AnalysisResult] = None
+    _last_result: AnalysisResult | None = None
     _advanced_settings_visible: bool = False
     _auto_logback_xml_path: str = ""
     _auto_log_pattern: str = ""
@@ -422,7 +421,7 @@ class LogAnalyzerApp(App):
             callback=lambda selected_path: self._apply_selected_directory(target_id, selected_path),
         )
 
-    def _apply_selected_directory(self, target_id: str, selected_path: Optional[str]) -> None:
+    def _apply_selected_directory(self, target_id: str, selected_path: str | None) -> None:
         if not selected_path:
             return
 
@@ -437,7 +436,7 @@ class LogAnalyzerApp(App):
         if target_id == "path":
             self._autofill_logback_settings(selected_path)
 
-    def _apply_selected_logback_xml(self, selected_path: Optional[str]) -> None:
+    def _apply_selected_logback_xml(self, selected_path: str | None) -> None:
         if not selected_path:
             return
 
@@ -445,7 +444,7 @@ class LogAnalyzerApp(App):
         xml_input.value = selected_path
         xml_input.focus()
 
-    def _apply_and_load_logback_xml(self, selected_path: Optional[str]) -> None:
+    def _apply_and_load_logback_xml(self, selected_path: str | None) -> None:
         self._apply_selected_logback_xml(selected_path)
         if selected_path:
             self.action_load_logback_xml()
@@ -677,7 +676,7 @@ class LogAnalyzerApp(App):
         output_name_input = self.query_one("#output_name", Input)
         output_name_input.value = self._auto_output_name
 
-    def _collect_form_values(self) -> Tuple[str, str, str, str, str, str, str, str, str, str, str, str, tuple[str, ...], bool, bool, str]:
+    def _collect_form_values(self) -> tuple[str, str, str, str, str, str, str, str, str, str, str, str, tuple[str, ...], bool, bool, str]:
         path = self.query_one("#path", Input).value.strip() or "."
         output_path = self.query_one("#output_path", Input).value.strip() or "."
         output_name = self.query_one("#output_name", Input).value.strip()

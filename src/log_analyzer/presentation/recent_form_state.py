@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Mapping
+from collections.abc import Mapping
 
 _STATE_FILENAME = ".java-log-analyzer.tui-state.json"
 _ALLOWED_KEYS = {

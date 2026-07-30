@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 from .datetime_text import parse_datetime_value
 from ..application.analysis_service import DEFAULT_SELECTED_LEVELS
@@ -23,7 +22,7 @@ def resolve_target_dir(target_dir: str):
     return normalized_dir, notice
 
 
-def resolve_output_path(output: Optional[str], fmt: str):
+def resolve_output_path(output: str | None, fmt: str):
     """產生預設輸出檔名"""
     if output:
         return output
@@ -31,9 +30,9 @@ def resolve_output_path(output: Optional[str], fmt: str):
 
 
 def resolve_logback_pattern(
-    logback_xml: Optional[str],
+    logback_xml: str | None,
     target_dir: str,
-    selected_pattern: Optional[str],
+    selected_pattern: str | None,
 ):
     """必要時從 logback.xml 選出最合適的 pattern"""
     if not logback_xml or selected_pattern:
@@ -50,7 +49,7 @@ def resolve_logback_pattern(
     return best_pattern.pattern, message
 
 
-def resolve_levels(level_args: Optional[list[str]]) -> tuple[str, ...]:
+def resolve_levels(level_args: list[str] | None) -> tuple[str, ...]:
     """解析 CLI level 篩選，未指定時使用常用預設層級"""
     if not level_args:
         return DEFAULT_SELECTED_LEVELS

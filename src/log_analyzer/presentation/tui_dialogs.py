@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 from rich.text import Text
 from textual.containers import Container
@@ -38,7 +38,7 @@ class ShortcutInput(Input):
             event.stop()
 
 
-class DirectoryPickerScreen(ModalScreen[Optional[str]]):
+class DirectoryPickerScreen(ModalScreen[str | None]):
     """資料夾選擇彈窗，支援樹狀瀏覽與手動輸入"""
 
     def __init__(
@@ -54,7 +54,7 @@ class DirectoryPickerScreen(ModalScreen[Optional[str]]):
         self.hint_text = hint
         self.confirm_label = confirm_label
         self.require_writable = require_writable
-        self._selected_path: Optional[str] = None
+        self._selected_path: str | None = None
         super().__init__()
 
     def compose(self):
@@ -109,7 +109,7 @@ class DirectoryPickerScreen(ModalScreen[Optional[str]]):
         return text
 
 
-class FilePickerScreen(ModalScreen[Optional[str]]):
+class FilePickerScreen(ModalScreen[str | None]):
     """檔案選擇彈窗，支援樹狀瀏覽與手動輸入"""
 
     def __init__(
@@ -123,7 +123,7 @@ class FilePickerScreen(ModalScreen[Optional[str]]):
         self.title_text = title
         self.hint_text = hint
         self.confirm_label = confirm_label
-        self._selected_path: Optional[str] = None
+        self._selected_path: str | None = None
         super().__init__()
 
     def compose(self):

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from .datetime_text import normalize_date_text, normalize_time_text
 from ..infrastructure.naming import build_timestamped_name
@@ -37,7 +36,7 @@ def parse_datetime_range_inputs(
     start_time_text: str,
     end_date_text: str,
     end_time_text: str,
-) -> tuple[Optional[datetime], Optional[datetime]]:
+) -> tuple[datetime | None, datetime | None]:
     """將分離的日期與時間欄位組合成起訖時間"""
     start_date_clean = normalize_date_text(start_date_text)
     start_time_clean = normalize_time_text(start_time_text)

@@ -1,5 +1,5 @@
 import re
-from typing import Optional, Pattern
+from re import Pattern
 
 
 DEFAULT_LOGBACK_PATTERN = "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
@@ -228,7 +228,7 @@ def _find_closing_delimiter(
     opening_index: int,
     open_char: str,
     close_char: str,
-) -> Optional[int]:
+) -> int | None:
     depth = 0
     for index in range(opening_index, len(pattern)):
         char = pattern[index]

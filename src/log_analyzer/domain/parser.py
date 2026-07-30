@@ -8,7 +8,6 @@ import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Tuple
 
 from .logback_pattern import DEFAULT_LOGBACK_REGEX, compile_logback_pattern
 from .parser_aggregation import commit_entry, normalize_keyword, sort_key
@@ -21,13 +20,13 @@ MAX_GROUP_SHARDS = 32
 
 @dataclass(frozen=True)
 class ParseOptions:
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
-    keyword: Optional[str] = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    keyword: str | None = None
     ignore_case: bool = False
-    log_pattern: Optional[str] = None
+    log_pattern: str | None = None
     sort_by: str = "time"
-    levels: Optional[Tuple[str, ...]] = None
+    levels: tuple[str, ...] | None = None
 
 
 @dataclass(slots=True)

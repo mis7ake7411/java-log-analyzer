@@ -4,7 +4,7 @@ import os
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from ..domain.parser import ParseOptions, parse_log_directory
 from ..infrastructure.exporter import export_results
@@ -50,16 +50,16 @@ def build_output_path(output_dir: str, output_name: str, fmt: str) -> str:
 def run_analysis(
     path: str,
     output_path: str,
-    start_dt: Optional[datetime],
-    end_dt: Optional[datetime],
-    keyword: Optional[str],
+    start_dt: datetime | None,
+    end_dt: datetime | None,
+    keyword: str | None,
     ignore_case: bool,
     sort_by: str,
     fmt: str,
-    log_pattern: Optional[str] = None,
-    max_export_bytes: Optional[int] = None,
+    log_pattern: str | None = None,
+    max_export_bytes: int | None = None,
     include_details: bool = True,
-    levels: Optional[tuple[str, ...]] = DEFAULT_SELECTED_LEVELS,
+    levels: tuple[str, ...] | None = DEFAULT_SELECTED_LEVELS,
     split_by_level: bool = False,
 ) -> AnalysisResult:
     """執行分析、匯出，並回傳摘要結果"""

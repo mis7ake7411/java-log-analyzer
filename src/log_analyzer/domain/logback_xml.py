@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from typing import Iterable, List, Optional
+from collections.abc import Iterable
 
 from .logback_pattern import UnsupportedLogbackPatternError, compile_logback_pattern
 
@@ -23,11 +23,11 @@ class LogbackPatternCandidate:
         return self.matches / self.checked
 
 
-def load_logback_patterns(xml_path: str) -> List[LogbackPatternCandidate]:
+def load_logback_patterns(xml_path: str) -> list[LogbackPatternCandidate]:
     """Load candidate PatternLayout strings from a logback XML file."""
     tree = ET.parse(xml_path)
     root = tree.getroot()
-    candidates: List[LogbackPatternCandidate] = []
+    candidates: list[LogbackPatternCandidate] = []
 
     for element in root.iter():
         tag = _local_name(element.tag)
@@ -50,7 +50,7 @@ def find_best_logback_pattern(
     xml_path: str,
     log_dir: str,
     sample_limit: int = 50,
-) -> Optional[LogbackPatternCandidate]:
+) -> LogbackPatternCandidate | None:
     candidates = load_logback_patterns(xml_path)
     samples = list(_read_log_samples(log_dir, sample_limit))
     if not candidates:
@@ -62,7 +62,7 @@ def find_best_logback_pattern(
 
 def _score_candidate(
     candidate: LogbackPatternCandidate,
-    samples: List[str],
+    samples: list[str],
 ) -> LogbackPatternCandidate:
     scored = LogbackPatternCandidate(candidate.name, candidate.pattern, candidate.source)
     scored.checked = len(samples)
@@ -98,7 +98,7 @@ def _read_log_samples(log_dir: str, sample_limit: int) -> Iterable[str]:
 
 
 def _append_unique(
-    candidates: List[LogbackPatternCandidate],
+    candidates: list[LogbackPatternCandidate],
     candidate: LogbackPatternCandidate,
 ) -> None:
     if any(existing.pattern == candidate.pattern for existing in candidates):

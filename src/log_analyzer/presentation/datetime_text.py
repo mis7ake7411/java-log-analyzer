@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Optional, Iterator, Tuple
+from collections.abc import Iterator
 
 _DATE_COMPACT_RE = re.compile(r"^\d{8}$")
 _DATE_STANDARD_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -30,7 +30,7 @@ def normalize_time_text(value: str) -> str:
     return clean
 
 
-def parse_datetime_value(value: Optional[str], label: str):
+def parse_datetime_value(value: str | None, label: str):
     """解析 CLI 單一時間字串，支援常見純數字格式"""
     if not value:
         return None
@@ -48,7 +48,7 @@ def parse_datetime_value(value: Optional[str], label: str):
     )
 
 
-def _build_datetime_candidates(value: str) -> Iterator[Tuple[str, str]]:
+def _build_datetime_candidates(value: str) -> Iterator[tuple[str, str]]:
     """依字串形狀組出可嘗試解析的日期時間候選"""
     if _DATETIME_COMPACT_RE.fullmatch(value):
         yield value, "%Y%m%d%H%M%S"
