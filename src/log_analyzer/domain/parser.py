@@ -8,6 +8,7 @@ import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Optional, Tuple
 
 from .logback_pattern import DEFAULT_LOGBACK_REGEX, compile_logback_pattern
 from .parser_aggregation import commit_entry, normalize_keyword, sort_key
@@ -16,6 +17,17 @@ _STACKTRACE_HEADER_RE = re.compile(r"^[A-Za-z_][\w.$]*(?:Exception|Error)(?::|\s
 MAX_SORT_GROUPS_IN_MEMORY = 5000
 MAX_GROUPS_IN_MEMORY = 5000
 MAX_GROUP_SHARDS = 32
+
+
+@dataclass(frozen=True)
+class ParseOptions:
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    keyword: Optional[str] = None
+    ignore_case: bool = False
+    log_pattern: Optional[str] = None
+    sort_by: str = "time"
+    levels: Optional[Tuple[str, ...]] = None
 
 
 @dataclass(slots=True)
@@ -104,19 +116,46 @@ def parse_logs(
     回傳:
         tuple: (各等級的統計數量, 所有符合條件的日誌詳情列表)
     """
+    return parse_log_directory(
+        directory,
+        ParseOptions(
+            start_time,
+            end_time,
+            keyword,
+            ignore_case,
+            log_pattern,
+            sort_by,
+            levels,
+        ),
+    )
+
+
+def parse_log_directory(directory: str, options: ParseOptions):
     counts = Counter()
-    search_keyword = normalize_keyword(keyword, ignore_case)
-    selected_levels = _normalize_levels(levels)
+    grouped_logs, _spilled_to_disk = _collect_grouped_logs(directory, options, counts)
+    sorted_logs = iter_sorted_logs(grouped_logs.values(), options.sort_by)
+
+    return counts, _persist_matched_logs(sorted_logs)
+
+
+def _collect_grouped_logs(directory, options, counts):
+    search_keyword = normalize_keyword(options.keyword, options.ignore_case)
+    selected_levels = _normalize_levels(options.levels)
     grouped_logs = {}
     spilled_to_disk = False
 
     with tempfile.TemporaryDirectory() as temp_dir:
         shard_paths = _build_group_shard_paths(temp_dir)
 
-        for entry in iter_logs(directory, start_time, end_time, log_pattern):
+        for entry in iter_logs(
+            directory,
+            options.start_time,
+            options.end_time,
+            options.log_pattern,
+        ):
             if selected_levels is not None and entry["level"].upper() not in selected_levels:
                 continue
-            commit_entry(grouped_logs, counts, entry, search_keyword, ignore_case)
+            commit_entry(grouped_logs, counts, entry, search_keyword, options.ignore_case)
             if len(grouped_logs) >= MAX_GROUPS_IN_MEMORY:
                 _spill_grouped_logs(grouped_logs, shard_paths)
                 grouped_logs.clear()
@@ -124,12 +163,9 @@ def parse_logs(
 
         if spilled_to_disk:
             _spill_grouped_logs(grouped_logs, shard_paths)
-            grouped_logs.clear()
-            sorted_logs = iter_sorted_logs(_load_grouped_logs_from_shards(shard_paths), sort_by)
-        else:
-            sorted_logs = iter_sorted_logs(grouped_logs.values(), sort_by)
+            grouped_logs = _load_grouped_logs_from_shards(shard_paths)
 
-    return counts, _persist_matched_logs(sorted_logs)
+    return grouped_logs, spilled_to_disk
 
 
 def _normalize_levels(levels):
@@ -199,7 +235,7 @@ def _load_grouped_logs_from_shards(shard_paths):
                     break
                 _merge_grouped_log(grouped_logs, entry)
 
-    return grouped_logs.values()
+    return grouped_logs
 
 
 def _merge_grouped_log(grouped_logs, entry):
