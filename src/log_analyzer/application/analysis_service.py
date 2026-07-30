@@ -5,7 +5,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 
-from ..domain.log_types import LogEntry, MatchedLogs
+from ..domain.log_types import MatchedLogs
 from ..domain.parser import ParseOptions, parse_log_directory
 from ..infrastructure.exporter import export_results
 from ..infrastructure.paths import ensure_readable_directory, ensure_writable_directory
