@@ -163,7 +163,10 @@ def _collect_grouped_logs(directory, options, counts):
 
         if spilled_to_disk:
             _spill_grouped_logs(grouped_logs, shard_paths)
-            grouped_logs = _load_grouped_logs_from_shards(shard_paths)
+            grouped_logs = {
+                _group_log_key(entry): entry
+                for entry in _load_grouped_logs_from_shards(shard_paths)
+            }
 
     return grouped_logs, spilled_to_disk
 
@@ -235,7 +238,7 @@ def _load_grouped_logs_from_shards(shard_paths):
                     break
                 _merge_grouped_log(grouped_logs, entry)
 
-    return grouped_logs
+    return grouped_logs.values()
 
 
 def _merge_grouped_log(grouped_logs, entry):
