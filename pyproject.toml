@@ -16,7 +16,14 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-dependencies = []
+dependencies = [
+    "textual==8.2.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
 
 [project.scripts]
 log-analyzer = "log_analyzer.presentation.cli:main"
