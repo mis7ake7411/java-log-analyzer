@@ -55,12 +55,11 @@ class LogAnalyzerApp(App):
         self._auto_output_name = get_default_output_name_text()
         yield Header(show_clock=True)
         with Container(id="shell"):
-            with Container(id="hero"):
-                with Container(id="hero-title-row"):
-                    yield Static("Java Log Analyzer", id="hero-title")
-                    yield Static(f"v{get_package_version()}", id="hero-version")
-                    yield Static("·", id="hero-separator")
-                    yield Static("分析、篩選並匯出 Java Logback 記錄", id="hero-subtitle")
+            with Container(id="hero"), Container(id="hero-title-row"):
+                yield Static("Java Log Analyzer", id="hero-title")
+                yield Static(f"v{get_package_version()}", id="hero-version")
+                yield Static("·", id="hero-separator")
+                yield Static("分析、篩選並匯出 Java Logback 記錄", id="hero-subtitle")
 
             with ScrollableContainer(id="content", can_focus=False):
                 with ScrollableContainer(id="form-panel", can_focus=False):

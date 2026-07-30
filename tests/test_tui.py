@@ -828,7 +828,7 @@ def test_set_result_uses_scrollable_content_width():
         def clear(self) -> None:
             self.calls.append("clear")
 
-        def write(self, renderable, width=None, expand=False):  # noqa: ANN001
+        def write(self, renderable, width=None, expand=False):
             self.calls.append(("write", renderable, width, expand))
 
         def scroll_home(self) -> None:
