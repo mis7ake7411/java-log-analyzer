@@ -3,7 +3,12 @@ import os
 import shutil
 import pickle
 from datetime import datetime
-from log_analyzer.domain.parser import iter_logs, parse_logs
+from log_analyzer.domain.parser import (
+    ParseOptions,
+    iter_logs,
+    parse_log_directory,
+    parse_logs,
+)
 import log_analyzer.domain.parser as parser_module
 
 @pytest.fixture
@@ -56,6 +61,18 @@ def test_parse_logs_keyword(temp_log_dir):
     assert counts['INFO'] == 0 # INFO lines don't have this keyword
     assert counts['ERROR'] == 1
     assert len(errors) == 1
+
+
+def test_parse_log_directory_matches_legacy_parse_logs(temp_log_dir):
+    options = ParseOptions(keyword="RuntimeException", ignore_case=False)
+
+    expected_counts, expected_logs = parse_logs(
+        temp_log_dir, keyword="RuntimeException", ignore_case=False
+    )
+    actual_counts, actual_logs = parse_log_directory(temp_log_dir, options)
+
+    assert actual_counts == expected_counts
+    assert list(actual_logs) == list(expected_logs)
 
 
 def test_parse_logs_separates_multiline_message_and_exception(tmp_path):
