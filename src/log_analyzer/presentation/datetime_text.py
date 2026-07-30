@@ -4,6 +4,8 @@ import re
 from datetime import datetime
 from collections.abc import Iterator
 
+from ..domain.timezone import to_local_timezone
+
 _DATE_COMPACT_RE = re.compile(r"^\d{8}$")
 _DATE_STANDARD_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _TIME_HM_COMPACT_RE = re.compile(r"^\d{4}$")
@@ -38,7 +40,7 @@ def parse_datetime_value(value: str | None, label: str):
     clean = value.strip()
     for candidate, fmt in _build_datetime_candidates(clean):
         try:
-            return datetime.strptime(candidate, fmt)
+            return to_local_timezone(datetime.strptime(candidate, fmt))
         except ValueError:
             continue
 

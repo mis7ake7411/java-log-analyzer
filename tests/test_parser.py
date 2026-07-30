@@ -1,6 +1,6 @@
 import pytest
 import pickle
-from datetime import datetime
+from datetime import datetime, timezone
 from log_analyzer.domain.parser import (
     MatchedLogsStore,
     ParseOptions,
@@ -88,6 +88,33 @@ def test_parse_log_directory_matches_legacy_parse_logs(temp_log_dir):
     assert actual_counts == expected_counts
     assert isinstance(actual_logs, MatchedLogsStore)
     assert list(actual_logs) == list(expected_logs)
+
+
+def test_parse_log_directory_normalizes_naive_parse_options(temp_log_dir):
+    counts, _logs = parse_log_directory(
+        temp_log_dir,
+        ParseOptions(start_time=datetime(2026, 6, 6, 10, 5)),
+    )
+
+    assert counts["ERROR"] == 1
+
+
+def test_parse_log_directory_accepts_aware_parse_options(temp_log_dir):
+    local_timezone = datetime.now().astimezone().tzinfo
+    start_time = datetime(2026, 6, 6, 10, 5, tzinfo=local_timezone).astimezone(timezone.utc)
+
+    counts, _logs = parse_log_directory(
+        temp_log_dir,
+        ParseOptions(start_time=start_time),
+    )
+
+    assert counts["ERROR"] == 1
+
+
+def test_parse_entry_time_assigns_system_local_timezone():
+    entry_time = parser_module._parse_entry_time("2026-06-06 10:05:00.123")
+
+    assert entry_time.tzinfo == datetime.now().astimezone().tzinfo
 
 
 def test_parse_logs_separates_multiline_message_and_exception(tmp_path):

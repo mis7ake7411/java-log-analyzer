@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from ..domain.timezone import to_local_timezone
 from .datetime_text import normalize_date_text, normalize_time_text
 from ..infrastructure.naming import build_timestamped_name
 
@@ -47,7 +48,7 @@ def parse_datetime_range_inputs(
     elif start_time_clean:
         start_dt = _parse_datetime_pair(start_date_clean, start_time_clean, "開始")
     else:
-        start_dt = datetime.strptime(start_date_clean, "%Y-%m-%d")
+        start_dt = to_local_timezone(datetime.strptime(start_date_clean, "%Y-%m-%d"))
 
     end_date_clean = normalize_date_text(end_date_text)
     end_time_clean = normalize_time_text(end_time_text)
@@ -59,10 +60,12 @@ def parse_datetime_range_inputs(
     if end_time_clean:
         end_dt = _parse_datetime_pair(end_date_clean, end_time_clean, "結束")
     else:
-        end_dt = datetime.strptime(end_date_clean, "%Y-%m-%d").replace(
-            hour=23,
-            minute=59,
-            second=59,
+        end_dt = to_local_timezone(
+            datetime.strptime(end_date_clean, "%Y-%m-%d").replace(
+                hour=23,
+                minute=59,
+                second=59,
+            )
         )
     if start_dt is not None and start_dt > end_dt:
         raise ValueError("開始時間不能晚於結束時間")
@@ -73,6 +76,6 @@ def _parse_datetime_pair(date_text: str, time_text: str, label: str) -> datetime
     """依時間是否含秒數，解析日期與時間組合"""
     fmt = "%Y-%m-%d %H:%M:%S" if ":" in time_text and time_text.count(":") == 2 else "%Y-%m-%d %H:%M"
     try:
-        return datetime.strptime(f"{date_text} {time_text}", fmt)
+        return to_local_timezone(datetime.strptime(f"{date_text} {time_text}", fmt))
     except ValueError as exc:
         raise ValueError(f"{label}日期時間格式不正確") from exc

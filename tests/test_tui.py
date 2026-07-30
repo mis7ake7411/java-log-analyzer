@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -135,7 +136,7 @@ def test_parse_datetime_range_inputs_allows_blank_end():
         "",
     )
 
-    assert start_dt.isoformat(sep=" ") == "2026-06-07 00:00:00"
+    assert start_dt.replace(tzinfo=None).isoformat(sep=" ") == "2026-06-07 00:00:00"
     assert end_dt is None
 
 
@@ -148,7 +149,7 @@ def test_parse_datetime_range_inputs_allows_start_date_only():
     )
 
     assert start_dt is not None
-    assert start_dt.isoformat(sep=" ") == "2026-06-07 00:00:00"
+    assert start_dt.replace(tzinfo=None).isoformat(sep=" ") == "2026-06-07 00:00:00"
     assert end_dt is None
 
 
@@ -162,7 +163,7 @@ def test_parse_datetime_range_inputs_allows_end_date_only():
 
     assert start_dt is None
     assert end_dt is not None
-    assert end_dt.isoformat(sep=" ") == "2026-06-07 23:59:59"
+    assert end_dt.replace(tzinfo=None).isoformat(sep=" ") == "2026-06-07 23:59:59"
 
 
 def test_parse_datetime_range_inputs_allows_blank_start_and_end():
@@ -187,7 +188,7 @@ def test_parse_datetime_range_inputs_allows_end_only():
 
     assert start_dt is None
     assert end_dt is not None
-    assert end_dt.isoformat(sep=" ") == "2026-06-07 12:00:00"
+    assert end_dt.replace(tzinfo=None).isoformat(sep=" ") == "2026-06-07 12:00:00"
 
 
 def test_parse_datetime_range_inputs_accepts_compact_numeric_values():
@@ -200,8 +201,8 @@ def test_parse_datetime_range_inputs_accepts_compact_numeric_values():
 
     assert start_dt is not None
     assert end_dt is not None
-    assert start_dt.isoformat(sep=" ") == "2026-06-07 18:20:00"
-    assert end_dt.isoformat(sep=" ") == "2026-06-08 23:59:59"
+    assert start_dt.replace(tzinfo=None).isoformat(sep=" ") == "2026-06-07 18:20:00"
+    assert end_dt.replace(tzinfo=None).isoformat(sep=" ") == "2026-06-08 23:59:59"
 
 
 def test_parse_datetime_range_inputs_accepts_compact_numeric_date_only():
@@ -214,7 +215,19 @@ def test_parse_datetime_range_inputs_accepts_compact_numeric_date_only():
 
     assert start_dt is None
     assert end_dt is not None
-    assert end_dt.isoformat(sep=" ") == "2026-06-07 23:59:59"
+    assert end_dt.replace(tzinfo=None).isoformat(sep=" ") == "2026-06-07 23:59:59"
+
+
+def test_parse_datetime_range_inputs_assigns_system_local_timezone():
+    start_dt, end_dt = parse_datetime_range_inputs(
+        "2026-06-07",
+        "10:00",
+        "2026-06-07",
+        "12:00",
+    )
+
+    assert start_dt.tzinfo == datetime.now().astimezone().tzinfo
+    assert end_dt.tzinfo == datetime.now().astimezone().tzinfo
 
 
 def test_parse_datetime_range_inputs_rejects_start_time_without_date():

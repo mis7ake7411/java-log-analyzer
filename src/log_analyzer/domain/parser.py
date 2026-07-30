@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from .logback_pattern import DEFAULT_LOGBACK_REGEX, compile_logback_pattern
+from .timezone import to_local_timezone
 from .parser_aggregation import commit_entry, normalize_keyword, sort_key
 
 _STACKTRACE_HEADER_RE = re.compile(r"^[A-Za-z_][\w.$]*(?:Exception|Error)(?::|\s|$)")
@@ -182,6 +183,11 @@ def iter_logs(
     log_pattern=None,
 ):
     """逐筆產生已解析、已套用時間區間過濾的日誌 entry"""
+    if start_time is not None:
+        start_time = to_local_timezone(start_time)
+    if end_time is not None:
+        end_time = to_local_timezone(end_time)
+
     entry_pattern = compile_logback_pattern(log_pattern) if log_pattern else DEFAULT_LOGBACK_REGEX
 
     if not os.path.exists(directory):
@@ -369,7 +375,7 @@ def _create_entry(match, filename, line_num):
 def _parse_entry_time(timestamp_str):
     """從日誌時間戳取出可比較的 datetime"""
     try:
-        return datetime.strptime(timestamp_str[:19], "%Y-%m-%d %H:%M:%S")
+        return to_local_timezone(datetime.strptime(timestamp_str[:19], "%Y-%m-%d %H:%M:%S"))
     except ValueError:
         return None
 
