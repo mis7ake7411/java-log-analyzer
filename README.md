@@ -21,15 +21,15 @@
 ### 2. 建立虛擬環境
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 ```
 
 Windows 可使用：
 
 ```powershell
-python -m venv venv
-.\venv\Scripts\activate
+python -m venv .venv
+.\.venv\Scripts\activate
 ```
 
 ### 3. 安裝依賴
@@ -37,10 +37,20 @@ python -m venv venv
 ```bash
 pip install --upgrade pip setuptools
 pip install -r requirements.txt
-pip install -e .
 ```
 
 安裝完成後可直接使用 `log-analyzer` 指令
+
+## 開發與驗證
+
+安裝完成後，可執行以下檢查：
+
+```bash
+ruff check .
+python -m pytest -q
+```
+
+GitHub Actions 會在 Python 3.10、3.11 與 3.12 上執行相同的 lint 與測試。
 
 ## 啟動方式
 
@@ -177,7 +187,7 @@ log-analyzer --version
 %d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n
 ```
 
-進階模式可貼上 `logback.xml` 的 `<pattern>` 內容，但目前只支援常見 token超出支援範圍時，工具會提示不支援的項目
+進階模式可貼上 `logback.xml` 的 `<pattern>` 內容，但目前只支援常見 token；超出支援範圍時，工具會提示不支援的項目。
 
 - 會解析成欄位：`%d` / `%date`、`%thread` / `%t`、`%level` / `%le` / `%p`、`%logger` / `%lo` / `%c`、`%msg` / `%message` / `%m`
 - 可接受但不納入輸出欄位：`%file`、`%line` / `%L`、`%class`、`%method` / `%M`、`%caller`、`%mdc` / `%X`、`%ex` / `%throwable` / `%xEx` / `%wEx` / `%wex` / `%rootException` / `%rEx`、`%n`
@@ -209,7 +219,7 @@ log-analyzer --version
 
 ## 適用環境
 
-- Python 3.9+
+- Python 3.10+
 - Windows / Linux / macOS
 
 ## 授權
