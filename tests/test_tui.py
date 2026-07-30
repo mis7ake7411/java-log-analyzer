@@ -1,6 +1,5 @@
 import asyncio
 from pathlib import Path
-from datetime import date
 from types import SimpleNamespace
 
 from rich.console import Console

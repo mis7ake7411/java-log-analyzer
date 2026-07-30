@@ -8,6 +8,8 @@ from ..application.analysis_service import DEFAULT_SELECTED_LEVELS
 from ..domain.logback_xml import find_best_logback_pattern
 from ..infrastructure.naming import build_timestamped_name
 
+__all__ = ["parse_datetime_value"]
+
 ALL_LEVELS = ("ERROR", "WARN", "INFO", "DEBUG", "TRACE")
 
 
