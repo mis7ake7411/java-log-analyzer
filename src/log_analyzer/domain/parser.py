@@ -6,12 +6,15 @@ import pickle
 import re
 import tempfile
 from collections import Counter
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
+from typing import cast
 
 from .logback_pattern import DEFAULT_LOGBACK_REGEX, compile_logback_pattern
-from .timezone import to_local_timezone
 from .parser_aggregation import commit_entry, normalize_keyword, sort_key
+from .log_types import LogEntry, MatchedLogs
+from .timezone import to_local_timezone
 
 _STACKTRACE_HEADER_RE = re.compile(r"^[A-Za-z_][\w.$]*(?:Exception|Error)(?::|\s|$)")
 MAX_SORT_GROUPS_IN_MEMORY = 5000
@@ -34,24 +37,24 @@ class ParseOptions:
 class MatchedLogsStore:
     path: str
     length: int
-    _index_cache: dict[int, object] | None = None
+    _index_cache: dict[int, LogEntry] | None = None
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[LogEntry]:
         with open(self.path, "rb") as file_handle:
             index = 0
             while True:
                 try:
-                    log = pickle.load(file_handle)
+                    log = cast(LogEntry, pickle.load(file_handle))
                 except EOFError:
                     break
                 self._remember(index, log)
                 yield log
                 index += 1
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self.length
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> LogEntry:
         if index < 0:
             index += self.length
         if index < 0 or index >= self.length:
@@ -65,7 +68,7 @@ class MatchedLogsStore:
             current_index = 0
             while True:
                 try:
-                    log = pickle.load(file_handle)
+                    log = cast(LogEntry, pickle.load(file_handle))
                 except EOFError:
                     break
                 if current_index == index:
@@ -94,7 +97,7 @@ class MatchedLogsStore:
             pass
         self._index_cache = {}
 
-    def _remember(self, index: int, log) -> None:
+    def _remember(self, index: int, log: LogEntry) -> None:
         if self._index_cache is None:
             self._index_cache = {}
         self._index_cache[index] = log
@@ -130,7 +133,7 @@ def parse_logs(
     )
 
 
-def parse_log_directory(directory: str, options: ParseOptions):
+def parse_log_directory(directory: str, options: ParseOptions) -> tuple[Counter[str], MatchedLogs]:
     counts = Counter()
     grouped_logs, _spilled_to_disk = _collect_grouped_logs(directory, options, counts)
     sorted_logs = iter_sorted_logs(grouped_logs, options.sort_by)

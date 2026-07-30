@@ -1,6 +1,12 @@
 from pathlib import Path
+from typing import get_type_hints
 
-from log_analyzer.application.analysis_service import run_analysis
+from log_analyzer.application.analysis_service import AnalysisResult, run_analysis
+from log_analyzer.domain.log_types import MatchedLogs
+
+
+def test_analysis_result_declares_matched_logs_contract():
+    assert get_type_hints(AnalysisResult)["matched_logs"] is MatchedLogs
 
 
 def test_run_analysis_can_skip_returning_full_details(tmp_path):

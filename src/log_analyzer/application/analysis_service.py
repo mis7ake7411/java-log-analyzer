@@ -4,8 +4,8 @@ import os
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 
+from ..domain.log_types import LogEntry, MatchedLogs
 from ..domain.parser import ParseOptions, parse_log_directory
 from ..infrastructure.exporter import export_results
 from ..infrastructure.paths import ensure_readable_directory, ensure_writable_directory
@@ -29,7 +29,7 @@ class AnalysisResult:
     selected_levels: tuple[str, ...]
     sort_by: str
     counts: Counter[str]
-    matched_logs: Any
+    matched_logs: MatchedLogs
     exported_files: list[str]
 
 
@@ -96,7 +96,7 @@ def run_analysis(
     matched_groups = len(matched_logs)
     matched_occurrences = sum(entry.get("count", 1) for entry in matched_logs)
     level_summary = [(level, count) for level, count in sorted(counts.items()) if count > 0]
-    detail_logs = matched_logs if include_details else []
+    detail_logs: MatchedLogs = matched_logs if include_details else []
     if not include_details and hasattr(matched_logs, "release"):
         matched_logs.release()
     del matched_logs

@@ -1,5 +1,6 @@
 import re
 from collections import Counter
+from collections.abc import Iterable
 from datetime import datetime
 
 from rich.columns import Columns
@@ -9,6 +10,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..application.analysis_service import AnalysisResult
+from ..domain.log_types import LogEntry
 from .error_messages import get_error_hint
 
 
@@ -245,7 +247,7 @@ def _distribution_table(label: str, summary: list[tuple[str, int, int]], accent:
     )
 
 
-def _collect_distribution(matched_logs, field: str) -> list[tuple[str, int, int]]:
+def _collect_distribution(matched_logs: Iterable[LogEntry], field: str) -> list[tuple[str, int, int]]:
     grouped = Counter()
     group_counts = Counter()
 
@@ -265,7 +267,7 @@ def _collect_distribution(matched_logs, field: str) -> list[tuple[str, int, int]
     return summary
 
 
-def _collect_time_hotspots(matched_logs) -> list[tuple[str, int, int]]:
+def _collect_time_hotspots(matched_logs: Iterable[LogEntry]) -> list[tuple[str, int, int]]:
     grouped = Counter()
     group_counts = Counter()
 
@@ -285,7 +287,7 @@ def _collect_time_hotspots(matched_logs) -> list[tuple[str, int, int]]:
     return summary
 
 
-def _extract_time_bucket(log) -> str:
+def _extract_time_bucket(log: LogEntry) -> str:
     timestamp = str(log.get("timestamp", "") or "").strip()
     if not timestamp:
         return ""
@@ -299,7 +301,7 @@ def _extract_time_bucket(log) -> str:
     return timestamp[:13] + ":00" if len(timestamp) >= 13 else ""
 
 
-def _collect_exception_summary(matched_logs) -> list[tuple[str, int, int]]:
+def _collect_exception_summary(matched_logs: Iterable[LogEntry]) -> list[tuple[str, int, int]]:
     grouped = Counter()
     group_counts = Counter()
 
@@ -319,7 +321,7 @@ def _collect_exception_summary(matched_logs) -> list[tuple[str, int, int]]:
     return summary
 
 
-def _extract_exception_signature(log) -> str:
+def _extract_exception_signature(log: LogEntry) -> str:
     stacktrace = str(log.get("stacktrace", "") or "").strip()
     if stacktrace:
         first_line = stacktrace.splitlines()[0]

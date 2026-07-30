@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
+from ..domain.log_types import LogEntry
 from .export_csv import render_csv_prefix, render_csv_summary, serialize_csv_log
 from .export_json import (
     render_json_prefix,
@@ -16,10 +18,10 @@ MAX_EXPORT_BYTES_PER_FILE = 50 * 1024 * 1024
 
 
 def export_results(
-    counts,
-    matched_logs,
-    output_path,
-    format='csv',
+    counts: Mapping[str, int],
+    matched_logs: Iterable[LogEntry],
+    output_path: str,
+    format: str = "csv",
     max_export_bytes: int | None = None,
     split_by_level: bool = False,
 ):
@@ -43,8 +45,8 @@ def export_results(
 
 
 def _export_by_level(
-    counts,
-    matched_logs,
+    counts: Mapping[str, int],
+    matched_logs: Iterable[LogEntry],
     output: Path,
     format_name: str,
     threshold: int,
@@ -161,7 +163,13 @@ class _LevelFileWriter:
             _unlink_if_exists(path)
 
 
-def _export_streaming(counts, matched_logs, output: Path, format_name: str, threshold: int) -> list[str]:
+def _export_streaming(
+    counts: Mapping[str, int],
+    matched_logs: Iterable[LogEntry],
+    output: Path,
+    format_name: str,
+    threshold: int,
+) -> list[str]:
     base_name = output.stem
     suffix = output.suffix or f".{format_name}"
     encoding = _encoding_for(format_name)
