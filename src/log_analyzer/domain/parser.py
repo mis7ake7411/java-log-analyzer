@@ -133,7 +133,7 @@ def parse_logs(
 def parse_log_directory(directory: str, options: ParseOptions):
     counts = Counter()
     grouped_logs, _spilled_to_disk = _collect_grouped_logs(directory, options, counts)
-    sorted_logs = iter_sorted_logs(grouped_logs.values(), options.sort_by)
+    sorted_logs = iter_sorted_logs(grouped_logs, options.sort_by)
 
     return counts, _persist_matched_logs(sorted_logs)
 
@@ -163,10 +163,9 @@ def _collect_grouped_logs(directory, options, counts):
 
         if spilled_to_disk:
             _spill_grouped_logs(grouped_logs, shard_paths)
-            grouped_logs = {
-                _group_log_key(entry): entry
-                for entry in _load_grouped_logs_from_shards(shard_paths)
-            }
+            grouped_logs = _load_grouped_logs_from_shards(shard_paths)
+        else:
+            grouped_logs = grouped_logs.values()
 
     return grouped_logs, spilled_to_disk
 

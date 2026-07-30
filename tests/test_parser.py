@@ -4,6 +4,7 @@ import shutil
 import pickle
 from datetime import datetime
 from log_analyzer.domain.parser import (
+    MatchedLogsStore,
     ParseOptions,
     iter_logs,
     parse_log_directory,
@@ -64,14 +65,30 @@ def test_parse_logs_keyword(temp_log_dir):
 
 
 def test_parse_log_directory_matches_legacy_parse_logs(temp_log_dir):
-    options = ParseOptions(keyword="RuntimeException", ignore_case=False)
+    options = ParseOptions(
+        start_time=datetime(2026, 6, 6, 10, 5),
+        end_time=datetime(2026, 6, 6, 10, 15),
+        keyword="runtimeexception",
+        ignore_case=True,
+        log_pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger - %msg%n",
+        sort_by="level",
+        levels=("ERROR",),
+    )
 
     expected_counts, expected_logs = parse_logs(
-        temp_log_dir, keyword="RuntimeException", ignore_case=False
+        temp_log_dir,
+        start_time=options.start_time,
+        end_time=options.end_time,
+        keyword=options.keyword,
+        ignore_case=options.ignore_case,
+        log_pattern=options.log_pattern,
+        sort_by=options.sort_by,
+        levels=options.levels,
     )
     actual_counts, actual_logs = parse_log_directory(temp_log_dir, options)
 
     assert actual_counts == expected_counts
+    assert isinstance(actual_logs, MatchedLogsStore)
     assert list(actual_logs) == list(expected_logs)
 
 
