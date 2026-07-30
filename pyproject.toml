@@ -37,3 +37,5 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "UP006", "UP035", "UP045"]
+extend-select = ["SIM117", "RET501", "PLR1711", "RUF005", "RUF059", "RUF100"]
+ignore = ["RUF001", "RUF002", "RUF003"]

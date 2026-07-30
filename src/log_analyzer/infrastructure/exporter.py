@@ -76,7 +76,7 @@ def _export_by_level(
 
         summary_path = output.with_name(f"{base_name}_summary{suffix}")
         _write_text(summary_path, _render_summary(counts, created_paths, format_name), _encoding_for(format_name))
-        return [str(summary_path)] + created_paths
+        return [str(summary_path), *created_paths]
     except Exception:
         for writer in writers.values():
             writer.abort()
@@ -263,7 +263,6 @@ def _open_part_file(path: Path, counts, format_name: str, encoding: str):
 def _close_part_file(file_handle, format_name: str):
     file_handle.write(_report_suffix(format_name))
     file_handle.close()
-    return None
 
 
 def _rotate_part(

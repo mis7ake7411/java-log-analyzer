@@ -59,8 +59,7 @@ class DirectoryPickerScreen(ModalScreen[str | None]):
 
     def compose(self):
         root_path, status_message = self._pick_tree_root()
-        with Container(id="directory-picker"):
-            with Container(id="picker-card"):
+        with Container(id="directory-picker"), Container(id="picker-card"):
                 yield Static(self.title_text, id="picker-title")
                 yield Static(self.hint_text, id="picker-hint")
                 yield FolderOnlyDirectoryTree(root_path, id="picker-tree")
@@ -128,8 +127,7 @@ class FilePickerScreen(ModalScreen[str | None]):
 
     def compose(self):
         root_path, status_message = self._pick_tree_root()
-        with Container(id="directory-picker"):
-            with Container(id="picker-card"):
+        with Container(id="directory-picker"), Container(id="picker-card"):
                 yield Static(self.title_text, id="picker-title")
                 yield Static(self.hint_text, id="picker-hint")
                 yield DirectoryTree(root_path, id="picker-tree")

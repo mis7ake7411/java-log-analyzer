@@ -137,7 +137,7 @@ def add_to_grouped_logs(grouped_logs, entry):
 def _append_line_number(entry, line_num):
     line_numbers = entry.line_numbers
     if isinstance(line_numbers, tuple):
-        entry.line_numbers = line_numbers + (line_num,)
+        entry.line_numbers = (*line_numbers, line_num)
         return
 
     if line_numbers is None:

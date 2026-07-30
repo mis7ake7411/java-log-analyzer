@@ -25,7 +25,7 @@ def temp_log_dir(tmp_path):
     return str(d)
 
 def test_parse_logs_counts(temp_log_dir):
-    counts, errors = parse_logs(temp_log_dir)
+    counts, _errors = parse_logs(temp_log_dir)
     assert counts['INFO'] == 2
     assert counts['ERROR'] == 1
 
