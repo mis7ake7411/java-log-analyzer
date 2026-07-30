@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
 
-from ..domain.parser import parse_logs
+from ..domain.parser import ParseOptions, parse_log_directory
 from ..infrastructure.exporter import export_results
 from ..infrastructure.paths import ensure_readable_directory, ensure_writable_directory
 
@@ -64,15 +64,17 @@ def run_analysis(
 ) -> AnalysisResult:
     """執行分析、匯出，並回傳摘要結果"""
     normalized_path = ensure_readable_directory(path)
-    counts, matched_logs = parse_logs(
+    counts, matched_logs = parse_log_directory(
         normalized_path,
-        start_dt,
-        end_dt,
-        keyword,
-        ignore_case=ignore_case,
-        log_pattern=log_pattern,
-        sort_by=sort_by,
-        levels=levels,
+        ParseOptions(
+            start_time=start_dt,
+            end_time=end_dt,
+            keyword=keyword,
+            ignore_case=ignore_case,
+            log_pattern=log_pattern,
+            sort_by=sort_by,
+            levels=levels,
+        ),
     )
 
     if not counts and not matched_logs:
