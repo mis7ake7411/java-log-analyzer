@@ -36,7 +36,8 @@ def main():
             return
         except ImportError:
             print("提示：欲使用 TUI 介面，請先安裝 textual 套件 (pip install textual)")
-            if args.tui: sys.exit(1)
+            if args.tui:
+                sys.exit(1)
 
     args.output = resolve_output_path(args.output, args.format)
     target_dir, notice = resolve_target_dir(args.dir)

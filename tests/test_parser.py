@@ -1,6 +1,4 @@
 import pytest
-import os
-import shutil
 import pickle
 from datetime import datetime
 from log_analyzer.domain.parser import (

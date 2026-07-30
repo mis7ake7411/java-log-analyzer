@@ -28,6 +28,8 @@ from .tui_views import build_dashboard_view, build_error_view, build_idle_view, 
 from ..infrastructure.paths import get_system_root_path, inspect_directory_path
 from ..version import get_package_version
 
+__all__ = ["get_system_root_path"]
+
 
 class LogAnalyzerApp(App):
     TITLE = "Java Log Analyzer"
