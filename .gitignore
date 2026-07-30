@@ -11,6 +11,7 @@
 
 __pycache__/
 build/
+dist/
 docs/
 logs/
 src/java_log_analyzer.egg-info/
