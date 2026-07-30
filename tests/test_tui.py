@@ -113,7 +113,7 @@ def test_ctrl_u_clears_focused_input_text():
 
 
 def test_get_package_version_matches_installed_package():
-    assert get_package_version() == "1.0.10"
+    assert get_package_version() == "1.0.11"
 
 
 def test_default_datetime_field_texts():
