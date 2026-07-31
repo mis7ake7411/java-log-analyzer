@@ -1,0 +1,2 @@
+2026-06-06 10:00:00.001 INFO  [main] Application: Started application
+2026-06-06 10:00:01.002 ERROR [worker-1] Application: Failed to process request
