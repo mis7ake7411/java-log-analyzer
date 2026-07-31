@@ -26,6 +26,7 @@ from log_analyzer.presentation.recent_form_state import (
     load_recent_tui_state,
     save_recent_tui_state,
 )
+from log_analyzer.presentation.tui_views import analyze_dashboard
 from log_analyzer.version import get_package_version
 
 
@@ -895,6 +896,78 @@ def test_set_result_uses_scrollable_content_width():
     assert box.calls[0] == "clear"
     assert box.calls[1] == ("write", "renderable", 88, True)
     assert box.calls[2] == "scroll_home"
+
+
+def test_analyze_dashboard_collects_all_summaries_in_sorted_order():
+    result = SimpleNamespace(
+        matched_logs=[
+            {
+                "count": 3,
+                "timestamp": "2026-06-06 10:00:00.001",
+                "logger": "com.test.Api",
+                "thread": "http-1",
+                "stacktrace": "java.lang.RuntimeException: boom",
+                "message": "Fail A",
+                "message_body": "",
+            },
+            {
+                "count": 2,
+                "timestamp": "2026-06-06 10:30:00.001",
+                "logger": "com.test.Api",
+                "thread": "http-2",
+                "stacktrace": "java.lang.RuntimeException: boom",
+                "message": "Fail B",
+                "message_body": "",
+            },
+            {
+                "count": 5,
+                "timestamp": "2026-06-06 11:00:00.001",
+                "logger": "com.test.Job",
+                "thread": "worker-7",
+                "stacktrace": "java.lang.IllegalStateException: broken",
+                "message": "Fail C",
+                "message_body": "",
+            },
+            {
+                "count": 2,
+                "timestamp": "2026-06-06 11:15:00.001",
+                "logger": "",
+                "thread": "",
+                "stacktrace": "",
+                "message": "Fail D",
+                "message_body": "",
+            },
+        ]
+    )
+
+    analysis = analyze_dashboard(result)
+
+    assert analysis.exception_summary == (
+        ("java.lang.RuntimeException: boom", 2, 5),
+        ("java.lang.IllegalStateException: broken", 1, 5),
+    )
+    assert analysis.time_hotspots == (
+        ("2026-06-06 11:00", 2, 7),
+        ("2026-06-06 10:00", 2, 5),
+    )
+    assert analysis.logger_summary == (
+        ("com.test.Api", 2, 5),
+        ("com.test.Job", 1, 5),
+    )
+    assert analysis.thread_summary == (
+        ("worker-7", 1, 5),
+        ("http-1", 1, 3),
+        ("http-2", 1, 2),
+    )
+
+
+def test_analyze_dashboard_returns_empty_summaries_without_matched_logs():
+    analysis = analyze_dashboard(SimpleNamespace(matched_logs=[]))
+
+    assert analysis.exception_summary == ()
+    assert analysis.time_hotspots == ()
+    assert analysis.logger_summary == ()
+    assert analysis.thread_summary == ()
 
 
 def test_dashboard_view_includes_exception_group_summary():
