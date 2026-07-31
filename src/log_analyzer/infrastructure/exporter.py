@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 from ..domain.log_types import LogEntry
@@ -15,6 +16,16 @@ from .export_json import (
 from .export_markdown import render_markdown_prefix, render_markdown_summary, serialize_markdown_log
 
 MAX_EXPORT_BYTES_PER_FILE = 50 * 1024 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class ExportOptions:
+    counts: Mapping[str, int]
+    matched_logs: Iterable[LogEntry]
+    output_path: str
+    format: str = "csv"
+    max_export_bytes: int | None = None
+    split_by_level: bool = False
 
 
 def export_results(
@@ -34,14 +45,38 @@ def export_results(
         output_path (str): 輸出路徑
         format (str): 格式 ('csv', 'json', 'md')
     """
-    output = Path(output_path)
-    format_name = format.lower()
-    threshold = MAX_EXPORT_BYTES_PER_FILE if max_export_bytes is None else max_export_bytes
-    active_levels = [str(level) for level, count in counts.items() if count > 0]
-    if split_by_level and len(active_levels) > 1:
-        return _export_by_level(counts, matched_logs, output, format_name, threshold, active_levels)
+    return export_with_options(
+        ExportOptions(
+            counts=counts,
+            matched_logs=matched_logs,
+            output_path=output_path,
+            format=format,
+            max_export_bytes=max_export_bytes,
+            split_by_level=split_by_level,
+        )
+    )
 
-    return _export_streaming(counts, matched_logs, output, format_name, threshold)
+
+def export_with_options(options: ExportOptions) -> list[str]:
+    output = Path(options.output_path)
+    format_name = options.format.lower()
+    threshold = (
+        MAX_EXPORT_BYTES_PER_FILE
+        if options.max_export_bytes is None
+        else options.max_export_bytes
+    )
+    active_levels = [str(level) for level, count in options.counts.items() if count > 0]
+    if options.split_by_level and len(active_levels) > 1:
+        return _export_by_level(
+            options.counts,
+            options.matched_logs,
+            output,
+            format_name,
+            threshold,
+            active_levels,
+        )
+
+    return _export_streaming(options.counts, options.matched_logs, output, format_name, threshold)
 
 
 def _export_by_level(
@@ -117,24 +152,7 @@ class _LevelFileWriter:
             )
 
             if self.current_has_logs and self.current_size + block_size > self.threshold:
-                self.current_handle, self.current_path = _rotate_part(
-                    self.current_handle,
-                    self.current_path,
-                    self.output,
-                    self.base_name,
-                    self.suffix,
-                    self.encoding,
-                    self.part_paths,
-                    self.current_part_index,
-                    self.split_occurred,
-                    self.counts,
-                    self.format_name,
-                )
-                self.current_part_index += 1
-                self.split_occurred = True
-                self.current_size = _rendered_size(_report_prefix(self.counts, self.format_name), self.format_name)
-                self.current_has_logs = False
-                self.current_part_log_index = 0
+                self._rotate_part()
                 continue
 
             self.current_handle.write(block)
@@ -162,6 +180,36 @@ class _LevelFileWriter:
         for path in self.part_paths:
             _unlink_if_exists(path)
 
+    def write_empty_markdown_message(self) -> None:
+        message = "無符合條件的記錄\n"
+        self.current_handle.write(message)
+        self.current_size += _rendered_size(message, self.format_name)
+
+    def _rotate_part(self) -> None:
+        _close_part_file(self.current_handle, self.format_name)
+
+        next_part_path = self.output.with_name(
+            f"{self.base_name}_part{self.current_part_index:03d}{self.suffix}"
+        )
+        if not self.split_occurred:
+            os.replace(self.current_path, next_part_path)
+        self.part_paths.append(next_part_path if not self.split_occurred else self.current_path)
+
+        self.current_path = self.output.with_name(
+            f"{self.base_name}_part{self.current_part_index + 1:03d}{self.suffix}"
+        )
+        self.current_handle = _open_part_file(
+            self.current_path,
+            self.counts,
+            self.format_name,
+            self.encoding,
+        )
+        self.current_part_index += 1
+        self.split_occurred = True
+        self.current_size = _rendered_size(_report_prefix(self.counts, self.format_name), self.format_name)
+        self.current_has_logs = False
+        self.current_part_log_index = 0
+
 
 def _export_streaming(
     counts: Mapping[str, int],
@@ -170,68 +218,27 @@ def _export_streaming(
     format_name: str,
     threshold: int,
 ) -> list[str]:
-    base_name = output.stem
-    suffix = output.suffix or f".{format_name}"
-    encoding = _encoding_for(format_name)
-
-    part_paths: list[Path] = []
-    current_size = 0
-    current_part_index = 1
-    current_has_logs = False
-    current_part_log_index = 0
-    split_occurred = False
-    current_handle = _open_part_file(output, counts, format_name, encoding)
-    current_path = output
-    current_size = _rendered_size(_report_prefix(counts, format_name), format_name)
-
-    iterator = iter(matched_logs)
+    writer = _LevelFileWriter(output, counts, format_name, threshold)
     has_any_logs = False
 
-    for log in iterator:
+    for log in matched_logs:
         has_any_logs = True
-        while True:
-            current_part_log_index += 1
-            block, block_size = _render_log_block(current_part_log_index, log, format_name, current_has_logs)
-
-            if current_has_logs and current_size + block_size > threshold:
-                current_handle, current_path = _rotate_part(
-                    current_handle,
-                    current_path,
-                    output,
-                    base_name,
-                    suffix,
-                    encoding,
-                    part_paths,
-                    current_part_index,
-                    split_occurred,
-                    counts,
-                    format_name,
-                )
-                current_part_index += 1
-                split_occurred = True
-                current_size = _rendered_size(_report_prefix(counts, format_name), format_name)
-                current_has_logs = False
-                current_part_log_index = 0
-                continue
-
-            current_handle.write(block)
-            current_size += block_size
-            current_has_logs = True
-            break
+        writer.write(log)
 
     if format_name == 'md' and not has_any_logs:
-        current_handle.write("無符合條件的記錄\n")
-        current_size += _rendered_size("無符合條件的記錄\n", format_name)
+        writer.write_empty_markdown_message()
 
-    if split_occurred:
-        current_handle = _close_part_file(current_handle, format_name)
-        part_paths.append(current_path)
-        summary_path = output.with_name(f"{base_name}_summary{suffix}")
-        _write_text(summary_path, _render_summary(counts, [str(path) for path in part_paths], format_name), encoding)
-        return [str(summary_path)] + [str(path) for path in part_paths]
+    created_paths = writer.close()
+    if not writer.split_occurred:
+        return created_paths
 
-    _close_part_file(current_handle, format_name)
-    return [str(output)]
+    summary_path = output.with_name(f"{output.stem}_summary{output.suffix or f'.{format_name}'}")
+    _write_text(
+        summary_path,
+        _render_summary(counts, created_paths, format_name),
+        _encoding_for(format_name),
+    )
+    return [str(summary_path), *created_paths]
 
 
 def _render_log_block(index: int, log, format_name: str, has_previous_logs: bool) -> tuple[str, int]:
@@ -277,31 +284,6 @@ def _close_part_file(file_handle, format_name: str):
         file_handle.write(_report_suffix(format_name))
     finally:
         file_handle.close()
-
-
-def _rotate_part(
-    current_handle,
-    current_path: Path,
-    output: Path,
-    base_name: str,
-    suffix: str,
-    encoding: str,
-    part_paths: list[Path],
-    current_part_index: int,
-    split_occurred: bool,
-    counts,
-    format_name: str,
-):
-    _close_part_file(current_handle, format_name)
-
-    next_part_path = output.with_name(f"{base_name}_part{current_part_index:03d}{suffix}")
-    if not split_occurred:
-        os.replace(current_path, next_part_path)
-    part_paths.append(next_part_path if not split_occurred else current_path)
-
-    new_path = output.with_name(f"{base_name}_part{current_part_index + 1:03d}{suffix}")
-    new_handle = _open_part_file(new_path, counts, format_name, encoding)
-    return new_handle, new_path
 
 
 def _render_summary(counts, split_files, format_name: str) -> str:

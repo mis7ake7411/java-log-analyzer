@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from log_analyzer.infrastructure.exporter import export_results
+from log_analyzer.infrastructure.exporter import ExportOptions, export_results, export_with_options
 from log_analyzer.infrastructure import exporter
 
 
@@ -59,6 +59,47 @@ def test_close_part_file_closes_handle_when_suffix_write_fails():
         exporter._close_part_file(handle, "json")
 
     assert handle.closed is True
+
+
+def test_export_with_options_matches_legacy_wrapper(tmp_path):
+    counts = {"ERROR": 2, "WARN": 1}
+    logs = [
+        _build_level_log(1, "ERROR", "X" * 900),
+        _build_level_log(2, "ERROR", "X" * 900),
+        _build_level_log(3, "WARN"),
+    ]
+    legacy_output = tmp_path / "legacy" / "report.csv"
+    options_output = tmp_path / "options" / "report.csv"
+    legacy_output.parent.mkdir()
+    options_output.parent.mkdir()
+
+    legacy_files = export_results(
+        counts,
+        logs,
+        str(legacy_output),
+        "csv",
+        max_export_bytes=5_000,
+        split_by_level=True,
+    )
+    options_files = export_with_options(
+        ExportOptions(
+            counts=counts,
+            matched_logs=logs,
+            output_path=str(options_output),
+            format="csv",
+            max_export_bytes=5_000,
+            split_by_level=True,
+        )
+    )
+
+    assert [Path(path).name for path in options_files] == [Path(path).name for path in legacy_files]
+    assert [
+        Path(path).read_text(encoding="utf-8-sig").replace(str(options_output.parent), "<output>")
+        for path in options_files
+    ] == [
+        Path(path).read_text(encoding="utf-8-sig").replace(str(legacy_output.parent), "<output>")
+        for path in legacy_files
+    ]
 
 
 @pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")])
