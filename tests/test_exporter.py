@@ -4,6 +4,7 @@ import json
 import pytest
 
 from log_analyzer.infrastructure.exporter import export_results
+from log_analyzer.infrastructure import exporter
 
 
 def _build_log(index: int, payload: str) -> dict:
@@ -28,6 +29,36 @@ def _build_level_log(index: int, level: str, payload: str = "short") -> dict:
     log["message"] = f"{level} message {index} {payload}"
     log["message_body"] = f"{level} body {index} {payload}"
     return log
+
+
+class _FailingHandle:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def write(self, _text: str) -> None:
+        raise OSError("disk full")
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_open_part_file_closes_handle_when_prefix_write_fails(monkeypatch, tmp_path):
+    handle = _FailingHandle()
+    monkeypatch.setattr(Path, "open", lambda *_args, **_kwargs: handle)
+
+    with pytest.raises(OSError, match="disk full"):
+        exporter._open_part_file(tmp_path / "report.csv", {"INFO": 1}, "csv", "utf-8-sig")
+
+    assert handle.closed is True
+
+
+def test_close_part_file_closes_handle_when_suffix_write_fails():
+    handle = _FailingHandle()
+
+    with pytest.raises(OSError, match="disk full"):
+        exporter._close_part_file(handle, "json")
+
+    assert handle.closed is True
 
 
 @pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")])

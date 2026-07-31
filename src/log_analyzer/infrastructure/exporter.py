@@ -263,14 +263,20 @@ def _report_suffix(format_name: str) -> str:
 
 
 def _open_part_file(path: Path, counts, format_name: str, encoding: str):
-    file_handle = open(path, "w", encoding=encoding, newline="" if encoding == "utf-8-sig" else None)
-    file_handle.write(_report_prefix(counts, format_name))
+    file_handle = path.open("w", encoding=encoding, newline="" if encoding == "utf-8-sig" else None)
+    try:
+        file_handle.write(_report_prefix(counts, format_name))
+    except (OSError, UnicodeError):
+        file_handle.close()
+        raise
     return file_handle
 
 
 def _close_part_file(file_handle, format_name: str):
-    file_handle.write(_report_suffix(format_name))
-    file_handle.close()
+    try:
+        file_handle.write(_report_suffix(format_name))
+    finally:
+        file_handle.close()
 
 
 def _rotate_part(
