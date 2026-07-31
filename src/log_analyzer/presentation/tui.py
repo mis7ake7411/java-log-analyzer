@@ -58,200 +58,198 @@ class LogAnalyzerApp(App):
         self._auto_output_name = get_default_output_name_text()
         yield Header(show_clock=True)
         with Container(id="shell"):
-            with Container(id="hero"), Container(id="hero-title-row"):
-                yield Static("Java Log Analyzer", id="hero-title")
-                yield Static(f"v{get_package_version()}", id="hero-version")
-                yield Static("·", id="hero-separator")
-                yield Static("分析、篩選並匯出 Java Logback 記錄", id="hero-subtitle")
+            yield from self._compose_hero()
 
             with ScrollableContainer(id="content", can_focus=False):
                 with ScrollableContainer(id="form-panel", can_focus=False):
-                    yield Static("輸入設定", classes="section-title")
+                    yield from self._compose_basic_input_fields()
+                    yield from self._compose_advanced_settings()
+                    yield from self._compose_actions()
 
-                    with Container(classes="field"):
-                        yield Label("Log 目錄")
-                        with Container(classes="path-row"):
-                            yield ShortcutInput(placeholder="例如：./logs", value=".", id="path")
-                            yield Button("瀏覽", id="browse_path")
-                    yield Static("", classes="path-status", id="path-status")
-
-                    with Container(classes="field"):
-                        yield Label("目標資料夾")
-                        with Container(classes="path-row"):
-                            yield ShortcutInput(placeholder="例如：./exports", value=".", id="output_path")
-                            yield Button("瀏覽", id="browse_output_path")
-                    yield Static("", classes="path-status", id="output-path-status")
-
-                    with Container(classes="field"):
-                        yield Label("關鍵字")
-                        with Container(classes="path-row"):
-                            yield ShortcutInput(
-                                placeholder="例如：Order_123 或 SQLException",
-                                id="keyword",
-                            )
-                            yield Button("清除", id="clear_keyword")
-                    yield Static("", classes="field-hint")
-
-                    yield Button("展開進階設定", id="toggle_advanced_settings", classes="advanced-toggle")
-                    yield Static("", classes="field-hint")
-                    with Container(id="advanced-settings", classes="advanced-settings"):
-                        with Container(id="advanced-settings-title-row"):
-                            yield Static("進階設定", classes="section-title section-title--sub")
-
-                        with Container(classes="field"):
-                            yield Label("輸出檔名")
-                            with Container(classes="field-body"):
-                                yield ShortcutInput(
-                                    placeholder="例如：analysis_123000",
-                                    value=self._auto_output_name,
-                                    id="output_name",
-                                )
-                                yield Static("副檔名由輸出格式自動決定", classes="field-hint")
-
-                        with Container(classes="field"):
-                            yield Label("Logback XML")
-                            with Container(classes="path-row compact-buttons"):
-                                yield ShortcutInput(
-                                    placeholder="例如：./logback-spring.xml",
-                                    id="logback_xml_path",
-                                )
-                                yield Button("瀏覽", id="browse_logback_xml")
-                        yield Static("", classes="field-hint", id="logback-xml-status")
-
-                        with Container(classes="field"):
-                            yield Label("Log 格式")
-                            yield Select(
-                                [
-                                    ("預設 Logback", "default"),
-                                    ("進階 Pattern", "custom"),
-                                ],
-                                value="default",
-                                id="pattern_mode",
-                            )
-                        yield Static("", classes="field-hint")
-
-                        with Container(classes="field", id="pattern-field"):
-                            yield Label("Pattern")
-                            with Container(classes="field-body"):
-                                yield ShortcutInput(
-                                    placeholder=DEFAULT_LOGBACK_PATTERN,
-                                    id="log_pattern",
-                                )
-                                yield Static("進階模式才會套用；僅支援常見 Logback token", classes="field-hint")
-
-                        with Container(classes="time-section"):
-                            yield Label("時間區間")
-                            with Container(classes="time-stack"):
-                                with Container(id="start-time-row", classes="time-row"):
-                                    with Container(id="start-date-group", classes="time-group"):
-                                        yield Label("開始日期")
-                                        yield ShortcutInput(
-                                            value=get_default_start_date_text(),
-                                            placeholder="YYYY-MM-DD",
-                                            id="start_date",
-                                        )
-                                    with Container(id="start-time-group", classes="time-group"):
-                                        yield Label("開始時間")
-                                        yield ShortcutInput(
-                                            value=get_default_start_time_text(),
-                                            placeholder="HH:MM",
-                                            id="start_time",
-                                        )
-                                with Container(id="end-time-row", classes="time-row"):
-                                    with Container(id="end-date-group", classes="time-group"):
-                                        yield Label("結束日期")
-                                        yield ShortcutInput(
-                                            value=get_default_end_date_text(),
-                                            placeholder="YYYY-MM-DD",
-                                            id="end_date",
-                                        )
-                                    with Container(id="end-time-group", classes="time-group"):
-                                        yield Label("結束時間")
-                                        yield ShortcutInput(
-                                            value=get_default_end_time_text(),
-                                            placeholder="HH:MM",
-                                            id="end_time",
-                                        )
-                            yield Static("", classes="field-hint")
-
-                        with Container(classes="field-row"):
-                            with Container(classes="field field--inline field--ignore"):
-                                yield Label("忽略大小寫")
-                                yield Checkbox(value=True, id="ignore_case")
-
-                            with Container(classes="field field--inline field--format"):
-                                yield Label("輸出格式")
-                                yield Select(
-                                    [
-                                        ("CSV (Excel)", "csv"),
-                                        ("JSON", "json"),
-                                        ("Markdown", "md"),
-                                    ],
-                                    value="csv",
-                                    id="format",
-                                )
-
-                            with Container(classes="field field--inline field--split-output"):
-                                yield Label("依 Level 分檔")
-                                yield Checkbox(value=False, id="split_by_level")
-                        yield Static("", classes="path-status", id="path-status")
-
-                        with Container(classes="field-row"):
-                            with Container(classes="field field--inline field--sort"):
-                                yield Label("排序方式")
-                                yield Select(
-                                    [
-                                        ("時間排序", "time"),
-                                        ("Level 分組", "level"),
-                                    ],
-                                    value="time",
-                                    id="sort_by",
-                                )
-
-                            with Container(classes="field field--inline field--display-mode"):
-                                yield Label("顯示模式")
-                                yield Select(
-                                    [
-                                        ("預設摘要", "full"),
-                                        ("濃縮摘要", "summary"),
-                                    ],
-                                    value="summary",
-                                    id="display_mode",
-                                )
-                        yield Static("", classes="field-hint")
-
-                        with Container(classes="field"):
-                            yield Label("Log 層級")
-                            with Container(classes="field-body"):
-                                with Container(classes="level-filter-row"):
-                                    for level in ("ERROR", "WARN", "INFO", "DEBUG", "TRACE"):
-                                        yield Checkbox(level, value=level in DEFAULT_SELECTED_LEVELS, id=f"level_{level}")
-                                with Container(classes="level-filter-actions"):
-                                    yield Button("全選", id="select_all_levels")
-                                    yield Button("清空", id="clear_levels")
-                                yield Static("預設分析 ERROR / WARN / INFO", classes="field-hint")
-
-                    with Container(id="actions"):
-                        yield Button("開始分析", variant="primary", id="run")
-                        yield Button("清除結果", id="clear")
-
-                    yield Static(
-                        "快捷鍵：Enter 開始分析，c 清除結果，q 離開",
-                        classes="helper",
-                    )
-
-                with Container(id="output-panel"):
-                    yield Static("執行結果", classes="section-title")
-                    yield RichLog(
-                        id="result-box",
-                        markup=True,
-                        highlight=False,
-                        auto_scroll=False,
-                        wrap=True,
-                        min_width=0,
-                    )
+                yield from self._compose_result_panel()
 
         yield Footer()
+
+    def _compose_hero(self) -> ComposeResult:
+        with Container(id="hero"), Container(id="hero-title-row"):
+            yield Static("Java Log Analyzer", id="hero-title")
+            yield Static(f"v{get_package_version()}", id="hero-version")
+            yield Static("·", id="hero-separator")
+            yield Static("分析、篩選並匯出 Java Logback 記錄", id="hero-subtitle")
+
+    def _compose_basic_input_fields(self) -> ComposeResult:
+        yield Static("輸入設定", classes="section-title")
+
+        with Container(classes="field"):
+            yield Label("Log 目錄")
+            with Container(classes="path-row"):
+                yield ShortcutInput(placeholder="例如：./logs", value=".", id="path")
+                yield Button("瀏覽", id="browse_path")
+        yield Static("", classes="path-status", id="path-status")
+
+        with Container(classes="field"):
+            yield Label("目標資料夾")
+            with Container(classes="path-row"):
+                yield ShortcutInput(placeholder="例如：./exports", value=".", id="output_path")
+                yield Button("瀏覽", id="browse_output_path")
+        yield Static("", classes="path-status", id="output-path-status")
+
+        with Container(classes="field"):
+            yield Label("關鍵字")
+            with Container(classes="path-row"):
+                yield ShortcutInput(placeholder="例如：Order_123 或 SQLException", id="keyword")
+                yield Button("清除", id="clear_keyword")
+        yield Static("", classes="field-hint")
+
+        yield Button("展開進階設定", id="toggle_advanced_settings", classes="advanced-toggle")
+        yield Static("", classes="field-hint")
+
+    def _compose_advanced_settings(self) -> ComposeResult:
+        with Container(id="advanced-settings", classes="advanced-settings"):
+            with Container(id="advanced-settings-title-row"):
+                yield Static("進階設定", classes="section-title section-title--sub")
+
+            yield from self._compose_advanced_output_settings()
+            yield from self._compose_time_settings()
+            yield from self._compose_display_settings()
+            yield from self._compose_level_settings()
+
+    def _compose_advanced_output_settings(self) -> ComposeResult:
+        with Container(classes="field"):
+            yield Label("輸出檔名")
+            with Container(classes="field-body"):
+                yield ShortcutInput(
+                    placeholder="例如：analysis_123000",
+                    value=self._auto_output_name,
+                    id="output_name",
+                )
+                yield Static("副檔名由輸出格式自動決定", classes="field-hint")
+
+        with Container(classes="field"):
+            yield Label("Logback XML")
+            with Container(classes="path-row compact-buttons"):
+                yield ShortcutInput(placeholder="例如：./logback-spring.xml", id="logback_xml_path")
+                yield Button("瀏覽", id="browse_logback_xml")
+        yield Static("", classes="field-hint", id="logback-xml-status")
+
+        with Container(classes="field"):
+            yield Label("Log 格式")
+            yield Select(
+                [("預設 Logback", "default"), ("進階 Pattern", "custom")],
+                value="default",
+                id="pattern_mode",
+            )
+        yield Static("", classes="field-hint")
+
+        with Container(classes="field", id="pattern-field"):
+            yield Label("Pattern")
+            with Container(classes="field-body"):
+                yield ShortcutInput(placeholder=DEFAULT_LOGBACK_PATTERN, id="log_pattern")
+                yield Static("進階模式才會套用；僅支援常見 Logback token", classes="field-hint")
+
+    def _compose_time_settings(self) -> ComposeResult:
+        with Container(classes="time-section"):
+            yield Label("時間區間")
+            with Container(classes="time-stack"):
+                with Container(id="start-time-row", classes="time-row"):
+                    with Container(id="start-date-group", classes="time-group"):
+                        yield Label("開始日期")
+                        yield ShortcutInput(
+                            value=get_default_start_date_text(),
+                            placeholder="YYYY-MM-DD",
+                            id="start_date",
+                        )
+                    with Container(id="start-time-group", classes="time-group"):
+                        yield Label("開始時間")
+                        yield ShortcutInput(
+                            value=get_default_start_time_text(),
+                            placeholder="HH:MM",
+                            id="start_time",
+                        )
+                with Container(id="end-time-row", classes="time-row"):
+                    with Container(id="end-date-group", classes="time-group"):
+                        yield Label("結束日期")
+                        yield ShortcutInput(
+                            value=get_default_end_date_text(),
+                            placeholder="YYYY-MM-DD",
+                            id="end_date",
+                        )
+                    with Container(id="end-time-group", classes="time-group"):
+                        yield Label("結束時間")
+                        yield ShortcutInput(
+                            value=get_default_end_time_text(),
+                            placeholder="HH:MM",
+                            id="end_time",
+                        )
+        yield Static("", classes="field-hint")
+
+    def _compose_display_settings(self) -> ComposeResult:
+        with Container(classes="field-row"):
+            with Container(classes="field field--inline field--ignore"):
+                yield Label("忽略大小寫")
+                yield Checkbox(value=True, id="ignore_case")
+
+            with Container(classes="field field--inline field--format"):
+                yield Label("輸出格式")
+                yield Select(
+                    [("CSV (Excel)", "csv"), ("JSON", "json"), ("Markdown", "md")],
+                    value="csv",
+                    id="format",
+                )
+
+            with Container(classes="field field--inline field--split-output"):
+                yield Label("依 Level 分檔")
+                yield Checkbox(value=False, id="split_by_level")
+        yield Static("", classes="path-status", id="path-status")
+
+        with Container(classes="field-row"):
+            with Container(classes="field field--inline field--sort"):
+                yield Label("排序方式")
+                yield Select(
+                    [("時間排序", "time"), ("Level 分組", "level")],
+                    value="time",
+                    id="sort_by",
+                )
+
+            with Container(classes="field field--inline field--display-mode"):
+                yield Label("顯示模式")
+                yield Select(
+                    [("預設摘要", "full"), ("濃縮摘要", "summary")],
+                    value="summary",
+                    id="display_mode",
+                )
+        yield Static("", classes="field-hint")
+
+    def _compose_level_settings(self) -> ComposeResult:
+        with Container(classes="field"):
+            yield Label("Log 層級")
+            with Container(classes="field-body"):
+                with Container(classes="level-filter-row"):
+                    for level in ("ERROR", "WARN", "INFO", "DEBUG", "TRACE"):
+                        yield Checkbox(level, value=level in DEFAULT_SELECTED_LEVELS, id=f"level_{level}")
+                with Container(classes="level-filter-actions"):
+                    yield Button("全選", id="select_all_levels")
+                    yield Button("清空", id="clear_levels")
+                yield Static("預設分析 ERROR / WARN / INFO", classes="field-hint")
+
+    def _compose_actions(self) -> ComposeResult:
+        with Container(id="actions"):
+            yield Button("開始分析", variant="primary", id="run")
+            yield Button("清除結果", id="clear")
+
+        yield Static("快捷鍵：Enter 開始分析，c 清除結果，q 離開", classes="helper")
+
+    def _compose_result_panel(self) -> ComposeResult:
+        with Container(id="output-panel"):
+            yield Static("執行結果", classes="section-title")
+            yield RichLog(
+                id="result-box",
+                markup=True,
+                highlight=False,
+                auto_scroll=False,
+                wrap=True,
+                min_width=0,
+            )
 
     def on_mount(self) -> None:
         path_input = self.query_one("#path", Input)

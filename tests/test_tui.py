@@ -143,6 +143,31 @@ def test_default_output_name_text_uses_timestamp_prefix():
     assert get_default_output_name_text().startswith("analysis_")
 
 
+def test_composed_ui_preserves_key_widget_contracts(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            assert app.query_one("#hero-title").render() == "Java Log Analyzer"
+            assert app.query_one("#path").value == "."
+            assert app.query_one("#output_path").value == "."
+            assert app.query_one("#keyword")
+            assert app.query_one("#advanced-settings")
+            assert app.query_one("#output_name").value.startswith("analysis_")
+            assert app.query_one("#ignore_case").value is True
+            assert app.query_one("#format").value == "csv"
+            assert app.query_one("#level_ERROR").value is True
+            assert app.query_one("#level_TRACE").value is False
+            assert app.query_one("#run")
+            assert app.query_one("#clear")
+            assert app.query_one("#result-box")
+
+    asyncio.run(run_check())
+
+
 def test_parse_datetime_range_inputs_allows_blank_end():
     start_dt, end_dt = parse_datetime_range_inputs(
         "2026-06-07",
