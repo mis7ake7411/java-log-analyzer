@@ -22,6 +22,7 @@ from log_analyzer.presentation.tui import (
     parse_datetime_range_inputs,
 )
 from log_analyzer.presentation.error_messages import get_error_hint
+from log_analyzer.presentation import tui_views
 from log_analyzer.presentation.recent_form_state import (
     load_recent_tui_state,
     save_recent_tui_state,
@@ -1161,6 +1162,58 @@ def test_dashboard_view_shows_summary_before_detail_panels():
 
     assert output.index("分析資訊") < output.index("例外群組摘要")
     assert output.index("Level 分布") < output.index("例外群組摘要")
+
+
+def test_dashboard_view_renders_all_sections_in_order_for_both_layouts(monkeypatch):
+    result = SimpleNamespace(
+        total_logs=8,
+        matched_groups=3,
+        matched_occurrences=8,
+        format_name="csv",
+        input_path="/in",
+        output_path="/out/report.csv",
+        exported_files=["/out/report.csv"],
+        keyword="Exception",
+        sort_by="time",
+        ignore_case=False,
+        level_summary=[("ERROR", 8)],
+        matched_logs=[{"count": 8}],
+    )
+    analysis = tui_views.DashboardAnalysis(
+        exception_summary=(("java.lang.RuntimeException: boom", 1, 8),),
+        time_hotspots=(("2026-06-06 10:00", 1, 8),),
+        logger_summary=(("com.test.Api", 1, 8),),
+        thread_summary=(("http-1", 1, 8),),
+    )
+    calls = []
+
+    def fake_analyze_dashboard(actual_result):
+        calls.append(actual_result)
+        return analysis
+
+    monkeypatch.setattr(tui_views, "analyze_dashboard", fake_analyze_dashboard)
+
+    expected_sections = (
+        "執行狀態",
+        "總 Log",
+        "群組",
+        "命中",
+        "格式",
+        "分析資訊",
+        "Level 分布",
+        "例外群組摘要",
+        "時間熱點",
+        "Logger / Thread 分布",
+    )
+    for compact in (False, True):
+        console = Console(width=120, record=True, color_system=None)
+        console.print(build_dashboard_view(result, compact=compact))
+        output = console.export_text()
+
+        positions = [output.index(section) for section in expected_sections]
+        assert positions == sorted(positions)
+
+    assert calls == [result, result]
 
 
 def test_apply_selected_directory_autofills_logback_settings(monkeypatch, tmp_path):

@@ -1,6 +1,5 @@
 import re
 from collections import Counter
-from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -142,6 +141,7 @@ def format_path_status(message: str, color: str, require_writable: bool) -> Text
 
 
 def build_dashboard_view(result: AnalysisResult, compact: bool) -> Group:
+    analysis = analyze_dashboard(result)
     overview = Panel(
         Group(
             Text("分析完成", style="bold green"),
@@ -151,9 +151,12 @@ def build_dashboard_view(result: AnalysisResult, compact: bool) -> Group:
         padding=(1, 2),
         title="執行狀態",
     )
-    exception_panel = _build_exception_summary_panel(result)
-    hotspot_panel = _build_time_hotspot_panel(result)
-    distribution_panel = _build_logger_thread_distribution_panel(result)
+    exception_panel = _build_exception_summary_panel(analysis.exception_summary)
+    hotspot_panel = _build_time_hotspot_panel(analysis.time_hotspots)
+    distribution_panel = _build_logger_thread_distribution_panel(
+        analysis.logger_summary,
+        analysis.thread_summary,
+    )
 
     metric_cards = [
         _metric_card("總 Log", str(result.total_logs), "cyan", "整體筆數"),
@@ -234,8 +237,7 @@ def _metric_card(title: str, value: str, accent: str, caption: str) -> Panel:
     return Panel(body, title=title, border_style=accent, padding=(1, 2))
 
 
-def _build_exception_summary_panel(result: AnalysisResult) -> Panel:
-    summary = _collect_exception_summary(result.matched_logs)
+def _build_exception_summary_panel(summary: tuple[tuple[str, int, int], ...]) -> Panel:
     body = Table.grid(expand=True)
     body.add_column(style="bold red", ratio=2)
     body.add_column(justify="right", width=10)
@@ -258,8 +260,7 @@ def _build_exception_summary_panel(result: AnalysisResult) -> Panel:
     )
 
 
-def _build_time_hotspot_panel(result: AnalysisResult) -> Panel:
-    summary = _collect_time_hotspots(result.matched_logs)
+def _build_time_hotspot_panel(summary: tuple[tuple[str, int, int], ...]) -> Panel:
     body = Table.grid(expand=True)
     body.add_column(style="bold yellow", ratio=2)
     body.add_column(justify="right", width=10)
@@ -282,9 +283,10 @@ def _build_time_hotspot_panel(result: AnalysisResult) -> Panel:
     )
 
 
-def _build_logger_thread_distribution_panel(result: AnalysisResult) -> Panel:
-    logger_summary = _collect_distribution(result.matched_logs, "logger")
-    thread_summary = _collect_distribution(result.matched_logs, "thread")
+def _build_logger_thread_distribution_panel(
+    logger_summary: tuple[tuple[str, int, int], ...],
+    thread_summary: tuple[tuple[str, int, int], ...],
+) -> Panel:
 
     logger_table = _distribution_table("Logger", logger_summary, "blue")
     thread_table = _distribution_table("Thread", thread_summary, "magenta")
@@ -308,7 +310,11 @@ def _build_logger_thread_distribution_panel(result: AnalysisResult) -> Panel:
     )
 
 
-def _distribution_table(label: str, summary: list[tuple[str, int, int]], accent: str) -> Panel:
+def _distribution_table(
+    label: str,
+    summary: tuple[tuple[str, int, int], ...],
+    accent: str,
+) -> Panel:
     body = Table.grid(expand=True)
     body.add_column(style=f"bold {accent}", ratio=2)
     body.add_column(justify="right", width=10)
@@ -331,46 +337,6 @@ def _distribution_table(label: str, summary: list[tuple[str, int, int]], accent:
     )
 
 
-def _collect_distribution(matched_logs: Iterable[LogEntry], field: str) -> list[tuple[str, int, int]]:
-    grouped = Counter()
-    group_counts = Counter()
-
-    for log in matched_logs or []:
-        value = str(log.get(field, "") or "").strip()
-        if not value:
-            continue
-        occurrence_count = int(log.get("count", 1))
-        grouped[value] += occurrence_count
-        group_counts[value] += 1
-
-    summary = [
-        (value, group_counts[value], grouped[value])
-        for value in grouped
-    ]
-    summary.sort(key=lambda item: (-item[2], -item[1], item[0]))
-    return summary
-
-
-def _collect_time_hotspots(matched_logs: Iterable[LogEntry]) -> list[tuple[str, int, int]]:
-    grouped = Counter()
-    group_counts = Counter()
-
-    for log in matched_logs or []:
-        bucket = _extract_time_bucket(log)
-        if not bucket:
-            continue
-        occurrence_count = int(log.get("count", 1))
-        grouped[bucket] += occurrence_count
-        group_counts[bucket] += 1
-
-    summary = [
-        (bucket, group_counts[bucket], grouped[bucket])
-        for bucket in grouped
-    ]
-    summary.sort(key=lambda item: (-item[2], -item[1], item[0]))
-    return summary
-
-
 def _extract_time_bucket(log: LogEntry) -> str:
     timestamp = str(log.get("timestamp", "") or "").strip()
     if not timestamp:
@@ -383,26 +349,6 @@ def _extract_time_bucket(log: LogEntry) -> str:
         except ValueError:
             continue
     return timestamp[:13] + ":00" if len(timestamp) >= 13 else ""
-
-
-def _collect_exception_summary(matched_logs: Iterable[LogEntry]) -> list[tuple[str, int, int]]:
-    grouped = Counter()
-    group_counts = Counter()
-
-    for log in matched_logs or []:
-        signature = _extract_exception_signature(log)
-        if not signature:
-            continue
-        occurrence_count = int(log.get("count", 1))
-        grouped[signature] += occurrence_count
-        group_counts[signature] += 1
-
-    summary = [
-        (signature, group_counts[signature], grouped[signature])
-        for signature in grouped
-    ]
-    summary.sort(key=lambda item: (-item[2], -item[1], item[0]))
-    return summary
 
 
 def _extract_exception_signature(log: LogEntry) -> str:
