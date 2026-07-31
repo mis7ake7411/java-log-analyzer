@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -26,6 +27,20 @@ from log_analyzer.presentation.recent_form_state import (
     save_recent_tui_state,
 )
 from log_analyzer.version import get_package_version
+
+
+def test_handle_unexpected_error_logs_and_displays_error(caplog):
+    app = SimpleNamespace(_last_result=object())
+    result_box = object()
+    displayed = {}
+    app._set_result = lambda box, view: displayed.update(box=box, view=view)
+
+    with caplog.at_level(logging.ERROR):
+        LogAnalyzerApp._handle_unexpected_error(app, result_box, RuntimeError("unexpected failure"))
+
+    assert app._last_result is None
+    assert displayed["box"] is result_box
+    assert "unexpected failure" in caplog.text
 
 
 def test_get_system_root_path_returns_current_drive_root():

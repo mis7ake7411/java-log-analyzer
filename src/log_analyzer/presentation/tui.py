@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from functools import partial
 from pathlib import Path
@@ -28,6 +29,8 @@ from ..infrastructure.paths import get_system_root_path, inspect_directory_path
 from ..version import get_package_version
 
 __all__ = ["get_system_root_path"]
+
+logger = logging.getLogger(__name__)
 
 
 class LogAnalyzerApp(App):
@@ -448,6 +451,11 @@ class LogAnalyzerApp(App):
         if selected_path:
             self.action_load_logback_xml()
 
+    def _handle_unexpected_error(self, result_box: RichLog, exc: Exception) -> None:
+        logger.exception("TUI 分析發生未預期錯誤", exc_info=exc)
+        self._last_result = None
+        self._set_result(result_box, build_error_view("執行失敗", str(exc)))
+
     async def action_run_analysis(self) -> None:
         run_button = self.query_one("#run", Button)
         clear_button = self.query_one("#clear", Button)
@@ -543,9 +551,8 @@ class LogAnalyzerApp(App):
             self._last_result = None
             title = "無可分析資料" if str(exc).startswith("找不到符合條件的 log") else "輸入錯誤"
             self._set_result(result_box, build_error_view(title, str(exc)))
-        except Exception as exc:
-            self._last_result = None
-            self._set_result(result_box, build_error_view("執行失敗", str(exc)))
+        except Exception as exc:  # noqa: BLE001
+            self._handle_unexpected_error(result_box, exc)
         finally:
             run_button.disabled = False
             clear_button.disabled = False
