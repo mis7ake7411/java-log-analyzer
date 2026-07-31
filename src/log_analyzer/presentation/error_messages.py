@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 
-def get_error_hint(title: str, message: str = "") -> str:
+def get_error_hint(title: str, message: str = "") -> str:  # noqa: PLR0911 - ordered messages are easier to scan
     text = f"{title} {message}".strip()
 
     if "開始日期時間格式不正確" in text or "結束日期時間格式不正確" in text:

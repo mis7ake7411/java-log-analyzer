@@ -103,7 +103,7 @@ class MatchedLogsStore:
         self._index_cache[index] = log
 
 
-def parse_logs(
+def parse_logs(  # noqa: PLR0913 - public legacy API retained for backward compatibility
     directory,
     start_time=None,
     end_time=None,

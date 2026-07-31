@@ -28,7 +28,7 @@ class ExportOptions:
     split_by_level: bool = False
 
 
-def export_results(
+def export_results(  # noqa: PLR0913 - public legacy API retained for backward compatibility
     counts: Mapping[str, int],
     matched_logs: Iterable[LogEntry],
     output_path: str,
@@ -79,7 +79,7 @@ def export_with_options(options: ExportOptions) -> list[str]:
     return _export_streaming(options.counts, options.matched_logs, output, format_name, threshold)
 
 
-def _export_by_level(
+def _export_by_level(  # noqa: PLR0913 - preserves independently testable export inputs
     counts: Mapping[str, int],
     matched_logs: Iterable[LogEntry],
     output: Path,

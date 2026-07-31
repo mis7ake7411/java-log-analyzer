@@ -66,7 +66,7 @@ def build_output_path(output_dir: str, output_name: str, fmt: str) -> str:
     return os.path.join(normalized_dir, f"{base_name}.{fmt}")
 
 
-def run_analysis(
+def run_analysis(  # noqa: PLR0913 - public legacy API retained for backward compatibility
     path: str,
     output_path: str,
     start_dt: datetime | None,
