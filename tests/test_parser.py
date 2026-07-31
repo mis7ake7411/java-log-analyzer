@@ -161,6 +161,36 @@ def test_iter_logs_yields_entries_in_parse_order(tmp_path):
     assert entries[0]["stacktrace_lines"] == []
 
 
+def test_iter_logs_keeps_in_range_entries_and_discards_filtered_continuations(tmp_path):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "range.log").write_text(
+        "2026-06-06 09:59:00.000 [main] INFO  com.test - Before range\n"
+        "    ignored continuation\n"
+        "2026-06-06 10:00:00.000 [main] INFO  com.test - Single line\n"
+        "2026-06-06 10:01:00.000 [main] ERROR com.test - Failed\n"
+        "java.lang.RuntimeException: Error\n"
+        "    at com.test.App.main",
+        encoding="utf-8",
+    )
+
+    entries = list(
+        iter_logs(
+            str(log_dir),
+            start_time=datetime(2026, 6, 6, 10, 0),
+            end_time=datetime(2026, 6, 6, 10, 1),
+        )
+    )
+
+    assert [entry["message"] for entry in entries] == ["Single line", "Failed"]
+    assert entries[0]["message_body"] == ""
+    assert entries[1]["stacktrace_lines"] == [
+        "    5: java.lang.RuntimeException: Error\n",
+        "    6:     at com.test.App.main",
+    ]
+    assert "ignored continuation" not in entries[0]["full_text"]
+
+
 def test_parse_logs_defaults_to_time_order(tmp_path):
     d = tmp_path / "logs"
     d.mkdir()
