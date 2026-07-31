@@ -288,3 +288,45 @@ def test_export_results_splits_by_level_accepts_iterable_input(tmp_path):
         str(tmp_path / "report_ERROR.csv"),
         str(tmp_path / "report_WARN.csv"),
     ]
+
+
+def test_export_by_level_context_returns_summary_before_level_files(tmp_path):
+    context = exporter._LevelExportContext(
+        counts={"ERROR": 1, "WARN": 1},
+        matched_logs=[_build_level_log(1, "ERROR"), _build_level_log(2, "WARN")],
+        output=tmp_path / "report.csv",
+        format_name="csv",
+        threshold=5_000,
+        active_levels=["ERROR", "WARN"],
+    )
+
+    files = exporter._export_by_level(context)
+
+    assert files == [
+        str(tmp_path / "report_summary.csv"),
+        str(tmp_path / "report_ERROR.csv"),
+        str(tmp_path / "report_WARN.csv"),
+    ]
+    assert "report_ERROR" in (tmp_path / "report_summary.csv").read_text(encoding="utf-8-sig")
+    assert "report_WARN" in (tmp_path / "report_summary.csv").read_text(encoding="utf-8-sig")
+
+
+def test_export_by_level_context_removes_created_files_when_summary_write_fails(tmp_path, monkeypatch):
+    context = exporter._LevelExportContext(
+        counts={"ERROR": 1, "WARN": 1},
+        matched_logs=[_build_level_log(1, "ERROR"), _build_level_log(2, "WARN")],
+        output=tmp_path / "report.csv",
+        format_name="csv",
+        threshold=5_000,
+        active_levels=["ERROR", "WARN"],
+    )
+
+    def fail_summary_write(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(exporter, "_write_text", fail_summary_write)
+
+    with pytest.raises(OSError, match="disk full"):
+        exporter._export_by_level(context)
+
+    assert list(tmp_path.iterdir()) == []
