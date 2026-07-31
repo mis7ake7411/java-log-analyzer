@@ -320,37 +320,51 @@ def _iter_entries_from_file(
     end_time,
 ):
     """逐行讀取檔案，產生已完成的 log entry"""
-    current_entry = None
+    accumulator = _EntryAccumulator(filename, start_time, end_time)
 
     with open(filepath, "r", encoding="utf-8", errors="ignore") as file_handle:
         for line_num, line in enumerate(file_handle, 1):
             match = entry_pattern.match(line)
 
             if match:
-                if current_entry:
-                    yield current_entry
-                    current_entry = None
+                completed_entry = accumulator.start_entry(match, line_num)
+                if completed_entry:
+                    yield completed_entry
+                continue
 
-                current_entry = _create_entry(match, filename, line_num)
-                if current_entry is None:
-                    continue
+            accumulator.append_continuation(line_num, line)
 
-                entry_time = _parse_entry_time(current_entry["timestamp"])
-                if entry_time is None:
-                    current_entry = None
-                    continue
+        completed_entry = accumulator.finish()
+        if completed_entry:
+            yield completed_entry
 
-                if start_time and entry_time < start_time:
-                    current_entry = None
-                    continue
-                if end_time and entry_time > end_time:
-                    current_entry = None
-                    continue
-            elif current_entry:
-                _append_continuation_line(current_entry, line_num, line)
 
-        if current_entry:
-            yield current_entry
+@dataclass(slots=True)
+class _EntryAccumulator:
+    """維護單一檔案目前正在累積的 log entry。"""
+
+    filename: str
+    start_time: datetime | None
+    end_time: datetime | None
+    current_entry: LogEntry | None = None
+
+    def start_entry(self, match, line_num):
+        completed_entry = self.current_entry
+        self.current_entry = _create_entry(match, self.filename, line_num)
+        if self.current_entry and not _is_entry_in_time_range(
+            self.current_entry,
+            self.start_time,
+            self.end_time,
+        ):
+            self.current_entry = None
+        return completed_entry
+
+    def append_continuation(self, line_num, line):
+        if self.current_entry:
+            _append_continuation_line(self.current_entry, line_num, line)
+
+    def finish(self):
+        return self.current_entry
 
 
 def _create_entry(match, filename, line_num):
@@ -373,6 +387,15 @@ def _create_entry(match, filename, line_num):
         "message_body": "",
         "full_text": message,
     }
+
+
+def _is_entry_in_time_range(entry, start_time, end_time):
+    entry_time = _parse_entry_time(entry["timestamp"])
+    if entry_time is None:
+        return False
+    if start_time and entry_time < start_time:
+        return False
+    return not end_time or entry_time <= end_time
 
 
 def _parse_entry_time(timestamp_str):

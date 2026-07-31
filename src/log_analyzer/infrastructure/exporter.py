@@ -28,6 +28,16 @@ class ExportOptions:
     split_by_level: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class _LevelExportContext:
+    counts: Mapping[str, int]
+    matched_logs: Iterable[LogEntry]
+    output: Path
+    format_name: str
+    threshold: int
+    active_levels: list[str]
+
+
 def export_results(  # noqa: PLR0913 - public legacy API retained for backward compatibility
     counts: Mapping[str, int],
     matched_logs: Iterable[LogEntry],
@@ -68,51 +78,50 @@ def export_with_options(options: ExportOptions) -> list[str]:
     active_levels = [str(level) for level, count in options.counts.items() if count > 0]
     if options.split_by_level and len(active_levels) > 1:
         return _export_by_level(
-            options.counts,
-            options.matched_logs,
-            output,
-            format_name,
-            threshold,
-            active_levels,
+            _LevelExportContext(
+                counts=options.counts,
+                matched_logs=options.matched_logs,
+                output=output,
+                format_name=format_name,
+                threshold=threshold,
+                active_levels=active_levels,
+            )
         )
 
     return _export_streaming(options.counts, options.matched_logs, output, format_name, threshold)
 
 
-def _export_by_level(  # noqa: PLR0913 - preserves independently testable export inputs
-    counts: Mapping[str, int],
-    matched_logs: Iterable[LogEntry],
-    output: Path,
-    format_name: str,
-    threshold: int,
-    active_levels: list[str],
-) -> list[str]:
-    base_name = output.stem
-    suffix = output.suffix or f".{format_name}"
+def _export_by_level(context: _LevelExportContext) -> list[str]:
+    base_name = context.output.stem
+    suffix = context.output.suffix or f".{context.format_name}"
     writers = {
         level: _LevelFileWriter(
-            output.with_name(f"{base_name}_{_safe_filename_part(level)}{suffix}"),
-            {level: counts[level]},
-            format_name,
-            threshold,
+            context.output.with_name(f"{base_name}_{_safe_filename_part(level)}{suffix}"),
+            {level: context.counts[level]},
+            context.format_name,
+            context.threshold,
         )
-        for level in active_levels
+        for level in context.active_levels
     }
     created_paths: list[str] = []
 
     try:
-        for log in matched_logs:
+        for log in context.matched_logs:
             level = str(log.get("level", ""))
             writer = writers.get(level)
             if writer is None:
                 continue
             writer.write(log)
 
-        for level in active_levels:
+        for level in context.active_levels:
             created_paths.extend(writers[level].close())
 
-        summary_path = output.with_name(f"{base_name}_summary{suffix}")
-        _write_text(summary_path, _render_summary(counts, created_paths, format_name), _encoding_for(format_name))
+        summary_path = context.output.with_name(f"{base_name}_summary{suffix}")
+        _write_text(
+            summary_path,
+            _render_summary(context.counts, created_paths, context.format_name),
+            _encoding_for(context.format_name),
+        )
         return [str(summary_path), *created_paths]
     except Exception:
         for writer in writers.values():
