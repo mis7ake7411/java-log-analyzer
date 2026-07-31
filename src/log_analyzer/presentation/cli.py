@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 from ..application.analysis_service import run_analysis
@@ -13,12 +14,19 @@ from .cli_runtime import (
 from .error_messages import get_error_hint
 from ..version import get_package_version
 
+logger = logging.getLogger(__name__)
+
 
 def _print_error(title: str, message: str) -> None:
     print(f"錯誤：{message}")
     hint = get_error_hint(title, message)
     if hint:
         print(f"提示：{hint}")
+
+
+def _handle_unexpected_error(exc: Exception) -> None:
+    logger.exception("CLI 分析發生未預期錯誤", exc_info=exc)
+    _print_error("執行失敗", str(exc))
 
 
 def main():
@@ -112,8 +120,8 @@ def main():
     except ValueError as e:
         _print_error("輸入錯誤", str(e))
         sys.exit(1)
-    except Exception as e:
-        _print_error("執行失敗", str(e))
+    except Exception as exc:  # noqa: BLE001
+        _handle_unexpected_error(exc)
         sys.exit(1)
 
 if __name__ == '__main__':
