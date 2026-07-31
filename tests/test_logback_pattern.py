@@ -6,6 +6,64 @@ from log_analyzer.domain.logback_pattern import (
 )
 
 
+@pytest.mark.parametrize(
+    ("pattern", "sample", "expected"),
+    [
+        (
+            "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n",
+            "2026-06-07 12:34:56.789 [main] INFO  com.test.App - Started",
+            ("2026-06-07 12:34:56.789", "main", "INFO", "com.test.App", "Started"),
+        ),
+        (
+            "${FILE_LOG_PATTERN:-%d{${LOG_DATEFORMAT_PATTERN:-yyyy-MM-dd HH:mm:ss.SSS}} "
+            "${LOG_LEVEL_PATTERN:-%5p}[%t][pid-${PID:- }][line-%line] "
+            "%-40.40logger{39} : %m%n${LOG_EXCEPTION_CONVERSION_WORD:-%wEx}}",
+            "2026-06-07 12:34:56.789 ERROR[http-nio-8080-exec-1][pid- ][line-42] "
+            "com.infotrends.api.Controller              : Request failed",
+            (
+                "2026-06-07 12:34:56.789",
+                "http-nio-8080-exec-1",
+                "ERROR",
+                "com.infotrends.api.Controller",
+                "Request failed",
+            ),
+        ),
+        (
+            "%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) [%thread] %C{36} - "
+            "%replace(%msg){'x','y'}%n",
+            "2026-06-07 12:34:56.789 INFO  [main] com.test.App - Started",
+            ("2026-06-07 12:34:56.789", "main", "INFO", "com.test.App", "Started"),
+        ),
+        (
+            "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} "
+            "%file:%line - %msg%n",
+            "2026-06-07 12:34:56.789 INFO  [main] com.test.App App.java:42 - Started",
+            ("2026-06-07 12:34:56.789", "main", "INFO", "com.test.App", "Started"),
+        ),
+        (
+            "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n%wex",
+            "2026-06-07 12:34:56.789 [main] ERROR com.test.App - Failed",
+            ("2026-06-07 12:34:56.789", "main", "ERROR", "com.test.App", "Failed"),
+        ),
+    ],
+)
+def test_compile_logback_pattern_matches_supported_pattern_shapes(
+    pattern: str,
+    sample: str,
+    expected: tuple[str, str, str, str, str],
+):
+    match = compile_logback_pattern(pattern).match(sample)
+
+    assert match is not None
+    assert (
+        tuple(
+            match.group(name)
+            for name in ("timestamp", "thread", "level", "logger", "message")
+        )
+        == expected
+    )
+
+
 def test_compile_logback_pattern_matches_default_logback_shape():
     compiled = compile_logback_pattern(
         "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
