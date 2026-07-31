@@ -32,16 +32,13 @@ def load_logback_patterns(xml_path: str) -> list[LogbackPatternCandidate]:
     for element in root.iter():
         tag = _local_name(element.tag)
         if tag == "property":
-            name = element.attrib.get("name", "").strip()
-            value = element.attrib.get("value", "").strip()
-            if name and "PATTERN" in name.upper() and "%" in value:
-                _append_unique(candidates, LogbackPatternCandidate(name, value, "property"))
+            candidate = _property_candidate(element)
         elif tag.lower() == "pattern":
-            text = "".join(element.itertext()).strip()
-            if text and "%" in text:
-                appender_name = _nearest_appender_name(root, element)
-                name = f"{appender_name} Pattern" if appender_name else "Pattern"
-                _append_unique(candidates, LogbackPatternCandidate(name, text, "encoder"))
+            candidate = _encoder_candidate(root, element)
+        else:
+            candidate = None
+        if candidate is not None:
+            _append_unique(candidates, candidate)
 
     return candidates
 
@@ -80,21 +77,42 @@ def _read_log_samples(log_dir: str, sample_limit: int) -> Iterable[str]:
         return
 
     remaining = sample_limit
-    for filename in sorted(os.listdir(log_dir)):
+    for filename in _log_filenames(log_dir):
         if remaining <= 0:
             break
-        if not filename.endswith(".log"):
-            continue
 
         filepath = os.path.join(log_dir, filename)
-        with open(filepath, "r", encoding="utf-8", errors="ignore") as file:
-            for line in file:
-                if remaining <= 0:
-                    break
-                if not line.strip():
-                    continue
-                yield line
-                remaining -= 1
+        for line in _iter_nonempty_lines(filepath):
+            if remaining <= 0:
+                break
+            yield line
+            remaining -= 1
+
+
+def _property_candidate(element: ET.Element) -> LogbackPatternCandidate | None:
+    name = element.attrib.get("name", "").strip()
+    value = element.attrib.get("value", "").strip()
+    if name and "PATTERN" in name.upper() and "%" in value:
+        return LogbackPatternCandidate(name, value, "property")
+    return None
+
+
+def _encoder_candidate(root: ET.Element, element: ET.Element) -> LogbackPatternCandidate | None:
+    text = "".join(element.itertext()).strip()
+    if not text or "%" not in text:
+        return None
+    appender_name = _nearest_appender_name(root, element)
+    name = f"{appender_name} Pattern" if appender_name else "Pattern"
+    return LogbackPatternCandidate(name, text, "encoder")
+
+
+def _log_filenames(log_dir: str) -> Iterable[str]:
+    return (filename for filename in sorted(os.listdir(log_dir)) if filename.endswith(".log"))
+
+
+def _iter_nonempty_lines(filepath: str) -> Iterable[str]:
+    with open(filepath, "r", encoding="utf-8", errors="ignore") as file:
+        yield from (line for line in file if line.strip())
 
 
 def _append_unique(

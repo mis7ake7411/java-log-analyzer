@@ -1,6 +1,7 @@
 import pytest
 import pickle
 from datetime import datetime, timezone
+from pathlib import Path
 from log_analyzer.domain.parser import (
     MatchedLogsStore,
     ParseOptions,
@@ -9,6 +10,10 @@ from log_analyzer.domain.parser import (
     parse_logs,
 )
 import log_analyzer.domain.parser as parser_module
+
+
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "logback"
+STANDARD_LOG_PATTERN = "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{0}: %msg%n"
 
 @pytest.fixture
 def temp_log_dir(tmp_path):
@@ -28,6 +33,26 @@ def test_parse_logs_counts(temp_log_dir):
     counts, _errors = parse_logs(temp_log_dir)
     assert counts['INFO'] == 2
     assert counts['ERROR'] == 1
+
+
+def test_parse_logs_matches_standard_logback_fixtures(tmp_path):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "app.log").write_text(
+        (FIXTURE_DIR / "standard-app.log").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    counts, entries = parse_logs(
+        str(log_dir),
+        log_pattern=STANDARD_LOG_PATTERN,
+    )
+
+    assert counts == {"INFO": 1, "ERROR": 1}
+    assert [entry["message"] for entry in entries] == [
+        "Started application",
+        "Failed to process request",
+    ]
 
 
 def test_parse_logs_filters_selected_levels(temp_log_dir):

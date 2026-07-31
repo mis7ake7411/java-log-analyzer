@@ -1,4 +1,9 @@
+from pathlib import Path
+
 from log_analyzer.domain.logback_xml import find_best_logback_pattern, load_logback_patterns
+
+
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "logback"
 
 
 def test_load_logback_patterns_extracts_property_and_encoder_patterns(tmp_path):
@@ -48,5 +53,41 @@ def test_find_best_logback_pattern_scores_candidates_against_log_samples(tmp_pat
 
     assert best is not None
     assert best.name == "FILE_LOG_PATTERN"
+    assert best.matches == 2
+    assert best.checked == 2
+
+
+def test_fixture_patterns_keep_candidate_order_and_metadata():
+    candidates = load_logback_patterns(str(FIXTURE_DIR / "standard-logback.xml"))
+
+    assert [(candidate.name, candidate.pattern, candidate.source) for candidate in candidates] == [
+        (
+            "LOG_PATTERN",
+            "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{0}: %msg%n",
+            "property",
+        ),
+        (
+            "FILE Pattern",
+            "[%d{yyyy-MM-dd HH:mm:ss.SSS}] [%-5level] [%thread] %logger.%method(%line) - %msg%n",
+            "encoder",
+        ),
+    ]
+
+
+def test_fixture_best_pattern_matches_standard_log_samples(tmp_path):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "app.log").write_text(
+        (FIXTURE_DIR / "standard-app.log").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    best = find_best_logback_pattern(
+        str(FIXTURE_DIR / "standard-logback.xml"),
+        str(log_dir),
+    )
+
+    assert best is not None
+    assert best.name == "LOG_PATTERN"
     assert best.matches == 2
     assert best.checked == 2

@@ -87,6 +87,8 @@ PASS_THROUGH_PATTERNS = {
     "rEx": r".*",
 }
 
+_PATTERN_TOKEN = re.compile(r"%(-?\d*(?:\.\d+)?)?([A-Za-z]+)(?:\{[^}]*\})?")
+
 
 class UnsupportedLogbackPatternError(ValueError):
     """Raised when a Logback pattern contains unsupported conversion words."""
@@ -99,32 +101,37 @@ def compile_logback_pattern(pattern: str) -> Pattern[str]:
     if not cleaned:
         return DEFAULT_LOGBACK_REGEX
 
-    regex_parts = ["^"]
-    pos = 0
-    for match in re.finditer(r"%(-?\d*(?:\.\d+)?)?([A-Za-z]+)(?:\{[^}]*\})?", cleaned):
-        literal = cleaned[pos:match.start()]
-        regex_parts.append(_literal_to_regex(literal))
-
-        token = match.group(2)
-        if token not in SUPPORTED_TOKENS:
-            raise UnsupportedLogbackPatternError(f"不支援的 Logback pattern token：%{token}")
-
-        if token == "n":
-            regex_parts.append(r"\s*")
-        elif token in {"logger", "lo", "c"} and _is_logger_followed_by_method(cleaned, match.end()):
-            regex_parts.append(r"(?P<logger>.+\S)\s*")
-        elif token in FIELD_PATTERNS:
-            regex_parts.append(FIELD_PATTERNS[token])
-        else:
-            regex_parts.append(PASS_THROUGH_PATTERNS[token])
-        pos = match.end()
-
-    regex_parts.append(_literal_to_regex(cleaned[pos:]))
-    regex_parts.append("$")
-    regex = "".join(regex_parts)
-
+    regex = _build_pattern_regex(cleaned)
     _ensure_required_groups(regex)
     return re.compile(regex)
+
+
+def _build_pattern_regex(pattern: str) -> str:
+    regex_parts = ["^"]
+    pos = 0
+    for match in _PATTERN_TOKEN.finditer(pattern):
+        literal = pattern[pos:match.start()]
+        regex_parts.append(_literal_to_regex(literal))
+        regex_parts.append(_token_to_regex(pattern, match))
+        pos = match.end()
+
+    regex_parts.append(_literal_to_regex(pattern[pos:]))
+    regex_parts.append("$")
+    return "".join(regex_parts)
+
+
+def _token_to_regex(pattern: str, match: re.Match[str]) -> str:
+    token = match.group(2)
+    if token not in SUPPORTED_TOKENS:
+        raise UnsupportedLogbackPatternError(f"不支援的 Logback pattern token：%{token}")
+
+    if token == "n":
+        return r"\s*"
+    if token in {"logger", "lo", "c"} and _is_logger_followed_by_method(pattern, match.end()):
+        return r"(?P<logger>.+\S)\s*"
+    if token in FIELD_PATTERNS:
+        return FIELD_PATTERNS[token]
+    return PASS_THROUGH_PATTERNS[token]
 
 
 def _literal_to_regex(literal: str) -> str:
