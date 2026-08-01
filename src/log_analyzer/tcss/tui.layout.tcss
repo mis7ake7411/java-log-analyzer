@@ -55,6 +55,12 @@
     min-height: 12;
 }
 
+#result-status {
+    height: 1;
+    margin-bottom: 1;
+    color: #94a3b8;
+}
+
 #result-box {
     height: 1fr;
     width: 1fr;
@@ -66,6 +72,7 @@
 #form-actions {
     height: 3;
     margin-top: 1;
+    margin-bottom: 2;
     width: 1fr;
 }
 

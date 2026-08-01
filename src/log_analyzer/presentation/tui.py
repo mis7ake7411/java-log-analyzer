@@ -68,7 +68,6 @@ class LogAnalyzerApp(App):
                         yield from self._compose_basic_input_fields()
                         yield from self._compose_advanced_settings()
                     yield from self._compose_actions()
-                    yield Static("快捷鍵：Enter 開始分析，c 清除結果，q 離開", classes="helper")
 
                 yield from self._compose_result_panel()
 
@@ -244,6 +243,7 @@ class LogAnalyzerApp(App):
     def _compose_result_panel(self) -> ComposeResult:
         with Container(id="output-panel"):
             yield Static("執行結果", classes="section-title")
+            yield Static("", id="result-status")
             yield RichLog(
                 id="result-box",
                 markup=True,
@@ -264,6 +264,7 @@ class LogAnalyzerApp(App):
         self.call_after_refresh(self.set_focus, None)
         self._set_advanced_settings_visible(False)
         self._sync_layout(self.size.width, self.size.height)
+        self._set_result_status("idle")
         self.update_path_preview(path_input.value)
         self.update_path_preview(output_path_input.value, "#output-path-status", require_writable=True)
 
@@ -491,6 +492,7 @@ class LogAnalyzerApp(App):
         logger.exception("TUI 分析發生未預期錯誤", exc_info=exc)
         self._last_result = None
         self._set_result(result_box, build_error_view("執行失敗", str(exc)))
+        self._set_result_status("failed")
 
     async def action_run_analysis(self) -> None:
         run_button = self.query_one("#run", Button)
@@ -504,6 +506,7 @@ class LogAnalyzerApp(App):
         # 停用按鈕以防二次點擊
         run_button.disabled = True
         clear_button.disabled = True
+        self._set_result_status("running")
         self._set_result(result_box, build_loading_view())
 
         try:
@@ -576,30 +579,36 @@ class LogAnalyzerApp(App):
                 result_box,
                 build_dashboard_view(result, self._should_compact_dashboard(self.size.width, self.size.height)),
             )
+            self._set_result_status("complete", result)
             self._refresh_output_name_default(output_name)
         except PermissionError as exc:
             self._last_result = None
             self._set_result(result_box, build_error_view("權限不足", str(exc)))
+            self._set_result_status("failed")
         except FileNotFoundError as exc:
             self._last_result = None
             self._set_result(result_box, build_error_view("找不到資料夾", str(exc)))
+            self._set_result_status("failed")
         except ValueError as exc:
             self._last_result = None
             title = "無可分析資料" if str(exc).startswith("找不到符合條件的 log") else "輸入錯誤"
             self._set_result(result_box, build_error_view(title, str(exc)))
+            self._set_result_status("failed")
         except Exception as exc:  # noqa: BLE001
             self._handle_unexpected_error(result_box, exc)
         finally:
             run_button.disabled = False
-            clear_button.disabled = False
             # 恢復原本的焦點元件
             if original_focused and not original_focused.disabled:
                 self.set_focus(original_focused)
 
     def action_clear_result(self) -> None:
+        if self._last_result is None:
+            return
         result_box = self.query_one("#result-box", RichLog)
         self._last_result = None
         self._set_result(result_box, build_idle_view())
+        self._set_result_status("idle")
 
     def action_clear_keyword(self) -> None:
         keyword_input = self.query_one("#keyword", Input)
@@ -780,6 +789,22 @@ class LogAnalyzerApp(App):
         width = getattr(content_region, "width", None)
         result_box.write(renderable, width=width if width and width > 0 else None, expand=True)
         result_box.scroll_home()
+
+    def _set_result_status(self, state: str, result: AnalysisResult | None = None) -> None:
+        status = self.query_one("#result-status", Static)
+        clear_button = self.query_one("#clear", Button)
+        if state == "complete" and result is not None:
+            status.update(f"狀態：完成｜總 Log {result.total_logs}｜命中 {result.matched_occurrences}")
+            clear_button.disabled = False
+            return
+
+        messages = {
+            "idle": "狀態：尚未分析",
+            "running": "狀態：分析中",
+            "failed": "狀態：失敗",
+        }
+        status.update(messages[state])
+        clear_button.disabled = True
 
     def _sync_pattern_field_visibility(self) -> None:
         pattern_mode = self.query_one("#pattern_mode", Select).value or "default"

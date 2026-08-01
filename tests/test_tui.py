@@ -48,7 +48,8 @@ def test_tui_loads_structured_responsive_stylesheets():
 
 
 def test_handle_unexpected_error_logs_and_displays_error(caplog):
-    app = SimpleNamespace(_last_result=object())
+    status_states = []
+    app = SimpleNamespace(_last_result=object(), _set_result_status=status_states.append)
     result_box = object()
     displayed = {}
     app._set_result = lambda box, view: displayed.update(box=box, view=view)
@@ -58,6 +59,7 @@ def test_handle_unexpected_error_logs_and_displays_error(caplog):
 
     assert app._last_result is None
     assert displayed["box"] is result_box
+    assert status_states == ["failed"]
     assert "unexpected failure" in caplog.text
 
 
@@ -1528,6 +1530,54 @@ def test_compact_output_panel_keeps_result_box_visible_with_bottom_actions():
             result_box = app.query_one("#result-box")
 
             assert result_box.region.height > 0
+
+    asyncio.run(run_check())
+
+
+def test_result_status_starts_idle_and_disables_clear():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            assert str(app.query_one("#result-status").render()) == "狀態：尚未分析"
+            assert app.query_one("#clear").disabled is True
+
+    asyncio.run(run_check())
+
+
+def test_result_status_shows_completion_summary_and_clear_returns_to_idle():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            result = SimpleNamespace(total_logs=12, matched_occurrences=5)
+
+            app._last_result = result
+            app._set_result_status("complete", result)
+
+            assert str(app.query_one("#result-status").render()) == "狀態：完成｜總 Log 12｜命中 5"
+            assert app.query_one("#clear").disabled is False
+
+            app.action_clear_result()
+
+            assert str(app.query_one("#result-status").render()) == "狀態：尚未分析"
+            assert app.query_one("#clear").disabled is True
+
+    asyncio.run(run_check())
+
+
+def test_result_status_marks_failure_and_removes_duplicate_helper_text():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            app._set_result_status("failed")
+
+            assert str(app.query_one("#result-status").render()) == "狀態：失敗"
+            assert app.query_one("#clear").disabled is True
+            assert not app.query(".helper")
 
     asyncio.run(run_check())
 
