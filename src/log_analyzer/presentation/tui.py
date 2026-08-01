@@ -244,8 +244,6 @@ class LogAnalyzerApp(App):
     def _compose_result_panel(self) -> ComposeResult:
         with Container(id="output-panel"):
             yield Static("執行結果", classes="section-title")
-            with Container(id="output-toolbar"):
-                yield Button("清除結果", id="clear")
             yield RichLog(
                 id="result-box",
                 markup=True,
@@ -254,6 +252,8 @@ class LogAnalyzerApp(App):
                 wrap=True,
                 min_width=0,
             )
+            with Container(id="output-actions"):
+                yield Button("清除結果", id="clear")
 
     def on_mount(self) -> None:
         path_input = self.query_one("#path", Input)

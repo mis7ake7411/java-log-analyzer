@@ -73,11 +73,12 @@
     width: 1fr;
 }
 
-#output-toolbar {
+#output-actions {
     height: 3;
+    margin-top: 1;
     layout: horizontal;
 }
 
-#output-toolbar #clear {
-    width: 12;
+#output-actions #clear {
+    width: 1fr;
 }

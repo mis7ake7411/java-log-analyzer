@@ -1472,7 +1472,7 @@ def test_run_button_stays_below_form_scroll_area():
     asyncio.run(run_check())
 
 
-def test_clear_button_is_in_output_panel_toolbar():
+def test_clear_button_is_in_output_panel_bottom_actions():
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(1400, 980)) as pilot:
@@ -1480,8 +1480,22 @@ def test_clear_button_is_in_output_panel_toolbar():
             output_panel = app.query_one("#output-panel")
             clear_button = app.query_one("#clear")
 
-            assert clear_button.parent.id == "output-toolbar"
+            assert clear_button.parent.id == "output-actions"
             assert output_panel.region.y <= clear_button.region.y < output_panel.region.y + output_panel.region.height
+
+    asyncio.run(run_check())
+
+
+def test_run_and_clear_buttons_share_the_same_row_in_wide_layout():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test(size=(1400, 980)) as pilot:
+            await pilot.pause()
+
+            run_button = app.query_one("#run")
+            clear_button = app.query_one("#clear")
+
+            assert run_button.region.y == clear_button.region.y
 
     asyncio.run(run_check())
 
