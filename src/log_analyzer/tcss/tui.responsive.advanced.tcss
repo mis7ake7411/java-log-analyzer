@@ -111,7 +111,3 @@
 #form-actions.compact Button {
     min-width: 0;
 }
-
-#form-actions.wide {
-    padding: 0 3;
-}

@@ -1457,10 +1457,16 @@ def test_main_panels_switch_to_compact_before_either_panel_is_too_narrow():
 def test_run_button_stays_below_form_scroll_area():
     async def run_check() -> None:
         app = LogAnalyzerApp()
-        async with app.run_test(size=(1400, 980)) as pilot:
+        async with app.run_test(size=(1400, 40)) as pilot:
             await pilot.pause()
             form_panel = app.query_one("#form-panel")
             form_actions = app.query_one("#form-actions")
+            app.action_toggle_advanced_settings()
+            await pilot.pause()
+            form_panel.scroll_end(animate=False)
+            await pilot.pause()
+
+            assert form_panel.scroll_offset.y > 0
             assert form_actions.region.y >= form_panel.region.y + form_panel.region.height
 
     asyncio.run(run_check())
@@ -1473,7 +1479,28 @@ def test_clear_button_is_in_output_panel_toolbar():
             await pilot.pause()
             output_panel = app.query_one("#output-panel")
             clear_button = app.query_one("#clear")
+
+            assert clear_button.parent.id == "output-toolbar"
             assert output_panel.region.y <= clear_button.region.y < output_panel.region.y + output_panel.region.height
+
+    asyncio.run(run_check())
+
+
+def test_compact_form_actions_stay_above_output_panel_and_align_with_form_controls():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test(size=(110, 40)) as pilot:
+            await pilot.pause()
+
+            form_panel = app.query_one("#form-panel")
+            form_actions = app.query_one("#form-actions")
+            output_panel = app.query_one("#output-panel")
+            toggle = app.query_one("#toggle_advanced_settings")
+            run_button = app.query_one("#run")
+
+            assert form_actions.region.y >= form_panel.region.y + form_panel.region.height
+            assert output_panel.region.y > form_actions.region.y + form_actions.region.height
+            assert toggle.region.x + toggle.region.width == run_button.region.x + run_button.region.width
 
     asyncio.run(run_check())
 

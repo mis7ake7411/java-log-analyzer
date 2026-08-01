@@ -12,13 +12,11 @@
 #form-panel.wide .field,
 #form-panel.wide .field-row,
 #form-panel.wide .time-section,
-#form-panel.wide #actions,
 #form-panel.wide .helper {
     margin-right: 2;
 }
 
 #form-panel.wide #advanced-settings .time-section,
-#form-panel.wide #advanced-settings #actions,
 #form-panel.wide #advanced-settings .helper {
     margin-right: 2;
 }
@@ -26,9 +24,13 @@
 #form-panel.compact .field,
 #form-panel.compact .field-row,
 #form-panel.compact .time-section,
-#form-panel.compact #actions,
 #form-panel.compact .helper {
     margin-right: 2;
+}
+
+#form-actions.wide,
+#form-actions.compact {
+    padding: 0 3;
 }
 
 /* ── 標準欄位 ── */
