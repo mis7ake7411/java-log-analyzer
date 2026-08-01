@@ -1222,8 +1222,10 @@ def test_dashboard_view_renders_all_sections_in_order_for_both_layouts(monkeypat
     compact_view = views[True]
     assert sum(isinstance(item, Columns) for item in wide_view.renderables) == 2
     assert not any(isinstance(item, Columns) for item in compact_view.renderables)
+    assert compact_view.renderables[5].fit is False
     assert isinstance(wide_view.renderables[-1].renderable, Columns)
     assert isinstance(compact_view.renderables[-1].renderable, Group)
+    assert compact_view.renderables[-1].renderable.fit is False
     assert calls == [result, result]
 
 

@@ -196,7 +196,7 @@ def build_dashboard_view(result: AnalysisResult, compact: bool) -> Group:
         Panel(level_table, title="Level 分布", border_style="green", padding=(1, 2)),
     ]
     summary_panels = (
-        Group(*summary_panel_items)
+        Group(*summary_panel_items, fit=False)
         if compact
         else Columns(summary_panel_items, equal=True, expand=True)
     )
@@ -296,7 +296,7 @@ def _build_logger_thread_distribution_panel(
 
     if logger_summary or thread_summary:
         distribution_content = (
-            Group(logger_table, thread_table)
+            Group(logger_table, thread_table, fit=False)
             if compact
             else Columns([logger_table, thread_table], equal=True, expand=True)
         )
