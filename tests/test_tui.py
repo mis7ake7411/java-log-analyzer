@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from rich.columns import Columns
-from rich.console import Console
+from rich.console import Console, Group
 
 from log_analyzer.presentation.tui import (
     DirectoryPickerScreen,
@@ -1181,12 +1181,6 @@ def test_dashboard_view_renders_all_sections_in_order_for_both_layouts(monkeypat
         matched_logs=[{"count": 8}],
     )
 
-    wide_view = build_dashboard_view(result, compact=False)
-    compact_view = build_dashboard_view(result, compact=True)
-
-    assert sum(isinstance(item, Columns) for item in wide_view.renderables) == 2
-    assert not any(isinstance(item, Columns) for item in compact_view.renderables)
-
     analysis = tui_views.DashboardAnalysis(
         exception_summary=(("java.lang.RuntimeException: boom", 1, 8),),
         time_hotspots=(("2026-06-06 10:00", 1, 8),),
@@ -1213,14 +1207,23 @@ def test_dashboard_view_renders_all_sections_in_order_for_both_layouts(monkeypat
         "時間熱點",
         "Logger / Thread 分布",
     )
+    views = {}
     for compact in (False, True):
+        view = build_dashboard_view(result, compact=compact)
+        views[compact] = view
         console = Console(width=120, record=True, color_system=None)
-        console.print(build_dashboard_view(result, compact=compact))
+        console.print(view)
         output = console.export_text()
 
         positions = [output.index(section) for section in expected_sections]
         assert positions == sorted(positions)
 
+    wide_view = views[False]
+    compact_view = views[True]
+    assert sum(isinstance(item, Columns) for item in wide_view.renderables) == 2
+    assert not any(isinstance(item, Columns) for item in compact_view.renderables)
+    assert isinstance(wide_view.renderables[-1].renderable, Columns)
+    assert isinstance(compact_view.renderables[-1].renderable, Group)
     assert calls == [result, result]
 
 
