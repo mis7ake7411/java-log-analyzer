@@ -625,9 +625,9 @@ def test_advanced_toggle_aligns_with_action_buttons():
             await pilot.pause()
 
             toggle = app.query_one("#toggle_advanced_settings")
-            actions = app.query_one("#actions")
+            run_button = app.query_one("#run")
 
-            assert toggle.region.x + toggle.region.width == actions.region.x + actions.region.width
+            assert toggle.region.x + toggle.region.width == run_button.region.x + run_button.region.width
 
     asyncio.run(run_check())
 
@@ -1454,6 +1454,30 @@ def test_main_panels_switch_to_compact_before_either_panel_is_too_narrow():
     asyncio.run(run_check())
 
 
+def test_run_button_stays_below_form_scroll_area():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test(size=(1400, 980)) as pilot:
+            await pilot.pause()
+            form_panel = app.query_one("#form-panel")
+            form_actions = app.query_one("#form-actions")
+            assert form_actions.region.y >= form_panel.region.y + form_panel.region.height
+
+    asyncio.run(run_check())
+
+
+def test_clear_button_is_in_output_panel_toolbar():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test(size=(1400, 980)) as pilot:
+            await pilot.pause()
+            output_panel = app.query_one("#output-panel")
+            clear_button = app.query_one("#clear")
+            assert output_panel.region.y <= clear_button.region.y < output_panel.region.y + output_panel.region.height
+
+    asyncio.run(run_check())
+
+
 def test_time_range_inputs_are_not_collapsed_in_wide_layout():
     async def run_check() -> None:
         app = LogAnalyzerApp()
@@ -1572,7 +1596,7 @@ def test_form_controls_keep_gap_from_scrollbar():
             form_panel = app.query_one("#form-panel")
             content_right = form_panel.content_region.x + form_panel.content_region.width
 
-            for selector in ("#clear_keyword", "#format", "#clear"):
+            for selector in ("#clear_keyword", "#format"):
                 control = app.query_one(selector)
                 control_right = control.region.x + control.region.width
                 assert content_right - control_right >= 2

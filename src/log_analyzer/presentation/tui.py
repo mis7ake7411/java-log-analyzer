@@ -63,10 +63,12 @@ class LogAnalyzerApp(App):
             yield from self._compose_hero()
 
             with ScrollableContainer(id="content", can_focus=False):
-                with ScrollableContainer(id="form-panel", can_focus=False):
-                    yield from self._compose_basic_input_fields()
-                    yield from self._compose_advanced_settings()
+                with Container(id="form-column"):
+                    with ScrollableContainer(id="form-panel", can_focus=False):
+                        yield from self._compose_basic_input_fields()
+                        yield from self._compose_advanced_settings()
                     yield from self._compose_actions()
+                    yield Static("快捷鍵：Enter 開始分析，c 清除結果，q 離開", classes="helper")
 
                 yield from self._compose_result_panel()
 
@@ -236,15 +238,14 @@ class LogAnalyzerApp(App):
                 yield Static("預設分析 ERROR / WARN / INFO", classes="field-hint")
 
     def _compose_actions(self) -> ComposeResult:
-        with Container(id="actions"):
+        with Container(id="form-actions"):
             yield Button("開始分析", variant="primary", id="run")
-            yield Button("清除結果", id="clear")
-
-        yield Static("快捷鍵：Enter 開始分析，c 清除結果，q 離開", classes="helper")
 
     def _compose_result_panel(self) -> ComposeResult:
         with Container(id="output-panel"):
             yield Static("執行結果", classes="section-title")
+            with Container(id="output-toolbar"):
+                yield Button("清除結果", id="clear")
             yield RichLog(
                 id="result-box",
                 markup=True,
@@ -286,7 +287,7 @@ class LogAnalyzerApp(App):
 
         compact = self._is_compact(width, height)
         form_panel = self.query_one("#form-panel", ScrollableContainer)
-        actions = self.query_one("#actions", Container)
+        form_actions = self.query_one("#form-actions", Container)
         content = self.query_one("#content", ScrollableContainer)
         hero_title_row = self.query_one("#hero-title-row", Container)
 
@@ -295,8 +296,8 @@ class LogAnalyzerApp(App):
             content.add_class("compact")
             form_panel.remove_class("wide")
             form_panel.add_class("compact")
-            actions.remove_class("wide")
-            actions.add_class("compact")
+            form_actions.remove_class("wide")
+            form_actions.add_class("compact")
             hero_title_row.remove_class("wide")
             hero_title_row.add_class("compact")
         else:
@@ -304,8 +305,8 @@ class LogAnalyzerApp(App):
             content.add_class("wide")
             form_panel.remove_class("compact")
             form_panel.add_class("wide")
-            actions.remove_class("compact")
-            actions.add_class("wide")
+            form_actions.remove_class("compact")
+            form_actions.add_class("wide")
             hero_title_row.remove_class("compact")
             hero_title_row.add_class("wide")
 

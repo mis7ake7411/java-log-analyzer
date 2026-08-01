@@ -107,37 +107,11 @@
     margin-top: 0;
 }
 
-#form-panel.compact #actions {
-    margin-top: 1;
-}
-
-#form-panel.compact #clear {
-    margin-top: 1;
-}
-
-#actions.wide {
-    layout: horizontal;
-}
-
-#actions.wide Button {
-    width: 1fr;
+#form-actions.wide Button,
+#form-actions.compact Button {
     min-width: 0;
 }
 
-#actions.compact {
-    layout: vertical;
-}
-
-#actions.compact Button {
-    width: 100%;
-}
-
-#actions.wide #clear {
-    margin-top: 0;
-    margin-left: 1;
-}
-
-#actions.compact #clear {
-    margin-top: 1;
-    margin-left: 0;
+#form-actions.wide {
+    padding: 0 3;
 }

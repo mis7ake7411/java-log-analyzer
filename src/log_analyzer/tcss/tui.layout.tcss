@@ -15,6 +15,12 @@
     min-height: 0;
 }
 
+#form-column {
+    height: 1fr;
+    min-height: 0;
+    layout: vertical;
+}
+
 #form-panel {
     margin-bottom: 1;
     overflow: auto;
@@ -57,12 +63,21 @@
     background: #111827;
 }
 
-#actions {
-    height: auto;
+#form-actions {
+    height: 3;
     margin-top: 1;
     width: 1fr;
 }
 
-#actions Button {
+#form-actions Button {
     width: 1fr;
+}
+
+#output-toolbar {
+    height: 3;
+    layout: horizontal;
+}
+
+#output-toolbar #clear {
+    width: 12;
 }
