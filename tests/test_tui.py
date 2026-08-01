@@ -376,7 +376,7 @@ def test_collect_form_values_includes_time_fields():
     )
 
 
-def test_format_row_places_format_next_to_ignore_case():
+def test_display_settings_rows_follow_current_field_grouping():
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test() as pilot:
@@ -402,9 +402,10 @@ def test_format_row_places_format_next_to_ignore_case():
             ]
 
             assert frozenset({"field", "field--inline", "field--ignore"}) in first_row_classes
-            assert frozenset({"field", "field--inline", "field--format"}) in first_row_classes
+            assert frozenset({"field", "field--inline", "field--split-output"}) in first_row_classes
             assert frozenset({"field", "field--inline", "field--sort"}) in second_row_classes
             assert frozenset({"field", "field--inline", "field--display-mode"}) in second_row_classes
+            assert app.query_one("#format").parent.has_class("field--format")
 
     asyncio.run(run_check())
 
