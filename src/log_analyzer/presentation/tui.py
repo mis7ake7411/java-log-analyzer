@@ -343,13 +343,13 @@ class LogAnalyzerApp(App):
 
     def _update_pasted_path_status(self, field_id: str, message: str, color: str) -> None:
         if field_id == "path":
-            self.update_path_preview(self.query_one("#path", Input).value)
+            self.query_one("#path-status", Static).update(
+                format_path_status(message, color, require_writable=False)
+            )
             return
         if field_id == "output_path":
-            self.update_path_preview(
-                self.query_one("#output_path", Input).value,
-                "#output-path-status",
-                require_writable=True,
+            self.query_one("#output-path-status", Static).update(
+                format_path_status(message, color, require_writable=True)
             )
             return
         self.query_one("#logback-xml-status", Static).update(f"[{color}]{message}[/{color}]")

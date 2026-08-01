@@ -821,6 +821,26 @@ def test_paste_invalid_path_keeps_focused_input_value(tmp_path):
             await pilot.pause()
 
             assert path_input.value == str(tmp_path)
+            assert "路徑不存在" in str(app.query_one("#path-status").render())
+
+    asyncio.run(run_check())
+
+
+def test_paste_invalid_output_path_keeps_value_and_displays_error(tmp_path):
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            output_input = app.query_one("#output_path")
+            output_input.value = str(tmp_path)
+            output_input.focus()
+            await pilot.pause()
+
+            output_input.post_message(Paste("/tmp/not-a-real-output-directory"))
+            await pilot.pause()
+
+            assert output_input.value == str(tmp_path)
+            assert "路徑不存在" in str(app.query_one("#output-path-status").render())
 
     asyncio.run(run_check())
 
@@ -841,6 +861,11 @@ def test_paste_log_file_updates_focused_log_directory(tmp_path):
             await pilot.pause()
 
             assert path_input.value == str(tmp_path)
+
+            await pilot.press("x")
+            await pilot.pause()
+
+            assert path_input.value.startswith("x")
 
     asyncio.run(run_check())
 
