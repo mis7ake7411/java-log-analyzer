@@ -1331,6 +1331,37 @@ def test_apply_selected_directory_does_not_override_manual_logback_values(monkey
     assert mapping["#logback-xml-status"].value == ""
 
 
+def test_main_panels_have_equal_width_in_wide_layout():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test(size=(1920, 980)) as pilot:
+            await pilot.pause()
+
+            form_panel = app.query_one("#form-panel")
+            output_panel = app.query_one("#output-panel")
+
+            assert app.query_one("#content").has_class("wide")
+            assert form_panel.region.width == output_panel.region.width
+            assert output_panel.region.x > form_panel.region.x + form_panel.region.width
+
+    asyncio.run(run_check())
+
+
+def test_main_panels_switch_to_compact_before_either_panel_is_too_narrow():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test(size=(110, 40)) as pilot:
+            await pilot.pause()
+
+            form_panel = app.query_one("#form-panel")
+            output_panel = app.query_one("#output-panel")
+
+            assert app.query_one("#content").has_class("compact")
+            assert output_panel.region.y > form_panel.region.y
+
+    asyncio.run(run_check())
+
+
 def test_time_range_inputs_are_not_collapsed_in_wide_layout():
     async def run_check() -> None:
         app = LogAnalyzerApp()

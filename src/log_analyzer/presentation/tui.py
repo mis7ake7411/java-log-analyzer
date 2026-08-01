@@ -307,9 +307,7 @@ class LogAnalyzerApp(App):
             hero_title_row.add_class("wide")
 
     def _is_compact(self, width: int, height: int) -> bool:
-        # 當寬度小於 90，或者高度小於 18 時，才使用單欄（compact）垂直版面
-        # 否則使用雙欄（左右分欄）版面
-        return width < 90 or height < 18
+        return width < 112 or height < 18
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "path":
