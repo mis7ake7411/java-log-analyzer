@@ -1515,8 +1515,8 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
                 "end_date",
                 "end_time",
                 "ignore_case",
-                "format",
                 "split_by_level",
+                "format",
                 "sort_by",
             ]
 
