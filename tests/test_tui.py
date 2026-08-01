@@ -32,6 +32,20 @@ from log_analyzer.presentation.tui_views import analyze_dashboard
 from log_analyzer.version import get_package_version
 
 
+def test_tui_loads_structured_responsive_stylesheets():
+    css_paths = [Path(path).name for path in LogAnalyzerApp.CSS_PATH]
+
+    assert css_paths == [
+        "tui.base.tcss",
+        "tui.layout.tcss",
+        "tui.dialog.tcss",
+        "tui.responsive.layout.tcss",
+        "tui.responsive.form.tcss",
+        "tui.responsive.advanced.tcss",
+    ]
+    assert not (Path(__file__).parents[1] / "src/log_analyzer/tcss/tui.responsive.tcss").exists()
+
+
 def test_handle_unexpected_error_logs_and_displays_error(caplog):
     app = SimpleNamespace(_last_result=object())
     result_box = object()

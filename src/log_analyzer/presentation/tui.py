@@ -40,7 +40,9 @@ class LogAnalyzerApp(App):
         str(_PACKAGE_ROOT / "tcss" / "tui.base.tcss"),
         str(_PACKAGE_ROOT / "tcss" / "tui.layout.tcss"),
         str(_PACKAGE_ROOT / "tcss" / "tui.dialog.tcss"),
-        str(_PACKAGE_ROOT / "tcss" / "tui.responsive.tcss"),
+        str(_PACKAGE_ROOT / "tcss" / "tui.responsive.layout.tcss"),
+        str(_PACKAGE_ROOT / "tcss" / "tui.responsive.form.tcss"),
+        str(_PACKAGE_ROOT / "tcss" / "tui.responsive.advanced.tcss"),
     ]
     _last_result: AnalysisResult | None = None
     _advanced_settings_visible: bool = False
