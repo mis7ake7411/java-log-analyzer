@@ -6,7 +6,7 @@ from collections.abc import Iterable
 
 from rich.text import Text
 from textual.containers import Container
-from textual.events import Key
+from textual.events import Key, Paste
 from textual.screen import ModalScreen
 from textual.widgets import Button, DirectoryTree, Input, Label, Static
 
@@ -26,6 +26,7 @@ class FolderOnlyDirectoryTree(DirectoryTree):
 
 class ShortcutInput(Input):
     """補上符合一般編輯習慣的輸入框快捷鍵"""
+    _skip_next_paste_insert: bool = False
 
     def on_key(self, event: Key) -> None:
         if event.key == "ctrl+a":
@@ -36,6 +37,26 @@ class ShortcutInput(Input):
             self.value = ""
             event.prevent_default()
             event.stop()
+
+    def _on_paste(self, event: Paste) -> None:
+        handle_path_paste = getattr(self.app, "handle_path_paste", None)
+        if callable(handle_path_paste) and handle_path_paste(self, event.text):
+            self._skip_next_paste_insert = True
+            event.stop()
+            return
+        super()._on_paste(event)
+
+    def insert_text_at_cursor(self, text: str) -> None:
+        if self._skip_next_paste_insert:
+            self._skip_next_paste_insert = False
+            return
+        super().insert_text_at_cursor(text)
+
+    def replace(self, text: str, start: int, end: int) -> None:
+        if self._skip_next_paste_insert:
+            self._skip_next_paste_insert = False
+            return
+        super().replace(text, start, end)
 
 
 class DirectoryPickerScreen(ModalScreen[str | None]):

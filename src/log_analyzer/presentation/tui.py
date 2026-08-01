@@ -8,7 +8,7 @@ from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, ScrollableContainer
-from textual.events import Resize
+from textual.events import Paste, Resize
 from textual.widgets import Button, Checkbox, Footer, Header, Input, Label, RichLog, Select, Static
 
 from ..application.analysis_service import DEFAULT_SELECTED_LEVELS, AnalysisResult, build_output_path, run_analysis
@@ -25,7 +25,7 @@ from .tui_inputs import (
     parse_datetime_range_inputs,
 )
 from .tui_views import build_dashboard_view, build_error_view, build_idle_view, build_loading_view, format_path_status
-from ..infrastructure.paths import get_system_root_path, inspect_directory_path
+from ..infrastructure.paths import get_system_root_path, inspect_directory_path, validate_pasted_path
 from ..version import get_package_version
 
 __all__ = ["get_system_root_path"]
@@ -317,6 +317,42 @@ class LogAnalyzerApp(App):
             self.update_path_preview(event.value)
         elif event.input.id == "output_path":
             self.update_path_preview(event.value, "#output-path-status", require_writable=True)
+
+    def on_paste(self, event: Paste) -> None:
+        """只在路徑欄位接收終端拖放所產生的貼上內容。"""
+        focused = self.focused
+        if not isinstance(focused, Input) or not self.handle_path_paste(focused, event.text):
+            return
+        event.stop()
+
+    def handle_path_paste(self, path_input: Input, pasted_text: str) -> bool:
+        """驗證並套用路徑欄位的貼上內容；回傳是否已處理事件。"""
+        if path_input.id not in {"path", "output_path", "logback_xml_path"}:
+            return False
+
+        is_valid, normalized_path, message = validate_pasted_path(pasted_text, path_input.id)
+        if not is_valid:
+            self._update_pasted_path_status(path_input.id, message, "red")
+            return True
+
+        path_input.value = normalized_path
+        self._update_pasted_path_status(path_input.id, message, "green")
+        if path_input.id == "path":
+            self._autofill_logback_settings(normalized_path)
+        return True
+
+    def _update_pasted_path_status(self, field_id: str, message: str, color: str) -> None:
+        if field_id == "path":
+            self.update_path_preview(self.query_one("#path", Input).value)
+            return
+        if field_id == "output_path":
+            self.update_path_preview(
+                self.query_one("#output_path", Input).value,
+                "#output-path-status",
+                require_writable=True,
+            )
+            return
+        self.query_one("#logback-xml-status", Static).update(f"[{color}]{message}[/{color}]")
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id in {

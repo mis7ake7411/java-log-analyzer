@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from rich.columns import Columns
 from rich.console import Console, Group
+from textual.events import Paste
 
 from log_analyzer.presentation.tui import (
     DirectoryPickerScreen,
@@ -804,6 +805,44 @@ def test_apply_selected_logback_xml_updates_input():
 
     assert fake_input.value == r"C:\logs\logback-spring.xml"
     assert fake_input.focused is True
+
+
+def test_paste_invalid_path_keeps_focused_input_value(tmp_path):
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            path_input = app.query_one("#path")
+            path_input.value = str(tmp_path)
+            path_input.focus()
+            await pilot.pause()
+
+            path_input.post_message(Paste("/tmp/not-a-real-log-directory"))
+            await pilot.pause()
+
+            assert path_input.value == str(tmp_path)
+
+    asyncio.run(run_check())
+
+
+def test_paste_log_file_updates_focused_log_directory(tmp_path):
+    log_file = tmp_path / "application.log"
+    log_file.touch()
+
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            path_input = app.query_one("#path")
+            path_input.focus()
+            await pilot.pause()
+
+            path_input.post_message(Paste(log_file.as_uri()))
+            await pilot.pause()
+
+            assert path_input.value == str(tmp_path)
+
+    asyncio.run(run_check())
 
 
 def test_apply_and_load_logback_xml_updates_pattern(monkeypatch, tmp_path):

@@ -79,6 +79,9 @@ log-analyzer /path/to/logs
 ## TUI 使用重點
 
 - `Log 目錄` 與 `目標資料夾` 可透過「瀏覽」選擇
+- 終端機若將拖放轉成路徑貼上，可先聚焦 `Log 目錄`、`目標資料夾` 或 `Logback XML` 欄位再拖入；未支援 bracketed paste 的終端機無法使用此方式
+- 路徑貼上支援外層引號、`file://` URL 與 URL 編碼；多行內容會被拒絕，驗證失敗時欄位會保留原值
+- `Log 目錄` 可貼上資料夾，或 `.log`／`.txt`／`.out` 檔案（會改用其父目錄）；`目標資料夾` 必須可寫；`Logback XML` 僅接受可讀取的 `.xml` 檔案
 - `Logback XML` 可載入 `logback.xml` 或 `logback-spring.xml`，並自動挑選最符合樣本的 Pattern
 - `Log` 格式可使用預設模式，也可切換到進階 Pattern 手動指定
 - `時間區間` 採日期與時間分開輸入
