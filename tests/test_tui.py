@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from types import SimpleNamespace
 
+from rich.columns import Columns
 from rich.console import Console
 
 from log_analyzer.presentation.tui import (
@@ -1179,6 +1180,13 @@ def test_dashboard_view_renders_all_sections_in_order_for_both_layouts(monkeypat
         level_summary=[("ERROR", 8)],
         matched_logs=[{"count": 8}],
     )
+
+    wide_view = build_dashboard_view(result, compact=False)
+    compact_view = build_dashboard_view(result, compact=True)
+
+    assert sum(isinstance(item, Columns) for item in wide_view.renderables) == 2
+    assert not any(isinstance(item, Columns) for item in compact_view.renderables)
+
     analysis = tui_views.DashboardAnalysis(
         exception_summary=(("java.lang.RuntimeException: boom", 1, 8),),
         time_hotspots=(("2026-06-06 10:00", 1, 8),),

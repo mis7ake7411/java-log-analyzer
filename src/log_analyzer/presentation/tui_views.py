@@ -156,6 +156,7 @@ def build_dashboard_view(result: AnalysisResult, compact: bool) -> Group:
     distribution_panel = _build_logger_thread_distribution_panel(
         analysis.logger_summary,
         analysis.thread_summary,
+        compact=compact,
     )
 
     metric_cards = [
@@ -190,13 +191,14 @@ def build_dashboard_view(result: AnalysisResult, compact: bool) -> Group:
     else:
         level_table.add_row("N/A", "-", "沒有可顯示的統計")
 
-    summary_panels = Columns(
-        [
-            Panel(metadata, title="分析資訊", border_style="blue", padding=(1, 2)),
-            Panel(level_table, title="Level 分布", border_style="green", padding=(1, 2)),
-        ],
-        equal=True,
-        expand=True,
+    summary_panel_items = [
+        Panel(metadata, title="分析資訊", border_style="blue", padding=(1, 2)),
+        Panel(level_table, title="Level 分布", border_style="green", padding=(1, 2)),
+    ]
+    summary_panels = (
+        Group(*summary_panel_items)
+        if compact
+        else Columns(summary_panel_items, equal=True, expand=True)
     )
 
     if compact:
@@ -286,14 +288,20 @@ def _build_time_hotspot_panel(summary: tuple[tuple[str, int, int], ...]) -> Pane
 def _build_logger_thread_distribution_panel(
     logger_summary: tuple[tuple[str, int, int], ...],
     thread_summary: tuple[tuple[str, int, int], ...],
+    compact: bool,
 ) -> Panel:
 
     logger_table = _distribution_table("Logger", logger_summary, "blue")
     thread_table = _distribution_table("Thread", thread_summary, "magenta")
 
     if logger_summary or thread_summary:
+        distribution_content = (
+            Group(logger_table, thread_table)
+            if compact
+            else Columns([logger_table, thread_table], equal=True, expand=True)
+        )
         return Panel(
-            Columns([logger_table, thread_table], equal=True, expand=True),
+            distribution_content,
             title="Logger / Thread 分布",
             border_style="blue",
             padding=(1, 2),
