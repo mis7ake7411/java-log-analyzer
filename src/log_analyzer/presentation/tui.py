@@ -191,19 +191,20 @@ class LogAnalyzerApp(App):
                 yield Label("忽略大小寫")
                 yield Checkbox(value=True, id="ignore_case")
 
-            with Container(classes="field field--inline field--format"):
-                yield Label("輸出格式")
-                yield Select(
-                    [("CSV (Excel)", "csv"), ("JSON", "json"), ("Markdown", "md")],
-                    value="csv",
-                    id="format",
-                )
-
             with Container(classes="field field--inline field--split-output"):
                 yield Label("依 Level 分檔")
                 yield Checkbox(value=False, id="split_by_level")
         yield Static("", classes="path-status", id="path-status")
 
+        with Container(classes="field field--inline field--format"):
+            yield Label("輸出格式")
+            yield Select(
+                [("CSV (Excel)", "csv"), ("JSON", "json"), ("Markdown", "md")],
+                value="csv",
+                id="format",
+            )
+        yield Static("", classes="field-hint")
+        
         with Container(classes="field-row"):
             with Container(classes="field field--inline field--sort"):
                 yield Label("排序方式")
