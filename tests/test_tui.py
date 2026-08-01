@@ -1519,6 +1519,19 @@ def test_compact_form_actions_stay_above_output_panel_and_align_with_form_contro
     asyncio.run(run_check())
 
 
+def test_compact_output_panel_keeps_result_box_visible_with_bottom_actions():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test(size=(110, 40)) as pilot:
+            await pilot.pause()
+
+            result_box = app.query_one("#result-box")
+
+            assert result_box.region.height > 0
+
+    asyncio.run(run_check())
+
+
 def test_time_range_inputs_are_not_collapsed_in_wide_layout():
     async def run_check() -> None:
         app = LogAnalyzerApp()
