@@ -1,0 +1,137 @@
+from __future__ import annotations
+
+import re
+from collections import Counter
+from collections.abc import Iterable
+from dataclasses import dataclass
+from datetime import datetime
+
+from ..domain.log_types import LogEntry
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardAnalysis:
+    """Dashboard 所需的彙總資料，不保留原始日誌。"""
+
+    exception_summary: tuple[tuple[str, int, int], ...]
+    time_hotspots: tuple[tuple[str, int, int], ...]
+    logger_summary: tuple[tuple[str, int, int], ...]
+    thread_summary: tuple[tuple[str, int, int], ...]
+
+
+def aggregate_dashboard_summary(
+    matched_logs: Iterable[LogEntry],
+) -> tuple[DashboardAnalysis, int]:
+    """單次走訪命中日誌，計算 dashboard 統計與命中筆數。"""
+    exception_occurrences: Counter[str] = Counter()
+    exception_groups: Counter[str] = Counter()
+    time_occurrences: Counter[str] = Counter()
+    time_groups: Counter[str] = Counter()
+    logger_occurrences: Counter[str] = Counter()
+    logger_groups: Counter[str] = Counter()
+    thread_occurrences: Counter[str] = Counter()
+    thread_groups: Counter[str] = Counter()
+    matched_occurrences = 0
+
+    for log in matched_logs:
+        occurrence_count = int(log.get("count", 1))
+        matched_occurrences += occurrence_count
+        _add_summary_value(
+            _extract_exception_signature(log),
+            occurrence_count,
+            exception_occurrences,
+            exception_groups,
+        )
+        _add_summary_value(
+            _extract_time_bucket(log),
+            occurrence_count,
+            time_occurrences,
+            time_groups,
+        )
+        _add_summary_value(
+            str(log.get("logger", "") or "").strip(),
+            occurrence_count,
+            logger_occurrences,
+            logger_groups,
+        )
+        _add_summary_value(
+            str(log.get("thread", "") or "").strip(),
+            occurrence_count,
+            thread_occurrences,
+            thread_groups,
+        )
+
+    return (
+        DashboardAnalysis(
+            exception_summary=_build_summary(exception_occurrences, exception_groups),
+            time_hotspots=_build_summary(time_occurrences, time_groups),
+            logger_summary=_build_summary(logger_occurrences, logger_groups),
+            thread_summary=_build_summary(thread_occurrences, thread_groups),
+        ),
+        matched_occurrences,
+    )
+
+
+def _add_summary_value(
+    value: str,
+    occurrence_count: int,
+    occurrences: Counter[str],
+    group_counts: Counter[str],
+) -> None:
+    if not value:
+        return
+    occurrences[value] += occurrence_count
+    group_counts[value] += 1
+
+
+def _build_summary(
+    occurrences: Counter[str],
+    group_counts: Counter[str],
+) -> tuple[tuple[str, int, int], ...]:
+    return tuple(
+        sorted(
+            (
+                (value, group_counts[value], occurrence_count)
+                for value, occurrence_count in occurrences.items()
+            ),
+            key=lambda item: (-item[2], -item[1], item[0]),
+        )
+    )
+
+
+def _extract_time_bucket(log: LogEntry) -> str:
+    timestamp = str(log.get("timestamp", "") or "").strip()
+    if not timestamp:
+        return ""
+
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+        try:
+            parsed = datetime.strptime(timestamp[:26], fmt)
+            return parsed.strftime("%Y-%m-%d %H:00")
+        except ValueError:
+            continue
+    return timestamp[:13] + ":00" if len(timestamp) >= 13 else ""
+
+
+def _extract_exception_signature(log: LogEntry) -> str:
+    stacktrace = str(log.get("stacktrace", "") or "").strip()
+    if stacktrace:
+        first_line = stacktrace.splitlines()[0]
+        cleaned = re.sub(r"^\s*\d+:\s*", "", first_line).strip()
+        if cleaned:
+            return cleaned
+
+    message_body = str(log.get("message_body", "") or "").strip()
+    if message_body:
+        for line in message_body.splitlines():
+            cleaned = line.strip()
+            if cleaned and (
+                "Exception" in cleaned or "Error" in cleaned or cleaned.startswith("Caused by:")
+            ):
+                return cleaned
+
+    message = str(log.get("message", "") or "").strip()
+    if "Exception" in message or "Error" in message:
+        return message.splitlines()[0].strip()
+
+    return ""

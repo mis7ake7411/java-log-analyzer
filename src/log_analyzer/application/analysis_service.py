@@ -5,6 +5,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 
+from .dashboard_summary import DashboardAnalysis, aggregate_dashboard_summary
 from ..domain.log_types import MatchedLogs
 from ..domain.parser import ParseOptions, parse_log_directory
 from ..infrastructure.exporter import export_results
@@ -50,6 +51,7 @@ class AnalysisResult:
     counts: Counter[str]
     matched_logs: MatchedLogs
     exported_files: list[str]
+    dashboard_summary: DashboardAnalysis | None = None
 
 
 def build_output_path(output_dir: str, output_name: str, fmt: str) -> str:
@@ -134,7 +136,11 @@ def run_analysis_with_options(options: AnalysisOptions) -> AnalysisResult:
 
     total_logs = sum(counts.values())
     matched_groups = len(matched_logs)
-    matched_occurrences = sum(entry.get("count", 1) for entry in matched_logs)
+    dashboard_summary = None
+    if options.include_details:
+        matched_occurrences = sum(entry.get("count", 1) for entry in matched_logs)
+    else:
+        dashboard_summary, matched_occurrences = aggregate_dashboard_summary(matched_logs)
     level_summary = [(level, count) for level, count in sorted(counts.items()) if count > 0]
     detail_logs: MatchedLogs = matched_logs if options.include_details else []
     if not options.include_details and hasattr(matched_logs, "release"):
@@ -156,4 +162,5 @@ def run_analysis_with_options(options: AnalysisOptions) -> AnalysisResult:
         counts=counts,
         matched_logs=detail_logs,
         exported_files=exported_files,
+        dashboard_summary=dashboard_summary,
     )
