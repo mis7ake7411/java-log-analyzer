@@ -26,38 +26,42 @@ def _warning_preview(filename: str, match_line: int, warning: str) -> SourcePrev
     )
 
 
-def read_source_context(
-    input_path: str,
-    occurrence: OccurrenceCoordinate,
-    snapshot: SourceSnapshot | None,
-    radius: int = 3,
-) -> SourcePreview:
-    """只在來源仍符合掃描快照且位於分析根目錄內時讀取命中行附近內容。"""
+def _occurrence_position(occurrence: OccurrenceCoordinate) -> tuple[str, int]:
     try:
         filename = occurrence["filename"]
         match_line = occurrence["line_number"]
     except (KeyError, TypeError):
-        return _warning_preview("", 0, _UNAVAILABLE_WARNING)
+        return "", 0
 
     if not isinstance(filename, str) or not filename:
-        return _warning_preview("", 0, _UNAVAILABLE_WARNING)
+        return "", 0
     if not isinstance(match_line, int) or isinstance(match_line, bool) or match_line < 1:
-        return _warning_preview(filename, 0, _UNAVAILABLE_WARNING)
-    if not isinstance(radius, int) or isinstance(radius, bool) or radius < 0:
-        return _warning_preview(filename, match_line, _UNAVAILABLE_WARNING)
-    if snapshot is None or snapshot.get("stable") is not True:
-        return _warning_preview(filename, match_line, _UNAVAILABLE_WARNING)
+        return filename, 0
+    return filename, match_line
 
-    snapshot_size = snapshot.get("size")
-    snapshot_mtime_ns = snapshot.get("mtime_ns")
+
+def _snapshot_values(snapshot: SourceSnapshot | None) -> tuple[int, int] | None:
+    if snapshot is None:
+        return None
+    try:
+        if snapshot.get("stable") is not True:
+            return None
+        snapshot_size = snapshot.get("size")
+        snapshot_mtime_ns = snapshot.get("mtime_ns")
+    except AttributeError:
+        return None
+
     if (
         not isinstance(snapshot_size, int)
         or isinstance(snapshot_size, bool)
         or not isinstance(snapshot_mtime_ns, int)
         or isinstance(snapshot_mtime_ns, bool)
     ):
-        return _warning_preview(filename, match_line, _UNAVAILABLE_WARNING)
+        return None
+    return snapshot_size, snapshot_mtime_ns
 
+
+def _resolve_source_path(input_path: str, filename: str) -> Path | None:
     normalized_filename = filename.replace("\\", "/")
     windows_filename = PureWindowsPath(filename)
     filename_parts = normalized_filename.split("/")
@@ -67,25 +71,36 @@ def read_source_context(
         or windows_filename.root
         or any(part == ".." for part in filename_parts)
     ):
-        return _warning_preview(filename, match_line, _UNAVAILABLE_WARNING)
+        return None
 
     relative_parts = [part for part in filename_parts if part not in ("", ".")]
     if not relative_parts:
-        return _warning_preview(filename, match_line, _UNAVAILABLE_WARNING)
-
+        return None
     try:
         root = Path(input_path).resolve(strict=True)
         if not root.is_dir():
-            return _warning_preview(filename, match_line, _UNAVAILABLE_WARNING)
+            return None
 
         resolved_source = root.joinpath(*relative_parts).resolve(strict=True)
         resolved_source.relative_to(root)
         if not resolved_source.is_file():
-            return _warning_preview(filename, match_line, _UNAVAILABLE_WARNING)
+            return None
+    except (OSError, RuntimeError, ValueError, TypeError):
+        return None
+    return resolved_source
 
+
+def _read_verified_context(
+    resolved_source: Path,
+    snapshot_size: int,
+    snapshot_mtime_ns: int,
+    match_line: int,
+    radius: int,
+) -> tuple[tuple[tuple[int, str], ...], str | None]:
+    try:
         before = resolved_source.stat()
         if before.st_size != snapshot_size or before.st_mtime_ns != snapshot_mtime_ns:
-            return _warning_preview(filename, match_line, _UNAVAILABLE_WARNING)
+            return (), _UNAVAILABLE_WARNING
 
         first_line = max(1, match_line - radius)
         last_line = match_line + radius
@@ -104,15 +119,51 @@ def read_source_context(
             or after.st_size != snapshot_size
             or after.st_mtime_ns != snapshot_mtime_ns
         ):
-            return _warning_preview(filename, match_line, _UNAVAILABLE_WARNING)
+            return (), _UNAVAILABLE_WARNING
         if not any(line_number == match_line for line_number, _ in lines):
-            return _warning_preview(filename, match_line, _MISSING_LINE_WARNING)
+            return (), _MISSING_LINE_WARNING
     except (OSError, RuntimeError, ValueError, TypeError):
+        return (), _UNAVAILABLE_WARNING
+    return tuple(lines), None
+
+
+def read_source_context(
+    input_path: str,
+    occurrence: OccurrenceCoordinate,
+    snapshot: SourceSnapshot | None,
+    radius: int = 3,
+) -> SourcePreview:
+    """只在來源仍符合掃描快照且位於分析根目錄內時讀取命中行附近內容。"""
+    filename, match_line = _occurrence_position(occurrence)
+    snapshot_values = _snapshot_values(snapshot)
+    if (
+        not filename
+        or match_line < 1
+        or not isinstance(radius, int)
+        or isinstance(radius, bool)
+        or radius < 0
+        or snapshot_values is None
+    ):
         return _warning_preview(filename, match_line, _UNAVAILABLE_WARNING)
+
+    resolved_source = _resolve_source_path(input_path, filename)
+    if resolved_source is None:
+        return _warning_preview(filename, match_line, _UNAVAILABLE_WARNING)
+
+    snapshot_size, snapshot_mtime_ns = snapshot_values
+    lines, warning = _read_verified_context(
+        resolved_source,
+        snapshot_size,
+        snapshot_mtime_ns,
+        match_line,
+        radius,
+    )
+    if warning is not None:
+        return _warning_preview(filename, match_line, warning)
 
     return SourcePreview(
         path_line=f"{resolved_source}:{match_line}",
-        lines=tuple(lines),
+        lines=lines,
         match_line=match_line,
         warning=None,
     )
