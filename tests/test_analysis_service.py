@@ -41,6 +41,16 @@ def test_run_analysis_can_skip_returning_full_details(tmp_path):
 
     assert result.exported_files
     assert result.matched_logs == []
+    assert result.matched_occurrences == 2
+    assert result.dashboard_summary is not None
+    source_stat = (logs / "app.log").stat()
+    assert result.source_states == {
+        "app.log": {
+            "size": source_stat.st_size,
+            "mtime_ns": source_stat.st_mtime_ns,
+            "stable": True,
+        }
+    }
     assert Path(result.output_path).exists()
 
 
