@@ -57,6 +57,12 @@ def serialize_markdown_log(index: int, log) -> str:
     parts.append(f"- **線程**: `{log['thread']}`\n")
     parts.append(f"- **Logger**: `{log['logger']}`\n")
     parts.append(f"- **來源檔案**: `{log['filename']}`\n")
+    parts.append("- **事件座標**:\n")
+    for occurrence in log.get('occurrences', []):
+        parts.append(
+            f"  - {occurrence['filename']}:{occurrence['line_number']} | "
+            f"{occurrence['timestamp']} | {occurrence['thread']}\n"
+        )
 
     if log.get('message_body'):
         parts.append("#### 延伸訊息:\n")

@@ -48,8 +48,10 @@ def serialize_json_log(log, indent: int = 8) -> str:
 
 def _log_to_dict(log):
     if hasattr(log, "to_dict"):
-        return log.to_dict()
+        payload = dict(log.to_dict())
+    else:
+        payload = dict(log)
+        payload["line_numbers"] = normalize_line_numbers(payload.get("line_numbers"))
 
-    payload = dict(log)
-    payload["line_numbers"] = normalize_line_numbers(payload.get("line_numbers"))
+    payload["occurrences"] = payload.get("occurrences", [])
     return payload

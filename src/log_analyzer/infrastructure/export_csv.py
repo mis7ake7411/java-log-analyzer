@@ -25,7 +25,7 @@ def render_csv_prefix(counts) -> str:
     writer.writerow([])
 
     writer.writerow(['--- 詳細日誌內容 (已合併重複項) ---'])
-    writer.writerow(['出現次數', '出現行號', '第一次時間', '最後一次時間', '等級', '線程', 'Logger', '來源檔案', '訊息內容', '延伸訊息', '堆疊追蹤 (含行號)'])
+    writer.writerow(['出現次數', '出現行號', '第一次時間', '最後一次時間', '等級', '線程', 'Logger', '來源檔案', '訊息內容', '延伸訊息', '堆疊追蹤 (含行號)', '事件座標'])
     return buffer.getvalue()
 
 
@@ -67,4 +67,9 @@ def _csv_log_row(log) -> list[str]:
         log['message'],
         log.get('message_body', '').strip(),
         log['stacktrace'].strip(),
+        "\n".join(
+            f"{occurrence['filename']}:{occurrence['line_number']} | "
+            f"{occurrence['timestamp']} | {occurrence['thread']}"
+            for occurrence in log.get('occurrences', [])
+        ),
     ]
