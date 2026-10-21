@@ -58,3 +58,81 @@
 #picker-actions #picker-cancel {
     margin-left: 1;
 }
+
+#output-actions #browse-events,
+#output-actions #clear {
+    width: 1fr;
+}
+
+#event-browser {
+    align: center middle;
+    background: rgba(15, 23, 42, 0.78);
+}
+
+#event-browser-card {
+    width: 90%;
+    height: 88%;
+    border: round #38bdf8;
+    background: #0b1220;
+    padding: 1 2;
+}
+
+#browser-title {
+    text-style: bold;
+    color: #f8fafc;
+}
+
+#browser-page {
+    color: #94a3b8;
+    margin-bottom: 1;
+}
+
+#event-options {
+    height: 1fr;
+    border: round #334155;
+    background: #111827;
+}
+
+#source-warning {
+    color: #fbbf24;
+    margin-bottom: 1;
+}
+
+#source-path {
+    height: auto;
+    min-height: 3;
+    border: round #334155;
+    background: #111827;
+    color: #7dd3fc;
+    padding: 1;
+    overflow: auto;
+}
+
+#source-context {
+    height: 1fr;
+    min-height: 5;
+    border: round #334155;
+    background: #111827;
+    padding: 1;
+    overflow: auto;
+}
+
+#copy-feedback {
+    height: auto;
+    color: #fbbf24;
+}
+
+#event-browser-actions {
+    height: auto;
+    margin-top: 1;
+    layout: horizontal;
+}
+
+#event-browser-actions Button {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#event-browser-actions #close-event-browser {
+    margin-right: 0;
+}
