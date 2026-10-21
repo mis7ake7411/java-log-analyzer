@@ -4,6 +4,7 @@ import asyncio
 import pickle
 from collections import Counter
 from pathlib import Path
+from types import SimpleNamespace
 
 from textual.app import App, ComposeResult
 from textual.widgets import Static
@@ -95,6 +96,22 @@ def _result(
     )
 
 
+class _BoundedOccurrenceList(list[dict[str, object]]):
+    copied_completely = False
+
+    def __iter__(self):
+        self.copied_completely = True
+        return super().__iter__()
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            start = index.start or 0
+            stop = len(self) if index.stop is None else index.stop
+            if stop - start > 100:
+                self.copied_completely = True
+        return super().__getitem__(index)
+
+
 def test_event_browser_selects_cross_file_coordinate_and_context(tmp_path: Path, monkeypatch) -> None:
     first_path = tmp_path / "first.log"
     second_path = tmp_path / "second.log"
@@ -125,6 +142,7 @@ def test_event_browser_selects_cross_file_coordinate_and_context(tmp_path: Path,
             await pilot.click("#copy-coordinate")
 
             assert copied == [expected]
+            assert str(browser.query_one("#copy-feedback", Static).render()) == "已複製路徑:行號至剪貼簿。"
 
     asyncio.run(run_check())
 
@@ -168,6 +186,58 @@ def test_event_browser_pages_groups_and_occurrences(tmp_path: Path) -> None:
             await pilot.pause(0.3)
             assert len(options.options) == 5
             assert str(options.options[0].prompt).startswith("many.log:201")
+
+    asyncio.run(run_check())
+
+
+def test_event_browser_does_not_copy_the_complete_occurrence_list(tmp_path: Path) -> None:
+    group = _group(1, [_occurrence("many.log", 1)])
+    occurrences = _BoundedOccurrenceList(
+        _occurrence("many.log", number) for number in range(1, 206)
+    )
+    group["occurrences"] = occurrences
+    result = SimpleNamespace(
+        input_path=str(tmp_path),
+        matched_logs=[group],
+        source_states={},
+    )
+
+    async def run_check() -> None:
+        app = EventBrowserHarness(result)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert len(app.screen.query_one("#event-options").options) == 100
+            assert not occurrences.copied_completely
+
+    asyncio.run(run_check())
+
+
+def test_event_browser_labels_are_traditional_chinese(tmp_path: Path) -> None:
+    result = _result(tmp_path, [_group(1, [_occurrence("sample.log", 1)])])
+
+    async def run_check() -> None:
+        app = EventBrowserHarness(result)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            browser = app.screen
+
+            assert str(browser.query_one("#browser-title", Static).render()) == "符合事件群組"
+            assert str(browser.query_one("#browser-previous").label) == "上一頁"
+            assert str(browser.query_one("#browser-next").label) == "下一頁"
+            assert str(browser.query_one("#copy-coordinate").label) == "複製路徑:行號"
+            assert str(browser.query_one("#close-event-browser").label) == "關閉"
+
+            await pilot.press("enter")
+            await pilot.pause()
+            assert str(browser.query_one("#browser-title", Static).render()) == "事件出現位置"
+
+            await pilot.press("enter")
+            await pilot.pause()
+            assert str(browser.query_one("#browser-title", Static).render()) == "來源內容預覽"
+            assert str(browser.query_one("#browser-back").label) == "返回事件出現位置"
 
     asyncio.run(run_check())
 
@@ -221,6 +291,8 @@ def test_event_browser_keeps_full_path_visible_when_clipboard_fails(tmp_path: Pa
             expected = f"{source_path.resolve()}:1"
             browser = app.screen
             assert str(browser.query_one("#source-path", Static).render()) == expected
-            assert expected in str(browser.query_one("#copy-feedback", Static).render())
+            feedback = str(browser.query_one("#copy-feedback", Static).render())
+            assert "剪貼簿複製失敗，請手動複製：" in feedback
+            assert expected in feedback
 
     asyncio.run(run_check())

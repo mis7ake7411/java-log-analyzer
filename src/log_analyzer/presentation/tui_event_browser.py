@@ -33,7 +33,7 @@ class EventBrowserScreen(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Container(id="event-browser"), Container(id="event-browser-card"):
-            yield Static("Matched event browser", id="browser-title")
+            yield Static("事件瀏覽", id="browser-title")
             yield Static("", id="browser-page")
             yield OptionList(id="event-options")
             yield Static("", id="source-warning")
@@ -41,11 +41,11 @@ class EventBrowserScreen(ModalScreen[None]):
             yield Static("", id="source-context")
             yield Static("", id="copy-feedback")
             with Container(id="event-browser-actions"):
-                yield Button("Previous", id="browser-previous")
-                yield Button("Next", id="browser-next")
-                yield Button("Back", id="browser-back")
-                yield Button("Copy path:line", id="copy-coordinate", disabled=True)
-                yield Button("Close", id="close-event-browser")
+                yield Button("上一頁", id="browser-previous")
+                yield Button("下一頁", id="browser-next")
+                yield Button("返回", id="browser-back")
+                yield Button("複製路徑:行號", id="copy-coordinate", disabled=True)
+                yield Button("關閉", id="close-event-browser")
 
     def on_mount(self) -> None:
         self._render_group_page()
@@ -66,7 +66,8 @@ class EventBrowserScreen(ModalScreen[None]):
             if page_index < 0 or page_index >= len(self._group_page):
                 return
             self._selected_group = self._group_page[page_index]
-            self._occurrences = list(self._selected_group.get("occurrences", []))
+            occurrences = self._selected_group.get("occurrences")
+            self._occurrences = occurrences if isinstance(occurrences, list) else []
             self._occurrence_start = 0
             self._render_occurrence_page()
         elif self._view == "occurrences":
@@ -133,7 +134,7 @@ class EventBrowserScreen(ModalScreen[None]):
             for page_index, group in enumerate(self._group_page)
         ]
         self._set_list_state(
-            title="Matched groups",
+            title="符合事件群組",
             options=options,
             start=self._group_start,
             length=length,
@@ -152,7 +153,7 @@ class EventBrowserScreen(ModalScreen[None]):
             for page_index, occurrence in enumerate(page)
         ]
         self._set_list_state(
-            title="Occurrences",
+            title="事件出現位置",
             options=options,
             start=self._occurrence_start,
             length=length,
@@ -169,14 +170,14 @@ class EventBrowserScreen(ModalScreen[None]):
         self._current_preview = preview
         self._copy_path_line = preview.path_line if preview.warning is None and preview.lines else None
 
-        self.query_one("#browser-title", Static).update("Source context")
+        self.query_one("#browser-title", Static).update("來源內容預覽")
         self.query_one("#browser-page", Static).update("")
         self.query_one("#event-options", OptionList).display = False
         self.query_one("#browser-previous", Button).display = False
         self.query_one("#browser-next", Button).display = False
         back_button = self.query_one("#browser-back", Button)
         back_button.display = True
-        back_button.label = "Back to occurrences"
+        back_button.label = "返回事件出現位置"
         warning_widget = self.query_one("#source-warning", Static)
         warning_widget.display = bool(preview.warning)
         warning_widget.update(preview.warning or "")
@@ -196,7 +197,11 @@ class EventBrowserScreen(ModalScreen[None]):
         last = min(start + self.page_size, length)
         page_count = max(1, ceil(length / self.page_size))
         page_number = start // self.page_size + 1
-        page_label = f"{first}-{last} of {length} | Page {page_number} of {page_count}" if length else "No entries."
+        page_label = (
+            f"第 {page_number} 頁 / 共 {page_count} 頁｜第 {first}-{last} 筆 / 共 {length} 筆"
+            if length
+            else "沒有符合的項目。"
+        )
         self.query_one("#browser-page", Static).update(page_label)
         event_options = self.query_one("#event-options", OptionList)
         event_options.set_options(options)
@@ -208,7 +213,7 @@ class EventBrowserScreen(ModalScreen[None]):
         self.query_one("#browser-next", Button).disabled = start + self.page_size >= length
         back_button = self.query_one("#browser-back", Button)
         back_button.display = self._view != "groups"
-        back_button.label = "Back"
+        back_button.label = "返回事件群組" if self._view == "occurrences" else "返回"
         self.query_one("#source-warning", Static).display = False
         self.query_one("#source-path", Static).display = False
         self.query_one("#source-context", Static).display = False
@@ -222,29 +227,29 @@ class EventBrowserScreen(ModalScreen[None]):
             self.app.copy_to_clipboard(self._copy_path_line)
         except Exception:  # noqa: BLE001 - clipboard availability depends on the terminal driver
             self.query_one("#copy-feedback", Static).update(
-                Text(f"Clipboard copy failed. Manually copy: {self._copy_path_line}")
+                Text(f"剪貼簿複製失敗，請手動複製：{self._copy_path_line}")
             )
             return
-        self.query_one("#copy-feedback", Static).update("Copied path:line to clipboard.")
+        self.query_one("#copy-feedback", Static).update("已複製路徑:行號至剪貼簿。")
 
     @staticmethod
     def _group_label(group: LogEntry) -> str:
-        level = str(group.get("level", "Unknown level"))
+        level = str(group.get("level", "未知層級"))
         count = group.get("count", 1)
-        filename = str(group.get("filename", "Unknown file"))
+        filename = str(group.get("filename", "未知檔案"))
         line_numbers = group.get("line_numbers", [])
         first_line = line_numbers[0] if line_numbers else "?"
         logger = str(group.get("logger", ""))
         message = str(group.get("message_body", group.get("message", ""))).replace("\n", " ")
-        return f"{level} [{count}] {filename}:{first_line} | {logger} | {message}"
+        return f"{level}（{count} 次）｜{filename}:{first_line}｜{logger}｜{message}"
 
     @staticmethod
     def _occurrence_label(occurrence: OccurrenceCoordinate) -> str:
-        filename = occurrence.get("filename", "Unknown file")
+        filename = occurrence.get("filename", "未知檔案")
         line_number = occurrence.get("line_number", "?")
         timestamp = occurrence.get("timestamp", "")
         thread = occurrence.get("thread", "")
-        return f"{filename}:{line_number} | {timestamp} | {thread}"
+        return f"{filename}:{line_number}｜時間 {timestamp}｜執行緒 {thread}"
 
     @staticmethod
     def _context_text(preview: SourcePreview) -> Text:
