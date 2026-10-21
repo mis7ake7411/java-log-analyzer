@@ -47,8 +47,24 @@ def test_preview_reads_three_lines_each_side(tmp_path):
         (8, "line-8"),
     )
     assert preview.match_line == 5
-    assert preview.path_line == "app.log:5"
+    assert preview.path_line == f"{source_file.resolve()}:5"
     assert preview.warning is None
+
+
+def test_warning_preview_has_no_copyable_context(tmp_path):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    source_file = log_dir / "app.log"
+    source_file.write_text("line-1\nline-2\nline-3\nline-4\nline-5\n", encoding="utf-8")
+
+    preview = read_source_context(
+        str(log_dir),
+        _occurrence("app.log"),
+        _snapshot(source_file, stable=False),
+    )
+
+    assert preview.warning is not None
+    assert preview.lines == ()
 
 
 @pytest.mark.parametrize("failure", ["missing", "changed", "unstable", "missing_snapshot"])

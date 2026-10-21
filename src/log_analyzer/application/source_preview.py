@@ -111,7 +111,7 @@ def read_source_context(
         return _warning_preview(filename, match_line, _UNAVAILABLE_WARNING)
 
     return SourcePreview(
-        path_line=f"{filename}:{match_line}",
+        path_line=f"{resolved_source}:{match_line}",
         lines=tuple(lines),
         match_line=match_line,
         warning=None,
