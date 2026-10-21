@@ -1,4 +1,5 @@
 from pathlib import Path
+import csv
 import json
 
 import pytest
@@ -29,6 +30,56 @@ def _build_level_log(index: int, level: str, payload: str = "short") -> dict:
     log["message"] = f"{level} message {index} {payload}"
     log["message_body"] = f"{level} body {index} {payload}"
     return log
+
+
+def _build_occurrence_log(index: int, level: str = "INFO", payload: str = "short") -> dict:
+    log = _build_level_log(index, level, payload)
+    log["count"] = 2
+    log["line_numbers"] = [index * 10 + 1, index * 10 + 2]
+    log["message"] = f"group {index}"
+    log["message_body"] = payload
+    log["occurrences"] = [
+        {
+            "filename": f"source {index}-一.log",
+            "line_number": index * 10 + 1,
+            "timestamp": f"2026-06-07 12:00:{index:02d}.000",
+            "thread": f"worker-{index}-a",
+        },
+        {
+            "filename": f'archive/{index}-"quoted, source".log',
+            "line_number": index * 10 + 2,
+            "timestamp": f"2026-06-07 12:01:{index:02d}.000",
+            "thread": f"worker-{index}-b",
+        },
+    ]
+    return log
+
+
+def _read_exported_coordinates(file_path: Path, fmt: str) -> list[str]:
+    if fmt == "json":
+        data = json.loads(file_path.read_text(encoding="utf-8"))
+        return [
+            f"{occurrence['filename']}:{occurrence['line_number']} | "
+            f"{occurrence['timestamp']} | {occurrence['thread']}"
+            for log in data["results"]
+            for occurrence in log.get("occurrences", [])
+        ]
+
+    if fmt == "csv":
+        with file_path.open(encoding="utf-8-sig", newline="") as report:
+            rows = list(csv.reader(report))
+        return [
+            coordinate
+            for row in rows
+            if len(row) >= 12 and row[8].startswith("group ")
+            for coordinate in row[-1].splitlines()
+        ]
+
+    return [
+        line[4:]
+        for line in file_path.read_text(encoding="utf-8").splitlines()
+        if line.startswith("  - ") and " | " in line
+    ]
 
 
 class _FailingHandle:
@@ -330,3 +381,128 @@ def test_export_by_level_context_removes_created_files_when_summary_write_fails(
         exporter._export_by_level(context)
 
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")])
+def test_exports_include_cross_file_occurrences(tmp_path, fmt, expected_suffix):
+    occurrences = [
+        {
+            "filename": "logs with spaces/服務.log",
+            "line_number": 41,
+            "timestamp": "2026-06-07 12:00:01.000",
+            "thread": "worker-一",
+        },
+        {
+            "filename": 'archive/"quoted, source".log',
+            "line_number": 84,
+            "timestamp": "2026-06-07 12:00:02.000",
+            "thread": "pool-2",
+        },
+    ]
+    expected_coordinates = [
+        "logs with spaces/服務.log:41 | 2026-06-07 12:00:01.000 | worker-一",
+        'archive/"quoted, source".log:84 | 2026-06-07 12:00:02.000 | pool-2',
+    ]
+    log = _build_log(1, "cross-file")
+    log.update(
+        count=2,
+        line_numbers=[41, 84],
+        message="group cross-file",
+        occurrences=occurrences,
+    )
+    output_path = tmp_path / f"report{expected_suffix}"
+
+    files = export_results({"INFO": 2}, [log], str(output_path), fmt)
+
+    assert files == [str(output_path)]
+    if fmt == "json":
+        data = json.loads(output_path.read_text(encoding="utf-8"))
+        assert len(data["results"]) == 1
+        assert data["results"][0]["occurrences"] == occurrences
+    elif fmt == "csv":
+        with output_path.open(encoding="utf-8-sig", newline="") as report:
+            rows = list(csv.reader(report))
+        detail_rows = [row for row in rows if len(row) >= 12 and row[8] == log["message"]]
+        assert len(detail_rows) == 1
+        assert detail_rows[0][-1] == "\n".join(expected_coordinates)
+    else:
+        report = output_path.read_text(encoding="utf-8")
+        assert report.count("### 1. [INFO] group cross-file") == 1
+        assert (
+            "- **事件座標**:\n  - "
+            + expected_coordinates[0]
+            + "\n  - "
+            + expected_coordinates[1]
+            + "\n"
+        ) in report
+
+
+@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")])
+@pytest.mark.parametrize("split_by_level", [False, True])
+def test_split_exports_keep_all_occurrences(tmp_path, fmt, expected_suffix, split_by_level):
+    logs = [
+        _build_occurrence_log(1, "ERROR", "x" * 3000),
+        _build_occurrence_log(2, "ERROR", "x" * 3000),
+        _build_occurrence_log(3, "WARN", "x" * 3000),
+        _build_occurrence_log(4, "WARN", "x" * 3000),
+    ]
+    counts = {"ERROR": 4, "WARN": 4}
+    output_path = tmp_path / f"report{expected_suffix}"
+    max_export_bytes = 20_000 if split_by_level else 10_000
+    expected_coordinates = [
+        f"{occurrence['filename']}:{occurrence['line_number']} | "
+        f"{occurrence['timestamp']} | {occurrence['thread']}"
+        for log in logs
+        for occurrence in log["occurrences"]
+    ]
+
+    files = export_results(
+        counts,
+        logs,
+        str(output_path),
+        fmt,
+        max_export_bytes=max_export_bytes,
+        split_by_level=split_by_level,
+    )
+
+    assert len(files) > 2
+    assert Path(files[0]).name == f"report_summary{expected_suffix}"
+    if split_by_level:
+        assert [Path(file_path).name for file_path in files[1:]] == [
+            f"report_ERROR{expected_suffix}",
+            f"report_WARN{expected_suffix}",
+        ]
+    else:
+        assert all("_part" in Path(file_path).stem for file_path in files[1:])
+
+    actual_coordinates = [
+        coordinate
+        for file_path in files[1:]
+        for coordinate in _read_exported_coordinates(Path(file_path), fmt)
+    ]
+    assert len(actual_coordinates) == sum(log["count"] for log in logs)
+    assert len(actual_coordinates) == len(set(actual_coordinates))
+    assert sorted(actual_coordinates) == sorted(expected_coordinates)
+
+
+@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")])
+def test_legacy_rows_without_occurrences_still_export(tmp_path, fmt, expected_suffix):
+    log = _build_log(1, "legacy")
+    output_path = tmp_path / f"report{expected_suffix}"
+
+    files = export_results({"INFO": 1}, [log], str(output_path), fmt)
+
+    assert files == [str(output_path)]
+    if fmt == "json":
+        data = json.loads(output_path.read_text(encoding="utf-8"))
+        assert data["results"][0]["occurrences"] == []
+    elif fmt == "csv":
+        with output_path.open(encoding="utf-8-sig", newline="") as report:
+            rows = list(csv.reader(report))
+        detail_rows = [row for row in rows if len(row) >= 12 and row[8] == log["message"]]
+        assert len(detail_rows) == 1
+        assert detail_rows[0][-1] == ""
+    else:
+        report = output_path.read_text(encoding="utf-8")
+        assert "- **事件座標**:\n" in report
+        assert _read_exported_coordinates(output_path, fmt) == []

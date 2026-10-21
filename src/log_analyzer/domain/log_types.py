@@ -19,6 +19,19 @@ class LogEntry(TypedDict, total=False):
     stacktrace_lines: list[str]
 
 
+class OccurrenceCoordinate(TypedDict):
+    filename: str
+    line_number: int
+    timestamp: str
+    thread: str
+
+
+class SourceSnapshot(TypedDict):
+    size: int
+    mtime_ns: int
+    stable: bool
+
+
 @runtime_checkable
 class MatchedLogs(Protocol):
     def __iter__(self) -> Iterator[LogEntry]: ...

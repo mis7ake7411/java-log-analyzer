@@ -2,6 +2,7 @@ import pytest
 import pickle
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from log_analyzer.domain.parser import (
     MatchedLogsStore,
     ParseOptions,
@@ -77,6 +78,40 @@ def test_parse_logs_compacts_single_line_numbers_and_expands_on_duplicates(tmp_p
     _counts, errors = parse_logs(str(d))
 
     assert errors[0]["line_numbers"] == [1, 2]
+
+
+def test_cross_file_group_keeps_each_occurrence_coordinate(tmp_path):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "a.log").write_text(
+        "2026-06-06 10:00:00.001 [worker-a] INFO  com.test - Shared message\n",
+        encoding="utf-8",
+    )
+    (log_dir / "b.log").write_text(
+        "2026-06-06 10:01:00.002 [worker-b] INFO  com.test - Shared message\n",
+        encoding="utf-8",
+    )
+
+    _counts, groups = parse_logs(str(log_dir))
+
+    assert len(groups) == 1
+    group = groups[0]
+    assert group["count"] == len(group["occurrences"]) == 2
+    assert group["occurrences"] == [
+        {
+            "filename": "a.log",
+            "line_number": 1,
+            "timestamp": "2026-06-06 10:00:00.001",
+            "thread": "worker-a",
+        },
+        {
+            "filename": "b.log",
+            "line_number": 1,
+            "timestamp": "2026-06-06 10:01:00.002",
+            "thread": "worker-b",
+        },
+    ]
+    assert group.to_dict()["occurrences"] == group["occurrences"]
 
 
 def test_parse_logs_keyword(temp_log_dir):
@@ -299,6 +334,69 @@ def test_parse_logs_spills_grouped_logs_and_merges_across_spills(tmp_path, monke
     assert errors[0]["line_numbers"] == [1, 2]
 
 
+def test_spilled_group_preserves_occurrence_order(tmp_path, monkeypatch):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    for filename, timestamp, thread in (
+        ("a.log", "10:00:00.001", "worker-a"),
+        ("b.log", "10:01:00.002", "worker-b"),
+        ("c.log", "10:02:00.003", "worker-c"),
+    ):
+        (log_dir / filename).write_text(
+            f"2026-06-06 {timestamp} [{thread}] INFO  com.test - Shared message\n",
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(parser_module, "MAX_GROUPS_IN_MEMORY", 1)
+
+    _counts, groups = parse_logs(str(log_dir))
+
+    assert len(groups) == 1
+    assert groups[0]["count"] == len(groups[0]["occurrences"]) == 3
+    assert groups[0]["occurrences"] == [
+        {
+            "filename": "a.log",
+            "line_number": 1,
+            "timestamp": "2026-06-06 10:00:00.001",
+            "thread": "worker-a",
+        },
+        {
+            "filename": "b.log",
+            "line_number": 1,
+            "timestamp": "2026-06-06 10:01:00.002",
+            "thread": "worker-b",
+        },
+        {
+            "filename": "c.log",
+            "line_number": 1,
+            "timestamp": "2026-06-06 10:02:00.003",
+            "thread": "worker-c",
+        },
+    ]
+
+
+def test_matched_log_pages_do_not_cache_all_groups(tmp_path):
+    store_path = tmp_path / "logs.pkl"
+    with open(store_path, "wb") as file_handle:
+        for index in range(6):
+            pickle.dump({"message": str(index)}, file_handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    store = MatchedLogsStore(path=str(store_path), length=6)
+
+    early_page = list(store.iter_page(1, 1))
+    late_page = list(store.iter_page(4, 1))
+
+    assert early_page == [{"message": "1"}]
+    assert late_page == [{"message": "4"}]
+    assert store._index_cache is None or store._index_cache == {}
+
+    assert [log["message"] for log in store] == [str(index) for index in range(6)]
+    assert store._index_cache is None or store._index_cache == {}
+
+    assert store[5] == {"message": "5"}
+    assert store._index_cache == {5: {"message": "5"}}
+
+
 def test_matched_logs_store_caches_index_access(tmp_path, monkeypatch):
     store_path = tmp_path / "logs.pkl"
     with open(store_path, "wb") as file_handle:
@@ -315,11 +413,43 @@ def test_matched_logs_store_caches_index_access(tmp_path, monkeypatch):
 
     monkeypatch.setattr(parser_module.pickle, "load", counting_load)
 
-    assert store[0]["message"] == "first"
-    assert load_calls == [1]
+    assert store[1]["message"] == "second"
+    assert load_calls == [1, 1]
+    assert store._index_cache == {1: {"message": "second"}}
 
-    assert store[0]["message"] == "first"
-    assert load_calls == [1]
+    assert store[1]["message"] == "second"
+    assert load_calls == [1, 1]
+
+
+def test_source_changed_during_scan_is_unstable(tmp_path, monkeypatch):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    log_file = log_dir / "changed.log"
+    log_file.write_text(
+        "2026-06-06 10:00:00.001 [main] INFO  com.test - Changed source\n",
+        encoding="utf-8",
+    )
+
+    original_stat = parser_module.os.stat
+    source_stat_calls = 0
+
+    def changing_stat(path, *args, **kwargs):
+        nonlocal source_stat_calls
+        stat_result = original_stat(path, *args, **kwargs)
+        if Path(path) == log_file:
+            source_stat_calls += 1
+            if source_stat_calls == 2:
+                return SimpleNamespace(
+                    st_size=stat_result.st_size,
+                    st_mtime_ns=stat_result.st_mtime_ns + 1,
+                )
+        return stat_result
+
+    monkeypatch.setattr(parser_module.os, "stat", changing_stat)
+
+    _counts, logs = parse_log_directory(str(log_dir), ParseOptions())
+
+    assert logs.source_states["changed.log"]["stable"] is False
 
 
 def test_parse_logs_with_custom_logback_pattern(tmp_path):

@@ -21,6 +21,14 @@ def normalize_pasted_path(path: str) -> str | None:
         cleaned = unquote(parsed.path)
         if parsed.netloc:
             cleaned = f"//{parsed.netloc}{cleaned}"
+        elif (
+            os.name == "nt"
+            and len(cleaned) >= 3
+            and cleaned[0] == "/"
+            and cleaned[1] in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+            and cleaned[2] == ":"
+        ):
+            cleaned = cleaned[1:]
 
     if not cleaned:
         return None

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .log_types import OccurrenceCoordinate
+
 LEVEL_SORT_ORDER = {
     "ERROR": 0,
     "WARN": 1,
@@ -20,6 +22,7 @@ _LOG_FIELDS = {
     "thread",
     "logger",
     "filename",
+    "occurrences",
     "message",
     "message_body",
     "stacktrace",
@@ -36,6 +39,7 @@ class GroupedLog:
     thread: str
     logger: str
     filename: str
+    occurrences: list[OccurrenceCoordinate]
     message: str
     message_body: str
     stacktrace: str
@@ -66,6 +70,15 @@ class GroupedLog:
             "thread": self.thread,
             "logger": self.logger,
             "filename": self.filename,
+            "occurrences": [
+                {
+                    "filename": occurrence["filename"],
+                    "line_number": occurrence["line_number"],
+                    "timestamp": occurrence["timestamp"],
+                    "thread": occurrence["thread"],
+                }
+                for occurrence in self.occurrences
+            ],
             "message": self.message,
             "message_body": self.message_body,
             "stacktrace": self.stacktrace,
@@ -112,10 +125,17 @@ def add_to_grouped_logs(grouped_logs, entry):
         entry.get("message_body", ""),
         stacktrace_text,
     )
+    occurrence: OccurrenceCoordinate = {
+        "filename": entry["filename"],
+        "line_number": entry["line_num"],
+        "timestamp": entry["timestamp"],
+        "thread": entry["thread"],
+    }
 
     if key in grouped_logs:
         grouped_logs[key].count += 1
         grouped_logs[key].last_timestamp = entry["timestamp"]
+        grouped_logs[key].occurrences.append(occurrence)
         # 記錄重複項出現的行號
         _append_line_number(grouped_logs[key], entry["line_num"])
     else:
@@ -128,6 +148,7 @@ def add_to_grouped_logs(grouped_logs, entry):
             thread=entry["thread"],
             logger=entry["logger"],
             filename=entry["filename"],
+            occurrences=[occurrence],
             message=entry["message"],
             message_body=entry.get("message_body", ""),
             stacktrace=stacktrace_text,

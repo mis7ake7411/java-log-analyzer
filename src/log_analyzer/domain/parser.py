@@ -7,13 +7,13 @@ import re
 import tempfile
 from collections import Counter
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import cast
 
 from .logback_pattern import DEFAULT_LOGBACK_REGEX, compile_logback_pattern
 from .parser_aggregation import commit_entry, normalize_keyword, sort_key
-from .log_types import LogEntry, MatchedLogs
+from .log_types import LogEntry, MatchedLogs, SourceSnapshot
 from .timezone import to_local_timezone
 
 _STACKTRACE_HEADER_RE = re.compile(r"^[A-Za-z_][\w.$]*(?:Exception|Error)(?::|\s|$)")
@@ -38,18 +38,34 @@ class MatchedLogsStore:
     path: str
     length: int
     _index_cache: dict[int, LogEntry] | None = None
+    source_states: dict[str, SourceSnapshot] = field(default_factory=dict)
 
     def __iter__(self) -> Iterator[LogEntry]:
         with open(self.path, "rb") as file_handle:
-            index = 0
             while True:
                 try:
                     log = cast(LogEntry, pickle.load(file_handle))
                 except EOFError:
                     break
-                self._remember(index, log)
                 yield log
-                index += 1
+
+    def iter_page(self, start: int, size: int) -> Iterator[LogEntry]:
+        if size <= 0:
+            return
+
+        start = max(0, start)
+        if start >= self.length:
+            return
+
+        end = min(start + size, self.length)
+        with open(self.path, "rb") as file_handle:
+            for index in range(end):
+                try:
+                    log = cast(LogEntry, pickle.load(file_handle))
+                except EOFError:
+                    break
+                if index >= start:
+                    yield log
 
     def __len__(self) -> int:
         return self.length
@@ -74,7 +90,6 @@ class MatchedLogsStore:
                 if current_index == index:
                     self._remember(current_index, log)
                     return log
-                self._remember(current_index, log)
                 current_index += 1
         raise IndexError(index)
 
@@ -135,10 +150,10 @@ def parse_logs(  # noqa: PLR0913 - public legacy API retained for backward compa
 
 def parse_log_directory(directory: str, options: ParseOptions) -> tuple[Counter[str], MatchedLogs]:
     counts = Counter()
-    grouped_logs, _spilled_to_disk = _collect_grouped_logs(directory, options, counts)
+    grouped_logs, _spilled_to_disk, source_states = _collect_grouped_logs(directory, options, counts)
     sorted_logs = iter_sorted_logs(grouped_logs, options.sort_by)
 
-    return counts, _persist_matched_logs(sorted_logs)
+    return counts, _persist_matched_logs(sorted_logs, source_states)
 
 
 def _collect_grouped_logs(directory, options, counts):
@@ -146,6 +161,7 @@ def _collect_grouped_logs(directory, options, counts):
     selected_levels = _normalize_levels(options.levels)
     grouped_logs = {}
     spilled_to_disk = False
+    source_states: dict[str, SourceSnapshot] = {}
 
     with tempfile.TemporaryDirectory() as temp_dir:
         shard_paths = _build_group_shard_paths(temp_dir)
@@ -155,6 +171,7 @@ def _collect_grouped_logs(directory, options, counts):
             options.start_time,
             options.end_time,
             options.log_pattern,
+            source_states,
         ):
             if selected_levels is not None and entry["level"].upper() not in selected_levels:
                 continue
@@ -170,7 +187,7 @@ def _collect_grouped_logs(directory, options, counts):
         else:
             grouped_logs = grouped_logs.values()
 
-    return grouped_logs, spilled_to_disk
+    return grouped_logs, spilled_to_disk, source_states
 
 
 def _normalize_levels(levels):
@@ -184,6 +201,7 @@ def iter_logs(
     start_time=None,
     end_time=None,
     log_pattern=None,
+    source_states: dict[str, SourceSnapshot] | None = None,
 ):
     """逐筆產生已解析、已套用時間區間過濾的日誌 entry"""
     if start_time is not None:
@@ -192,13 +210,25 @@ def iter_logs(
         end_time = to_local_timezone(end_time)
 
     entry_pattern = compile_logback_pattern(log_pattern) if log_pattern else DEFAULT_LOGBACK_REGEX
+    if source_states is None:
+        source_states = {}
 
     if not os.path.exists(directory):
         raise FileNotFoundError(f"找不到目錄: {directory}")
 
     for filename in _list_log_files(directory):
         filepath = os.path.join(directory, filename)
+        before = os.stat(filepath)
         yield from _iter_entries_from_file(filepath, filename, entry_pattern, start_time, end_time)
+        after = os.stat(filepath)
+        source_states[filename] = {
+            "size": after.st_size,
+            "mtime_ns": after.st_mtime_ns,
+            "stable": (
+                before.st_size == after.st_size
+                and before.st_mtime_ns == after.st_mtime_ns
+            ),
+        }
 
 
 def iter_sorted_logs(entries, sort_by="time", max_in_memory_groups=MAX_SORT_GROUPS_IN_MEMORY):
@@ -255,6 +285,7 @@ def _merge_grouped_log(grouped_logs, entry):
         grouped_logs[key].count += entry.count
         grouped_logs[key].last_timestamp = entry.last_timestamp
         grouped_logs[key].line_numbers = grouped_logs[key].line_numbers + entry.line_numbers
+        grouped_logs[key].occurrences.extend(entry.occurrences)
         return
 
     grouped_logs[key] = entry
@@ -274,7 +305,7 @@ def _group_log_key(entry):
     )
 
 
-def _persist_matched_logs(logs):
+def _persist_matched_logs(logs, source_states):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pkl") as file_handle:
         length = 0
         for log in logs:
@@ -282,7 +313,7 @@ def _persist_matched_logs(logs):
             length += 1
         path = file_handle.name
 
-    return MatchedLogsStore(path=path, length=length)
+    return MatchedLogsStore(path=path, length=length, source_states=source_states)
 
 
 def _iter_sorted_logs_external(entries, sort_by, chunk_size):

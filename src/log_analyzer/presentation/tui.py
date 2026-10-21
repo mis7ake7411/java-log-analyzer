@@ -15,6 +15,7 @@ from ..application.analysis_service import DEFAULT_SELECTED_LEVELS, AnalysisResu
 from ..domain.logback_pattern import DEFAULT_LOGBACK_PATTERN
 from ..domain.logback_xml import find_best_logback_pattern
 from .tui_dialogs import DirectoryPickerScreen, FilePickerScreen, ShortcutInput
+from .tui_event_browser import EventBrowserScreen
 from .recent_form_state import load_recent_tui_state, save_recent_tui_state
 from .tui_inputs import (
     get_default_end_date_text,
@@ -253,6 +254,7 @@ class LogAnalyzerApp(App):
                 min_width=0,
             )
             with Container(id="output-actions"):
+                yield Button("查看事件原文", id="browse-events", disabled=True)
                 yield Button("清除結果", id="clear")
 
     def on_mount(self) -> None:
@@ -267,6 +269,9 @@ class LogAnalyzerApp(App):
         self._set_result_status("idle")
         self.update_path_preview(path_input.value)
         self.update_path_preview(output_path_input.value, "#output-path-status", require_writable=True)
+
+    def on_unmount(self) -> None:
+        self._release_last_result(close_browser=False)
 
     def on_resize(self, event: Resize) -> None:
         self._sync_layout(event.size.width, event.size.height)
@@ -374,6 +379,8 @@ class LogAnalyzerApp(App):
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "run":
             await self.action_run_analysis()
+        elif event.button.id == "browse-events":
+            self.action_browse_events()
         elif event.button.id == "clear":
             self.action_clear_result()
         elif event.button.id == "toggle_advanced_settings":
@@ -490,7 +497,7 @@ class LogAnalyzerApp(App):
 
     def _handle_unexpected_error(self, result_box: RichLog, exc: Exception) -> None:
         logger.exception("TUI 分析發生未預期錯誤", exc_info=exc)
-        self._last_result = None
+        self._release_last_result()
         self._set_result(result_box, build_error_view("執行失敗", str(exc)))
         self._set_result_status("failed")
 
@@ -498,6 +505,8 @@ class LogAnalyzerApp(App):
         run_button = self.query_one("#run", Button)
         clear_button = self.query_one("#clear", Button)
         result_box = self.query_one("#result-box", RichLog)
+
+        self._release_last_result()
 
         # 記錄當下聚焦的元件，並暫時清除焦點，避免焦點自動轉移至「清除結果」按鈕造成反白
         original_focused = self.focused
@@ -569,7 +578,7 @@ class LogAnalyzerApp(App):
                     fmt=fmt,
                     log_pattern=selected_pattern,
                     max_export_bytes=None,
-                    include_details=False,
+                    include_details=True,
                     levels=selected_levels,
                     split_by_level=split_by_level,
                 ),
@@ -582,15 +591,15 @@ class LogAnalyzerApp(App):
             self._set_result_status("complete", result)
             self._refresh_output_name_default(output_name)
         except PermissionError as exc:
-            self._last_result = None
+            self._release_last_result()
             self._set_result(result_box, build_error_view("權限不足", str(exc)))
             self._set_result_status("failed")
         except FileNotFoundError as exc:
-            self._last_result = None
+            self._release_last_result()
             self._set_result(result_box, build_error_view("找不到資料夾", str(exc)))
             self._set_result_status("failed")
         except ValueError as exc:
-            self._last_result = None
+            self._release_last_result()
             title = "無可分析資料" if str(exc).startswith("找不到符合條件的 log") else "輸入錯誤"
             self._set_result(result_box, build_error_view(title, str(exc)))
             self._set_result_status("failed")
@@ -606,9 +615,38 @@ class LogAnalyzerApp(App):
         if self._last_result is None:
             return
         result_box = self.query_one("#result-box", RichLog)
-        self._last_result = None
+        self._release_last_result()
         self._set_result(result_box, build_idle_view())
         self._set_result_status("idle")
+
+    def action_browse_events(self) -> None:
+        result = self._last_result
+        if result is None:
+            return
+        self.push_screen(EventBrowserScreen(result))
+
+    def _release_last_result(self, close_browser: bool = True) -> None:
+        result = getattr(self, "_last_result", None)
+        self._last_result = None
+        if result is None:
+            return
+
+        try:
+            active_screen = self.screen
+        except Exception:  # noqa: BLE001 - app may be shutting down without an active screen
+            active_screen = None
+        if isinstance(active_screen, EventBrowserScreen) and active_screen.result is result:
+            active_screen.invalidate()
+            if close_browser and active_screen.is_mounted:
+                active_screen.dismiss()
+
+        matched_logs = getattr(result, "matched_logs", None)
+        release = getattr(matched_logs, "release", None)
+        if callable(release):
+            try:
+                release()
+            except Exception:
+                logger.exception("釋放分析結果暫存資料失敗")
 
     def action_clear_keyword(self) -> None:
         keyword_input = self.query_one("#keyword", Input)
@@ -796,6 +834,7 @@ class LogAnalyzerApp(App):
         if state == "complete" and result is not None:
             status.update(f"狀態：完成｜總 Log {result.total_logs}｜命中 {result.matched_occurrences}")
             clear_button.disabled = False
+            self.query_one("#browse-events", Button).disabled = False
             return
 
         messages = {
@@ -805,6 +844,7 @@ class LogAnalyzerApp(App):
         }
         status.update(messages[state])
         clear_button.disabled = True
+        self.query_one("#browse-events", Button).disabled = True
 
     def _sync_pattern_field_visibility(self) -> None:
         pattern_mode = self.query_one("#pattern_mode", Select).value or "default"

@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime
 import logging
+import pickle
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -23,6 +24,9 @@ from log_analyzer.presentation.tui import (
     get_system_root_path,
     parse_datetime_range_inputs,
 )
+from log_analyzer.domain.parser import MatchedLogsStore
+from log_analyzer.presentation.tui_event_browser import EventBrowserScreen
+from log_analyzer.presentation import tui as tui_module
 from log_analyzer.presentation.error_messages import get_error_hint
 from log_analyzer.presentation import tui_views
 from log_analyzer.presentation.recent_form_state import (
@@ -50,6 +54,7 @@ def test_tui_loads_structured_responsive_stylesheets():
 def test_handle_unexpected_error_logs_and_displays_error(caplog):
     status_states = []
     app = SimpleNamespace(_last_result=object(), _set_result_status=status_states.append)
+    app._release_last_result = lambda: LogAnalyzerApp._release_last_result(app)
     result_box = object()
     displayed = {}
     app._set_result = lambda box, view: displayed.update(box=box, view=view)
@@ -149,7 +154,7 @@ def test_ctrl_u_clears_focused_input_text():
 
 
 def test_get_package_version_matches_installed_package():
-    assert get_package_version() == "1.0.13"
+    assert get_package_version() == "1.0.14"
 
 
 def test_default_datetime_field_texts():
@@ -1578,6 +1583,126 @@ def test_result_status_marks_failure_and_removes_duplicate_helper_text():
             assert str(app.query_one("#result-status").render()) == "狀態：失敗"
             assert app.query_one("#clear").disabled is True
             assert not app.query(".helper")
+
+    asyncio.run(run_check())
+
+
+def _stored_result(path: Path, group: dict[str, object]) -> SimpleNamespace:
+    with path.open("wb") as file_handle:
+        pickle.dump(group, file_handle)
+    return SimpleNamespace(
+        total_logs=1,
+        matched_occurrences=1,
+        matched_groups=1,
+        input_path=str(path.parent),
+        source_states={},
+        matched_logs=MatchedLogsStore(path=str(path), length=1),
+    )
+
+
+def _event_group() -> dict[str, object]:
+    occurrence = {
+        "filename": "sample.log",
+        "line_number": 1,
+        "timestamp": "2026-10-20 12:00:00",
+        "thread": "main",
+    }
+    return {
+        "timestamp": "2026-10-20 12:00:00",
+        "last_timestamp": "2026-10-20 12:00:00",
+        "thread": "main",
+        "level": "ERROR",
+        "logger": "com.example.Service",
+        "filename": "sample.log",
+        "occurrences": [occurrence],
+        "message": "failure",
+        "message_body": "failure",
+        "stacktrace": "",
+        "stacktrace_lines": [],
+        "count": 1,
+        "line_numbers": [1],
+    }
+
+
+def test_dashboard_browse_button_opens_event_browser():
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test(size=(1400, 980)) as pilot:
+            await pilot.pause()
+            result = SimpleNamespace(
+                total_logs=1,
+                matched_occurrences=1,
+                matched_groups=1,
+                input_path=".",
+                source_states={},
+                matched_logs=[_event_group()],
+            )
+            app._last_result = result
+            app._set_result_status("complete", result)
+
+            await pilot.click("#browse-events")
+            await pilot.pause()
+
+            assert isinstance(app.screen, EventBrowserScreen)
+            assert len(app.screen.query_one("#event-options").options) == 1
+
+    asyncio.run(run_check())
+
+
+def test_result_replacement_clear_and_unmount_release_stores(tmp_path: Path, monkeypatch) -> None:
+    old_path = tmp_path / "old-groups.pickle"
+    new_path = tmp_path / "new-groups.pickle"
+    failed_path = tmp_path / "failed-groups.pickle"
+    old_result = _stored_result(old_path, _event_group())
+    new_result = _stored_result(new_path, _event_group())
+    failed_result = _stored_result(failed_path, _event_group())
+    analysis_calls = []
+
+    def fake_run_analysis(**kwargs):
+        analysis_calls.append((old_path.exists(), kwargs["include_details"]))
+        return new_result
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(tui_module, "run_analysis", fake_run_analysis)
+    monkeypatch.setattr(tui_module, "build_dashboard_view", lambda *_args: "dashboard")
+
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._last_result = old_result
+
+            await app.action_run_analysis()
+
+            assert analysis_calls == [(False, True)]
+            assert app._last_result is new_result
+            assert new_path.exists()
+
+            browser = EventBrowserScreen(new_result)
+            app.push_screen(browser)
+            await pilot.pause()
+            app.action_clear_result()
+            await pilot.pause()
+
+            assert not new_path.exists()
+            assert app._last_result is None
+            assert app.screen is not browser
+
+            app._last_result = failed_result
+            monkeypatch.setattr(
+                tui_module,
+                "run_analysis",
+                lambda **_kwargs: (_ for _ in ()).throw(PermissionError("denied")),
+            )
+            await app.action_run_analysis()
+            assert not failed_path.exists()
+            assert app._last_result is None
+
+            shutdown_path = tmp_path / "shutdown-groups.pickle"
+            shutdown_result = _stored_result(shutdown_path, _event_group())
+            app._last_result = shutdown_result
+
+        assert not shutdown_path.exists()
 
     asyncio.run(run_check())
 
