@@ -27,6 +27,44 @@
     padding: 1 0 1 2;
 }
 
+#export-settings {
+    height: auto;
+    width: 1fr;
+    layout: vertical;
+    margin-top: 1;
+    padding: 1;
+    border: round #334155;
+    background: #0f172a;
+}
+
+#export-fields {
+    layout: grid;
+    grid-size: 3;
+    grid-columns: 1fr 1fr 1fr;
+    grid-rows: auto;
+    height: auto;
+}
+
+#export-fields Checkbox {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#export-status {
+    height: auto;
+    min-height: 1;
+    margin-top: 1;
+    color: #fca5a5;
+}
+
+#manifest-hint {
+    margin-bottom: 1;
+}
+
+#confirm-export {
+    width: 1fr;
+}
+
 /* ── 路徑列 ── */
 
 .path-row {
@@ -80,12 +118,36 @@
     width: 1fr;
 }
 
+#recipe-feedback {
+    display: none;
+    height: auto;
+    min-height: 0;
+    margin: -1 3 1 3;
+    color: #fbbf24;
+}
+
 #output-actions {
     height: 3;
     margin-top: 1;
     layout: horizontal;
 }
 
-#output-actions #clear {
+#output-actions Button {
+    width: 1fr;
+    min-width: 0;
+    margin-right: 1;
+}
+
+.zero-results-hidden {
+    display: none;
+}
+
+#zero-result-actions {
+    height: 3;
+    margin-top: 1;
+    layout: horizontal;
+}
+
+#zero-result-actions Button {
     width: 1fr;
 }

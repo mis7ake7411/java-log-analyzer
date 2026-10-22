@@ -7,6 +7,7 @@ from pathlib import Path
 
 from ..domain.log_types import LogEntry
 from .export_csv import render_csv_prefix, render_csv_summary, serialize_csv_log
+from .export_fields import normalize_export_fields
 from .export_json import (
     render_json_prefix,
     render_json_summary,
@@ -26,6 +27,7 @@ class ExportOptions:
     format: str = "csv"
     max_export_bytes: int | None = None
     split_by_level: bool = False
+    fields: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +38,7 @@ class _LevelExportContext:
     format_name: str
     threshold: int
     active_levels: list[str]
+    fields: tuple[str, ...] | None = None
 
 
 def export_results(  # noqa: PLR0913 - public legacy API retained for backward compatibility
@@ -45,6 +48,8 @@ def export_results(  # noqa: PLR0913 - public legacy API retained for backward c
     format: str = "csv",
     max_export_bytes: int | None = None,
     split_by_level: bool = False,
+    *,
+    fields: tuple[str, ...] | None = None,
 ):
     """
     根據指定的格式匯出分析結果
@@ -63,11 +68,17 @@ def export_results(  # noqa: PLR0913 - public legacy API retained for backward c
             format=format,
             max_export_bytes=max_export_bytes,
             split_by_level=split_by_level,
+            fields=fields,
         )
     )
 
 
 def export_with_options(options: ExportOptions) -> list[str]:
+    fields = (
+        None
+        if options.fields is None
+        else normalize_export_fields(options.fields)
+    )
     output = Path(options.output_path)
     format_name = options.format.lower()
     threshold = (
@@ -76,19 +87,18 @@ def export_with_options(options: ExportOptions) -> list[str]:
         else options.max_export_bytes
     )
     active_levels = [str(level) for level, count in options.counts.items() if count > 0]
+    context = _LevelExportContext(
+        counts=options.counts,
+        matched_logs=options.matched_logs,
+        output=output,
+        format_name=format_name,
+        threshold=threshold,
+        active_levels=active_levels,
+        fields=fields,
+    )
     if options.split_by_level and len(active_levels) > 1:
-        return _export_by_level(
-            _LevelExportContext(
-                counts=options.counts,
-                matched_logs=options.matched_logs,
-                output=output,
-                format_name=format_name,
-                threshold=threshold,
-                active_levels=active_levels,
-            )
-        )
-
-    return _export_streaming(options.counts, options.matched_logs, output, format_name, threshold)
+        return _export_by_level(context)
+    return _export_streaming(context)
 
 
 def _export_by_level(context: _LevelExportContext) -> list[str]:
@@ -100,6 +110,7 @@ def _export_by_level(context: _LevelExportContext) -> list[str]:
             {level: context.counts[level]},
             context.format_name,
             context.threshold,
+            context.fields,
         )
         for level in context.active_levels
     }
@@ -132,11 +143,19 @@ def _export_by_level(context: _LevelExportContext) -> list[str]:
 
 
 class _LevelFileWriter:
-    def __init__(self, output: Path, counts, format_name: str, threshold: int) -> None:
+    def __init__(
+        self,
+        output: Path,
+        counts,
+        format_name: str,
+        threshold: int,
+        fields: tuple[str, ...] | None = None,
+    ) -> None:
         self.output = output
         self.counts = counts
         self.format_name = format_name
         self.threshold = threshold
+        self.fields = fields
         self.base_name = output.stem
         self.suffix = output.suffix or f".{format_name}"
         self.encoding = _encoding_for(format_name)
@@ -146,8 +165,12 @@ class _LevelFileWriter:
         self.current_part_log_index = 0
         self.split_occurred = False
         self.current_path = output
-        self.current_handle = _open_part_file(output, counts, format_name, self.encoding)
-        self.current_size = _rendered_size(_report_prefix(counts, format_name), format_name)
+        self.current_handle = _open_part_file(
+            output, counts, format_name, self.encoding, fields
+        )
+        self.current_size = _rendered_size(
+            _report_prefix(counts, format_name, fields), format_name
+        )
         self.closed = False
 
     def write(self, log) -> None:
@@ -158,6 +181,7 @@ class _LevelFileWriter:
                 log,
                 self.format_name,
                 self.current_has_logs,
+                self.fields,
             )
 
             if self.current_has_logs and self.current_size + block_size > self.threshold:
@@ -212,64 +236,77 @@ class _LevelFileWriter:
             self.counts,
             self.format_name,
             self.encoding,
+            self.fields,
         )
         self.current_part_index += 1
         self.split_occurred = True
-        self.current_size = _rendered_size(_report_prefix(self.counts, self.format_name), self.format_name)
+        self.current_size = _rendered_size(
+            _report_prefix(self.counts, self.format_name, self.fields), self.format_name
+        )
         self.current_has_logs = False
         self.current_part_log_index = 0
 
 
-def _export_streaming(
-    counts: Mapping[str, int],
-    matched_logs: Iterable[LogEntry],
-    output: Path,
-    format_name: str,
-    threshold: int,
-) -> list[str]:
-    writer = _LevelFileWriter(output, counts, format_name, threshold)
+def _export_streaming(context: _LevelExportContext) -> list[str]:
+    writer = _LevelFileWriter(
+        context.output,
+        context.counts,
+        context.format_name,
+        context.threshold,
+        context.fields,
+    )
     has_any_logs = False
 
-    for log in matched_logs:
+    for log in context.matched_logs:
         has_any_logs = True
         writer.write(log)
 
-    if format_name == 'md' and not has_any_logs:
+    if context.format_name == 'md' and not has_any_logs:
         writer.write_empty_markdown_message()
 
     created_paths = writer.close()
     if not writer.split_occurred:
         return created_paths
 
-    summary_path = output.with_name(f"{output.stem}_summary{output.suffix or f'.{format_name}'}")
+    summary_path = context.output.with_name(
+        f"{context.output.stem}_summary{context.output.suffix or f'.{context.format_name}'}"
+    )
     _write_text(
         summary_path,
-        _render_summary(counts, created_paths, format_name),
-        _encoding_for(format_name),
+        _render_summary(context.counts, created_paths, context.format_name),
+        _encoding_for(context.format_name),
     )
     return [str(summary_path), *created_paths]
 
 
-def _render_log_block(index: int, log, format_name: str, has_previous_logs: bool) -> tuple[str, int]:
+def _render_log_block(
+    index: int,
+    log,
+    format_name: str,
+    has_previous_logs: bool,
+    fields: tuple[str, ...] | None = None,
+) -> tuple[str, int]:
     if format_name == 'json':
         prefix = ",\n" if has_previous_logs else ""
-        block = prefix + serialize_json_log(log)
+        block = prefix + serialize_json_log(log, fields=fields)
         return block, _rendered_size(block, format_name)
     if format_name == 'md':
-        block = serialize_markdown_log(index, log)
+        block = serialize_markdown_log(index, log, fields=fields)
         return block, _rendered_size(block, format_name)
 
     # CSV 以逐行寫入，不需要額外分隔符
-    block = serialize_csv_log(log)
+    block = serialize_csv_log(log, fields)
     return block, _rendered_size(block, format_name)
 
 
-def _report_prefix(counts, format_name: str) -> str:
+def _report_prefix(
+    counts, format_name: str, fields: tuple[str, ...] | None = None
+) -> str:
     if format_name == 'json':
-        return render_json_prefix(counts)
+        return render_json_prefix(counts, fields)
     if format_name == 'md':
-        return render_markdown_prefix(counts)
-    return render_csv_prefix(counts)
+        return render_markdown_prefix(counts, fields)
+    return render_csv_prefix(counts, fields)
 
 
 def _report_suffix(format_name: str) -> str:
@@ -278,10 +315,16 @@ def _report_suffix(format_name: str) -> str:
     return ""
 
 
-def _open_part_file(path: Path, counts, format_name: str, encoding: str):
+def _open_part_file(
+    path: Path,
+    counts,
+    format_name: str,
+    encoding: str,
+    fields: tuple[str, ...] | None = None,
+):
     file_handle = path.open("w", encoding=encoding, newline="" if encoding == "utf-8-sig" else None)
     try:
-        file_handle.write(_report_prefix(counts, format_name))
+        file_handle.write(_report_prefix(counts, format_name, fields))
     except (OSError, UnicodeError):
         file_handle.close()
         raise

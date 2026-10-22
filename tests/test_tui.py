@@ -9,6 +9,7 @@ from rich.columns import Columns
 from rich.console import Console, Group
 from textual.events import Paste
 
+from log_analyzer.application.analysis_service import AnalysisRequest
 from log_analyzer.presentation.tui import (
     DirectoryPickerScreen,
     FilePickerScreen,
@@ -53,7 +54,11 @@ def test_tui_loads_structured_responsive_stylesheets():
 
 def test_handle_unexpected_error_logs_and_displays_error(caplog):
     status_states = []
-    app = SimpleNamespace(_last_result=object(), _set_result_status=status_states.append)
+    app = SimpleNamespace(
+        _last_result=object(),
+        _set_result_status=status_states.append,
+        is_running=True,
+    )
     app._release_last_result = lambda: LogAnalyzerApp._release_last_result(app)
     result_box = object()
     displayed = {}
@@ -154,7 +159,7 @@ def test_ctrl_u_clears_focused_input_text():
 
 
 def test_get_package_version_matches_installed_package():
-    assert get_package_version() == "1.0.14"
+    assert get_package_version() == "1.0.15"
 
 
 def test_default_datetime_field_texts():
@@ -338,8 +343,6 @@ def test_collect_form_values_includes_time_fields():
 
     mapping = {
         "#path": FakeInput("./logs"),
-        "#output_path": FakeInput("./exports"),
-        "#output_name": FakeInput("report"),
         "#start_date": FakeInput("2026-06-07"),
         "#start_time": FakeInput("00:00"),
         "#end_date": FakeInput("2026-06-07"),
@@ -354,34 +357,27 @@ def test_collect_form_values_includes_time_fields():
         "#level_INFO": FakeCheckbox(False),
         "#level_DEBUG": FakeCheckbox(True),
         "#level_TRACE": FakeCheckbox(False),
-        "#split_by_level": FakeCheckbox(True),
+        "#level_unrestricted": FakeCheckbox(False),
         "#ignore_case": FakeCheckbox(True),
-        "#format": FakeSelect("json"),
     }
 
     app = LogAnalyzerApp()
     app.query_one = lambda selector, *_args, **_kwargs: mapping[selector]  # type: ignore[assignment]
 
-    values = app._collect_form_values()
+    request, display_mode = app._collect_form_values()
+    local_timezone = datetime.now().astimezone().tzinfo
 
-    assert values == (
-        "./logs",
-        "./exports",
-        "report",
-        "2026-06-07",
-        "00:00",
-        "2026-06-07",
-        "12:00",
-        "RuntimeException",
-        "custom",
-        "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n",
-        "summary",
-        "level",
-        ("ERROR", "WARN", "DEBUG"),
-        True,
-        True,
-        "json",
+    assert request == AnalysisRequest(
+        path="./logs",
+        start_dt=datetime(2026, 6, 7, 0, 0, tzinfo=local_timezone),
+        end_dt=datetime(2026, 6, 7, 12, 0, tzinfo=local_timezone),
+        keyword="RuntimeException",
+        ignore_case=True,
+        sort_by="level",
+        log_pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n",
+        levels=("ERROR", "WARN", "DEBUG"),
     )
+    assert display_mode == "summary"
 
 
 def test_display_settings_rows_follow_current_field_grouping():
@@ -410,9 +406,18 @@ def test_display_settings_rows_follow_current_field_grouping():
             ]
 
             assert frozenset({"field", "field--inline", "field--ignore"}) in first_row_classes
-            assert frozenset({"field", "field--inline", "field--split-output"}) in first_row_classes
             assert frozenset({"field", "field--inline", "field--sort"}) in second_row_classes
             assert frozenset({"field", "field--inline", "field--display-mode"}) in second_row_classes
+
+            export_settings = app.query_one("#export-settings")
+            export_row = next(child for child in export_settings.children if child.has_class("field-row"))
+            export_row_classes = [
+                frozenset(child.classes)
+                for child in export_row.children
+                if child.has_class("field")
+            ]
+            assert frozenset({"field", "field--inline", "field--format"}) in export_row_classes
+            assert frozenset({"field", "field--inline", "field--split-output"}) in export_row_classes
             assert app.query_one("#format").parent.has_class("field--format")
 
     asyncio.run(run_check())
@@ -614,12 +619,12 @@ def test_advanced_settings_logback_browse_button_keeps_right_edge_aligned():
             app.action_toggle_advanced_settings()
             await pilot.pause()
 
-            output_name = app.query_one("#output_name")
             logback_xml_path = app.query_one("#logback_xml_path")
             browse_button = app.query_one("#browse_logback_xml")
+            path_row = logback_xml_path.parent
 
             assert browse_button.region.width <= 10
-            assert browse_button.region.x + browse_button.region.width == output_name.region.x + output_name.region.width - 2
+            assert browse_button.region.x + browse_button.region.width <= path_row.region.x + path_row.region.width
             assert logback_xml_path.region.x + logback_xml_path.region.width < browse_button.region.x + browse_button.region.width
 
     asyncio.run(run_check())
@@ -837,6 +842,11 @@ def test_paste_invalid_output_path_keeps_value_and_displays_error(tmp_path):
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test() as pilot:
+            await pilot.pause()
+            result = SimpleNamespace(total_logs=1, matched_occurrences=1)
+            app._last_result = result
+            app._set_result_status("complete", result)
+            app.action_show_export_settings()
             await pilot.pause()
             output_input = app.query_one("#output_path")
             output_input.value = str(tmp_path)
@@ -1658,12 +1668,12 @@ def test_result_replacement_clear_and_unmount_release_stores(tmp_path: Path, mon
     failed_result = _stored_result(failed_path, _event_group())
     analysis_calls = []
 
-    def fake_run_analysis(**kwargs):
-        analysis_calls.append((old_path.exists(), kwargs["include_details"]))
+    def fake_analyze_logs(request):
+        analysis_calls.append((old_path.exists(), request))
         return new_result
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(tui_module, "run_analysis", fake_run_analysis)
+    monkeypatch.setattr(tui_module, "analyze_logs", fake_analyze_logs)
     monkeypatch.setattr(tui_module, "build_dashboard_view", lambda *_args: "dashboard")
 
     async def run_check() -> None:
@@ -1674,7 +1684,10 @@ def test_result_replacement_clear_and_unmount_release_stores(tmp_path: Path, mon
 
             await app.action_run_analysis()
 
-            assert analysis_calls == [(False, True)]
+            assert len(analysis_calls) == 1
+            assert analysis_calls[0][0] is False
+            assert isinstance(analysis_calls[0][1], AnalysisRequest)
+            assert analysis_calls[0][1].path == "."
             assert app._last_result is new_result
             assert new_path.exists()
 
@@ -1691,8 +1704,8 @@ def test_result_replacement_clear_and_unmount_release_stores(tmp_path: Path, mon
             app._last_result = failed_result
             monkeypatch.setattr(
                 tui_module,
-                "run_analysis",
-                lambda **_kwargs: (_ for _ in ()).throw(PermissionError("denied")),
+                "analyze_logs",
+                lambda _request: (_ for _ in ()).throw(PermissionError("denied")),
             )
             await app.action_run_analysis()
             assert not failed_path.exists()
@@ -1736,7 +1749,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(
             await pilot.pause()
 
             sequence = []
-            for _ in range(9):
+            for _ in range(8):
                 focused = app.focused
                 sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
                 await pilot.press("tab")
@@ -1746,11 +1759,10 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(
                 None,
                 "path",
                 "browse_path",
-                "output_path",
-                "browse_output_path",
                 "keyword",
                 "clear_keyword",
                 "toggle_advanced_settings",
+                "manage-recipes",
                 "run",
             ]
 
@@ -1768,7 +1780,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
             await pilot.pause()
 
             sequence = []
-            for _ in range(21):
+            for _ in range(17):
                 focused = app.focused
                 sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
                 await pilot.press("tab")
@@ -1778,12 +1790,9 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
                 None,
                 "path",
                 "browse_path",
-                "output_path",
-                "browse_output_path",
                 "keyword",
                 "clear_keyword",
                 "toggle_advanced_settings",
-                "output_name",
                 "logback_xml_path",
                 "browse_logback_xml",
                 "pattern_mode",
@@ -1793,9 +1802,8 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
                 "end_date",
                 "end_time",
                 "ignore_case",
-                "split_by_level",
-                "format",
                 "sort_by",
+                "display_mode",
             ]
 
     asyncio.run(run_check())
@@ -1824,6 +1832,12 @@ def test_form_controls_keep_gap_from_scrollbar():
 
             form_panel = app.query_one("#form-panel")
             content_right = form_panel.content_region.x + form_panel.content_region.width
+
+            result = SimpleNamespace(total_logs=1, matched_occurrences=1)
+            app._last_result = result
+            app._set_result_status("complete", result)
+            app.action_show_export_settings()
+            await pilot.pause()
 
             for selector in ("#clear_keyword", "#format"):
                 control = app.query_one(selector)

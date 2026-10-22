@@ -102,6 +102,11 @@
     margin-right: 1;
 }
 
+#form-panel.wide #export-fields {
+    grid-size: 3;
+    grid-columns: 1fr 1fr 1fr;
+}
+
 #form-panel.compact .field-row .field--ignore,
 #form-panel.compact .field-row .field--display-mode,
 #form-panel.compact .field-row .field--sort,
@@ -109,6 +114,11 @@
 #form-panel.compact .field-row .field--split-output {
     width: auto;
     margin-bottom: 0;
+}
+
+#form-panel.compact #export-fields {
+    grid-size: 2;
+    grid-columns: 1fr 1fr;
 }
 
 #form-panel.wide .field-row .field--format > Select {

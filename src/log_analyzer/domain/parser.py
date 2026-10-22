@@ -13,7 +13,7 @@ from typing import cast
 
 from .logback_pattern import DEFAULT_LOGBACK_REGEX, compile_logback_pattern
 from .parser_aggregation import commit_entry, normalize_keyword, sort_key
-from .log_types import LogEntry, MatchedLogs, SourceSnapshot
+from .log_types import LogEntry, MatchedLogs, ScanDiagnostics, SourceSnapshot
 from .timezone import to_local_timezone
 
 _STACKTRACE_HEADER_RE = re.compile(r"^[A-Za-z_][\w.$]*(?:Exception|Error)(?::|\s|$)")
@@ -39,6 +39,7 @@ class MatchedLogsStore:
     length: int
     _index_cache: dict[int, LogEntry] | None = None
     source_states: dict[str, SourceSnapshot] = field(default_factory=dict)
+    diagnostics: ScanDiagnostics = field(default_factory=ScanDiagnostics)
 
     def __iter__(self) -> Iterator[LogEntry]:
         with open(self.path, "rb") as file_handle:
@@ -150,13 +151,19 @@ def parse_logs(  # noqa: PLR0913 - public legacy API retained for backward compa
 
 def parse_log_directory(directory: str, options: ParseOptions) -> tuple[Counter[str], MatchedLogs]:
     counts = Counter()
-    grouped_logs, _spilled_to_disk, source_states = _collect_grouped_logs(directory, options, counts)
+    diagnostics = ScanDiagnostics()
+    grouped_logs, _spilled_to_disk, source_states = _collect_grouped_logs(
+        directory,
+        options,
+        counts,
+        diagnostics,
+    )
     sorted_logs = iter_sorted_logs(grouped_logs, options.sort_by)
 
-    return counts, _persist_matched_logs(sorted_logs, source_states)
+    return counts, _persist_matched_logs(sorted_logs, source_states, diagnostics)
 
 
-def _collect_grouped_logs(directory, options, counts):
+def _collect_grouped_logs(directory, options, counts, diagnostics=None):
     search_keyword = normalize_keyword(options.keyword, options.ignore_case)
     selected_levels = _normalize_levels(options.levels)
     grouped_logs = {}
@@ -172,10 +179,15 @@ def _collect_grouped_logs(directory, options, counts):
             options.end_time,
             options.log_pattern,
             source_states,
+            diagnostics=diagnostics,
         ):
             if selected_levels is not None and entry["level"].upper() not in selected_levels:
                 continue
-            commit_entry(grouped_logs, counts, entry, search_keyword, options.ignore_case)
+            if diagnostics is not None:
+                diagnostics.after_level += 1
+            if commit_entry(grouped_logs, counts, entry, search_keyword, options.ignore_case):
+                if diagnostics is not None:
+                    diagnostics.after_keyword += 1
             if len(grouped_logs) >= MAX_GROUPS_IN_MEMORY:
                 _spill_grouped_logs(grouped_logs, shard_paths)
                 grouped_logs.clear()
@@ -196,12 +208,14 @@ def _normalize_levels(levels):
     return {str(level).strip().upper() for level in levels if str(level).strip()}
 
 
-def iter_logs(
+def iter_logs(  # noqa: PLR0913 - preserve the existing positional API
     directory,
     start_time=None,
     end_time=None,
     log_pattern=None,
     source_states: dict[str, SourceSnapshot] | None = None,
+    *,
+    diagnostics: ScanDiagnostics | None = None,
 ):
     """逐筆產生已解析、已套用時間區間過濾的日誌 entry"""
     if start_time is not None:
@@ -219,7 +233,10 @@ def iter_logs(
     for filename in _list_log_files(directory):
         filepath = os.path.join(directory, filename)
         before = os.stat(filepath)
-        yield from _iter_entries_from_file(filepath, filename, entry_pattern, start_time, end_time)
+        if diagnostics is not None:
+            diagnostics.files_scanned += 1
+        accumulator = _EntryAccumulator(filename, start_time, end_time, diagnostics=diagnostics)
+        yield from _iter_entries_from_file(filepath, entry_pattern, accumulator)
         after = os.stat(filepath)
         source_states[filename] = {
             "size": after.st_size,
@@ -305,7 +322,7 @@ def _group_log_key(entry):
     )
 
 
-def _persist_matched_logs(logs, source_states):
+def _persist_matched_logs(logs, source_states, diagnostics=None):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pkl") as file_handle:
         length = 0
         for log in logs:
@@ -313,7 +330,12 @@ def _persist_matched_logs(logs, source_states):
             length += 1
         path = file_handle.name
 
-    return MatchedLogsStore(path=path, length=length, source_states=source_states)
+    return MatchedLogsStore(
+        path=path,
+        length=length,
+        source_states=source_states,
+        diagnostics=diagnostics if diagnostics is not None else ScanDiagnostics(),
+    )
 
 
 def _iter_sorted_logs_external(entries, sort_by, chunk_size):
@@ -345,13 +367,10 @@ def _list_log_files(directory):
 
 def _iter_entries_from_file(
     filepath,
-    filename,
     entry_pattern,
-    start_time,
-    end_time,
+    accumulator: _EntryAccumulator,
 ):
     """逐行讀取檔案，產生已完成的 log entry"""
-    accumulator = _EntryAccumulator(filename, start_time, end_time)
 
     with open(filepath, "r", encoding="utf-8", errors="ignore") as file_handle:
         for line_num, line in enumerate(file_handle, 1):
@@ -378,16 +397,21 @@ class _EntryAccumulator:
     start_time: datetime | None
     end_time: datetime | None
     current_entry: LogEntry | None = None
+    diagnostics: ScanDiagnostics | None = None
 
     def start_entry(self, match, line_num):
         completed_entry = self.current_entry
         self.current_entry = _create_entry(match, self.filename, line_num)
+        if self.current_entry and self.diagnostics is not None:
+            self.diagnostics.parsed_entries += 1
         if self.current_entry and not _is_entry_in_time_range(
             self.current_entry,
             self.start_time,
             self.end_time,
         ):
             self.current_entry = None
+        elif self.current_entry and self.diagnostics is not None:
+            self.diagnostics.after_time += 1
         return completed_entry
 
     def append_continuation(self, line_num, line):

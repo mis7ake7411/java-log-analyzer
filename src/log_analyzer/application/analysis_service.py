@@ -6,12 +6,37 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from .dashboard_summary import DashboardAnalysis, aggregate_dashboard_summary
-from ..domain.log_types import MatchedLogs, SourceSnapshot
+from ..domain.log_types import MatchedLogs, ScanDiagnostics, SourceSnapshot
 from ..domain.parser import ParseOptions, parse_log_directory
-from ..infrastructure.exporter import export_results
+from ..infrastructure.exporter import ExportOptions, export_with_options
 from ..infrastructure.paths import ensure_readable_directory, ensure_writable_directory
 
 DEFAULT_SELECTED_LEVELS = ("ERROR", "WARN", "INFO")
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisRequest:
+    """描述一次來源日誌分析所需的條件。"""
+
+    path: str
+    start_dt: datetime | None = None
+    end_dt: datetime | None = None
+    keyword: str | None = None
+    ignore_case: bool = False
+    sort_by: str = "time"
+    log_pattern: str | None = None
+    levels: tuple[str, ...] | None = DEFAULT_SELECTED_LEVELS
+
+
+@dataclass(frozen=True, slots=True)
+class ResultExportOptions:
+    """描述如何匯出已分析完成的結果。"""
+
+    output_path: str
+    fmt: str = "csv"
+    fields: tuple[str, ...] | None = None
+    max_export_bytes: int | None = None
+    split_by_level: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +78,16 @@ class AnalysisResult:
     exported_files: list[str]
     dashboard_summary: DashboardAnalysis | None = None
     source_states: dict[str, SourceSnapshot] = field(default_factory=dict)
+    diagnostics: ScanDiagnostics = field(default_factory=ScanDiagnostics)
+    analysis_request: AnalysisRequest | None = None
+
+
+class NoMatchingLogsError(ValueError):
+    """沒有符合分析條件的 Log，並保留掃描階段的診斷資訊。"""
+
+    def __init__(self, diagnostics: ScanDiagnostics) -> None:
+        self.diagnostics = diagnostics
+        super().__init__("找不到符合條件的 log請確認目錄、關鍵字或資料內容")
 
 
 def build_output_path(output_dir: str, output_name: str, fmt: str) -> str:
@@ -106,64 +141,127 @@ def run_analysis(  # noqa: PLR0913 - public legacy API retained for backward com
 
 def run_analysis_with_options(options: AnalysisOptions) -> AnalysisResult:
     """依分析設定執行分析、匯出，並回傳摘要結果。"""
-    normalized_path = ensure_readable_directory(options.path)
+    result = analyze_logs(
+        AnalysisRequest(
+            path=options.path,
+            start_dt=options.start_dt,
+            end_dt=options.end_dt,
+            keyword=options.keyword,
+            ignore_case=options.ignore_case,
+            sort_by=options.sort_by,
+            log_pattern=options.log_pattern,
+            levels=options.levels,
+        )
+    )
+    try:
+        export_analysis_result(
+            result,
+            ResultExportOptions(
+                output_path=options.output_path,
+                fmt=options.fmt,
+                max_export_bytes=options.max_export_bytes,
+                split_by_level=options.split_by_level,
+            ),
+        )
+    except Exception:
+        _release_matched_logs(result.matched_logs)
+        raise
+
+    if not options.include_details:
+        _release_matched_logs(result.matched_logs)
+        result.matched_logs = []
+    return result
+
+
+def analyze_logs(request: AnalysisRequest) -> AnalysisResult:
+    """掃描來源日誌並保留可供後續匯出的分析結果。"""
+    normalized_path = ensure_readable_directory(request.path)
+    normalized_levels = None if request.levels is None else tuple(request.levels)
+    normalized_request = AnalysisRequest(
+        path=normalized_path,
+        start_dt=request.start_dt,
+        end_dt=request.end_dt,
+        keyword=request.keyword,
+        ignore_case=request.ignore_case,
+        sort_by=request.sort_by,
+        log_pattern=request.log_pattern,
+        levels=normalized_levels,
+    )
     counts, matched_logs = parse_log_directory(
         normalized_path,
         ParseOptions(
-            start_time=options.start_dt,
-            end_time=options.end_dt,
-            keyword=options.keyword,
-            ignore_case=options.ignore_case,
-            log_pattern=options.log_pattern,
-            sort_by=options.sort_by,
-            levels=options.levels,
+            start_time=normalized_request.start_dt,
+            end_time=normalized_request.end_dt,
+            keyword=normalized_request.keyword,
+            ignore_case=normalized_request.ignore_case,
+            log_pattern=normalized_request.log_pattern,
+            sort_by=normalized_request.sort_by,
+            levels=normalized_request.levels,
         ),
     )
+    diagnostics = getattr(matched_logs, "diagnostics", ScanDiagnostics())
 
-    if not counts and not matched_logs:
-        raise ValueError("找不到符合條件的 log請確認目錄、關鍵字或資料內容")
+    try:
+        if not counts and not matched_logs:
+            raise NoMatchingLogsError(diagnostics)
+
+        source_states: dict[str, SourceSnapshot] = dict(getattr(matched_logs, "source_states", {}))
+        dashboard_summary, matched_occurrences = aggregate_dashboard_summary(matched_logs)
+        return AnalysisResult(
+            input_path=normalized_path,
+            output_path="",
+            format_name="未匯出",
+            keyword=normalized_request.keyword or "未設定",
+            ignore_case=normalized_request.ignore_case,
+            total_logs=sum(counts.values()),
+            matched_groups=len(matched_logs),
+            matched_occurrences=matched_occurrences,
+            level_summary=[(level, count) for level, count in sorted(counts.items()) if count > 0],
+            selected_levels=tuple(normalized_levels or ()),
+            sort_by=normalized_request.sort_by,
+            counts=counts,
+            matched_logs=matched_logs,
+            exported_files=[],
+            dashboard_summary=dashboard_summary,
+            source_states=source_states,
+            diagnostics=diagnostics,
+            analysis_request=normalized_request,
+        )
+    except Exception:
+        _release_matched_logs(matched_logs)
+        raise
+
+
+def export_analysis_result(
+    result: AnalysisResult,
+    options: ResultExportOptions,
+) -> list[str]:
+    """將保留的分析結果匯出，不重新讀取來源日誌。"""
+    if result.matched_groups > 0 and len(result.matched_logs) == 0:
+        raise ValueError("匹配日誌明細已釋放，無法再次匯出；請重新分析後再試。")
 
     exported_files = [
         os.path.abspath(path)
-        for path in export_results(
-            counts,
-            matched_logs,
-            options.output_path,
-            options.fmt,
-            max_export_bytes=options.max_export_bytes,
-            split_by_level=options.split_by_level,
+        for path in export_with_options(
+            ExportOptions(
+                counts=result.counts,
+                matched_logs=result.matched_logs,
+                output_path=options.output_path,
+                format=options.fmt,
+                max_export_bytes=options.max_export_bytes,
+                split_by_level=options.split_by_level,
+                fields=options.fields,
+            )
         )
     ]
-    source_states: dict[str, SourceSnapshot] = dict(getattr(matched_logs, "source_states", {}))
+    if exported_files:
+        result.output_path = exported_files[0]
+        result.format_name = options.fmt
+        result.exported_files = exported_files
+    return exported_files
 
-    total_logs = sum(counts.values())
-    matched_groups = len(matched_logs)
-    dashboard_summary = None
-    if options.include_details:
-        matched_occurrences = sum(entry.get("count", 1) for entry in matched_logs)
-    else:
-        dashboard_summary, matched_occurrences = aggregate_dashboard_summary(matched_logs)
-    level_summary = [(level, count) for level, count in sorted(counts.items()) if count > 0]
-    detail_logs: MatchedLogs = matched_logs if options.include_details else []
-    if not options.include_details and hasattr(matched_logs, "release"):
-        matched_logs.release()
-    del matched_logs
 
-    return AnalysisResult(
-        input_path=os.path.abspath(normalized_path),
-        output_path=os.path.abspath(exported_files[0]),
-        format_name=options.fmt,
-        keyword=options.keyword or "未設定",
-        ignore_case=options.ignore_case,
-        total_logs=total_logs,
-        matched_groups=matched_groups,
-        matched_occurrences=matched_occurrences,
-        level_summary=level_summary,
-        selected_levels=tuple(options.levels or ()),
-        sort_by=options.sort_by,
-        counts=counts,
-        matched_logs=detail_logs,
-        exported_files=exported_files,
-        dashboard_summary=dashboard_summary,
-        source_states=source_states,
-    )
+def _release_matched_logs(matched_logs: MatchedLogs) -> None:
+    release = getattr(matched_logs, "release", None)
+    if callable(release):
+        release()

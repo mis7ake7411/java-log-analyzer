@@ -506,3 +506,286 @@ def test_legacy_rows_without_occurrences_still_export(tmp_path, fmt, expected_su
         report = output_path.read_text(encoding="utf-8")
         assert "- **事件座標**:\n" in report
         assert _read_exported_coordinates(output_path, fmt) == []
+
+
+_SELECTED_DETAIL_FIELDS = (
+    "occurrences",
+    "stacktrace",
+    "message_body",
+    "filename",
+    "logger",
+    "thread",
+    "last_timestamp",
+    "timestamp",
+    "line_numbers",
+    "count",
+)
+_SELECTED_DETAIL_KEYS_IN_ORDER = [
+    "count",
+    "line_numbers",
+    "timestamp",
+    "last_timestamp",
+    "thread",
+    "logger",
+    "filename",
+    "message_body",
+    "stacktrace",
+    "occurrences",
+]
+_SELECTED_DETAIL_LABELS_IN_ORDER = [
+    "出現次數",
+    "行號",
+    "首次時間",
+    "最後時間",
+    "執行緒",
+    "記錄器",
+    "檔案名稱",
+    "訊息本文",
+    "堆疊追蹤",
+    "發生位置",
+]
+
+
+def _build_selectable_log() -> dict:
+    log = _build_occurrence_log(1, "INFO", "BODY-KEEP")
+    log["occurrences"][0]["filename"] = "source-1.log"
+    log.update(
+        level="LEVEL-OMITTED",
+        message="MESSAGE-OMITTED",
+        last_timestamp="2026-06-07 12:00:59.000",
+        stacktrace="STACKTRACE-KEEP",
+    )
+    return log
+
+
+@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")])
+def test_selected_export_fields_keep_only_requested_details_in_canonical_order(
+    tmp_path, fmt, expected_suffix
+):
+    output_path = tmp_path / f"selected{expected_suffix}"
+    log = _build_selectable_log()
+
+    if fmt == "csv":
+        files = export_with_options(
+            ExportOptions(
+                counts={"INFO": 2},
+                matched_logs=[log],
+                output_path=str(output_path),
+                format=fmt,
+                fields=_SELECTED_DETAIL_FIELDS,
+            )
+        )
+    else:
+        files = export_results(
+            {"INFO": 2},
+            [log],
+            str(output_path),
+            fmt,
+            fields=_SELECTED_DETAIL_FIELDS,
+        )
+
+    assert files == [str(output_path)]
+    if fmt == "csv":
+        with output_path.open(encoding="utf-8-sig", newline="") as report:
+            rows = list(csv.reader(report))
+        header_index = rows.index(_SELECTED_DETAIL_LABELS_IN_ORDER)
+        header = rows[header_index]
+        row = rows[header_index + 1]
+
+        assert header == _SELECTED_DETAIL_LABELS_IN_ORDER
+        assert len(row) == len(header)
+        assert row == [
+            "2",
+            "11, 12",
+            "2026-06-07 12:00:01.000",
+            "2026-06-07 12:00:59.000",
+            "main",
+            "com.test.App",
+            "app.log",
+            "BODY-KEEP",
+            "STACKTRACE-KEEP",
+            "source-1.log:11 | 2026-06-07 12:00:01.000 | worker-1-a\n"
+            'archive/1-"quoted, source".log:12 | 2026-06-07 12:01:01.000 | worker-1-b',
+        ]
+        assert "LEVEL-OMITTED" not in row
+        assert "MESSAGE-OMITTED" not in row
+    elif fmt == "json":
+        data = json.loads(output_path.read_text(encoding="utf-8"))
+        result = data["results"][0]
+
+        assert data["summary"] == {"INFO": 2}
+        assert list(result) == _SELECTED_DETAIL_KEYS_IN_ORDER
+        assert result["count"] == 2
+        assert result["line_numbers"] == [11, 12]
+        assert result["timestamp"] == "2026-06-07 12:00:01.000"
+        assert result["last_timestamp"] == "2026-06-07 12:00:59.000"
+        assert result["thread"] == "main"
+        assert result["logger"] == "com.test.App"
+        assert result["filename"] == "app.log"
+        assert result["message_body"] == "BODY-KEEP"
+        assert result["stacktrace"] == "STACKTRACE-KEEP"
+        assert result["occurrences"] == log["occurrences"]
+        assert "level" not in result
+        assert "message" not in result
+    else:
+        report = output_path.read_text(encoding="utf-8")
+        heading = next(line for line in report.splitlines() if line.startswith("### "))
+
+        assert heading == "### 1. 記錄"
+        assert "LEVEL-OMITTED" not in heading
+        assert "MESSAGE-OMITTED" not in report
+        for expected_value in (
+            "出現次數",
+            "2",
+            "11, 12",
+            "2026-06-07 12:00:01.000",
+            "2026-06-07 12:00:59.000",
+            "main",
+            "com.test.App",
+            "app.log",
+            "BODY-KEEP",
+            "STACKTRACE-KEEP",
+            "source-1.log:11",
+            'archive/1-"quoted, source".log:12',
+        ):
+            assert expected_value in report
+
+
+@pytest.mark.parametrize("fields", [(), ("unknown_field",)])
+def test_invalid_selected_fields_fail_before_split_export_creates_files(tmp_path, fields):
+    output_path = tmp_path / "report.csv"
+
+    with pytest.raises(ValueError):
+        export_results(
+            {"ERROR": 1, "WARN": 1},
+            [_build_level_log(1, "ERROR"), _build_level_log(2, "WARN")],
+            str(output_path),
+            split_by_level=True,
+            fields=fields,
+        )
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_selected_fields_flow_through_level_and_size_split_writers(tmp_path):
+    output_path = tmp_path / "split.csv"
+    logs = [
+        _build_level_log(1, "ERROR", "excluded"),
+        _build_level_log(2, "ERROR", "excluded"),
+        _build_level_log(3, "ERROR", "excluded"),
+        _build_level_log(4, "WARN", "excluded"),
+    ]
+    for index, log in enumerate(logs, start=1):
+        log["message_body"] = f"BODY-{index}-" + "X" * 900
+        log["message"] = f"MESSAGE-EXCLUDED-{index}"
+
+    files = export_results(
+        {"ERROR": 3, "WARN": 1},
+        iter(logs),
+        str(output_path),
+        max_export_bytes=1_500,
+        split_by_level=True,
+        fields=("message_body", "thread"),
+    )
+
+    assert files[0] == str(tmp_path / "split_summary.csv")
+    error_files = [Path(file_path) for file_path in files if "_ERROR" in Path(file_path).name]
+    warn_files = [Path(file_path) for file_path in files if "_WARN" in Path(file_path).name]
+    assert len(error_files) >= 2
+    assert len(warn_files) == 1
+    for file_path in [*error_files, *warn_files]:
+        with file_path.open(encoding="utf-8-sig", newline="") as report:
+            rows = list(csv.reader(report))
+        header_index = rows.index(["執行緒", "訊息本文"])
+        assert len(rows[header_index + 1]) == 2
+        text = file_path.read_text(encoding="utf-8-sig")
+        assert "MESSAGE-EXCLUDED" not in text
+        assert "ERROR message" not in text
+        assert "WARN message" not in text
+        assert "BODY-" in text
+
+
+@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")])
+def test_default_export_preserves_all_detail_fields_and_legacy_layout(
+    tmp_path, fmt, expected_suffix
+):
+    output_path = tmp_path / f"default{expected_suffix}"
+    log = _build_log(1, "BODY-DEFAULT")
+
+    files = export_results({"INFO": 1}, [log], str(output_path), fmt)
+
+    assert files == [str(output_path)]
+    if fmt == "csv":
+        with output_path.open(encoding="utf-8-sig", newline="") as report:
+            rows = list(csv.reader(report))
+        detail_row = next(row for row in rows if len(row) == 12 and row[8] == log["message"])
+        assert detail_row == [
+            "1",
+            "1",
+            "2026-06-07 12:00:01.000",
+            "2026-06-07 12:00:01.000",
+            "INFO",
+            "main",
+            "com.test.App",
+            "app.log",
+            "Message 1 BODY-DEFAULT",
+            "Body 1 BODY-DEFAULT",
+            "",
+            "",
+        ]
+    elif fmt == "json":
+        result = json.loads(output_path.read_text(encoding="utf-8"))["results"][0]
+        assert list(result) == [
+            "count",
+            "line_numbers",
+            "timestamp",
+            "last_timestamp",
+            "level",
+            "thread",
+            "logger",
+            "filename",
+            "message",
+            "message_body",
+            "stacktrace",
+            "occurrences",
+        ]
+        assert result["occurrences"] == []
+    else:
+        report = output_path.read_text(encoding="utf-8")
+        assert "### 1. [INFO] Message 1 BODY-DEFAULT" in report
+        assert "Body 1 BODY-DEFAULT" in report
+
+
+def test_export_field_normalization_returns_unique_canonical_selection():
+    from log_analyzer.infrastructure.export_fields import (
+        EXPORT_FIELDS,
+        EXPORT_FIELD_LABELS,
+        normalize_export_fields,
+    )
+
+    assert EXPORT_FIELDS == (
+        "count",
+        "line_numbers",
+        "timestamp",
+        "last_timestamp",
+        "level",
+        "thread",
+        "logger",
+        "filename",
+        "message",
+        "message_body",
+        "stacktrace",
+        "occurrences",
+    )
+    assert list(EXPORT_FIELD_LABELS) == list(EXPORT_FIELDS)
+    assert EXPORT_FIELD_LABELS["message_body"] == "訊息本文"
+    assert normalize_export_fields(None) == EXPORT_FIELDS
+    assert normalize_export_fields(("message", "count", "timestamp", "count")) == (
+        "count",
+        "timestamp",
+        "message",
+    )
+    with pytest.raises(ValueError):
+        normalize_export_fields(())
+    with pytest.raises(ValueError):
+        normalize_export_fields(("not_a_field",))

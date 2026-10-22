@@ -34,3 +34,19 @@ jobs:
       - run: python -m venv /tmp/java-log-analyzer-package-test
       - run: /tmp/java-log-analyzer-package-test/bin/python -m pip install dist/*.whl
       - run: /tmp/java-log-analyzer-package-test/bin/log-analyzer --version
+      - run: |
+          /tmp/java-log-analyzer-package-test/bin/python - <<'PY'
+          import asyncio
+          from pathlib import Path
+          from log_analyzer.presentation.tui import LogAnalyzerApp
+
+          missing = [path for path in LogAnalyzerApp.CSS_PATH if not Path(path).is_file()]
+          assert LogAnalyzerApp.CSS_PATH and not missing, missing
+
+          async def check_installed_tui():
+              app = LogAnalyzerApp()
+              async with app.run_test() as pilot:
+                  await pilot.pause()
+
+          asyncio.run(check_installed_tui())
+          PY
