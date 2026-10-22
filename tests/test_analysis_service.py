@@ -41,6 +41,7 @@ def test_analysis_result_defaults_scan_diagnostics():
     )
 
     assert getattr(result, "diagnostics", None) == ScanDiagnostics()
+    assert result.analysis_request is None
 
 
 def test_no_matches_carry_scan_diagnostics_and_real_scan_can_succeed_after_retry(tmp_path):
