@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from collections.abc import Mapping
 from functools import partial
 from pathlib import Path
 
@@ -21,11 +22,14 @@ from ..application.analysis_service import (
     build_output_path,
     export_analysis_result,
 )
+from ..application.evidence_manifest import export_evidence_manifest
 from ..domain.logback_pattern import DEFAULT_LOGBACK_PATTERN
 from ..domain.logback_xml import find_best_logback_pattern
 from ..infrastructure.export_fields import EXPORT_FIELDS, EXPORT_FIELD_LABELS
+from ..infrastructure.recipe_store import RECIPE_FIELDS, RecipeStore
 from .tui_dialogs import DirectoryPickerScreen, FilePickerScreen, ShortcutInput
 from .tui_event_browser import EventBrowserScreen
+from .tui_recipes import RecipeManagerScreen
 from .recent_form_state import load_recent_tui_state, save_recent_tui_state
 from .tui_inputs import (
     get_default_end_date_text,
@@ -49,6 +53,21 @@ from ..version import get_package_version
 __all__ = ["get_system_root_path"]
 
 logger = logging.getLogger(__name__)
+
+
+def _export_reports_and_manifest(
+    result: AnalysisResult,
+    options: ResultExportOptions,
+    include_manifest: bool,
+) -> tuple[list[str], str | None, Exception | None]:
+    report_files = export_analysis_result(result, options)
+    if not include_manifest:
+        return report_files, None, None
+    try:
+        manifest_path = export_evidence_manifest(result, options, report_files)
+    except Exception as exc:  # noqa: BLE001 - reports succeeded and remain a retryable partial success
+        return report_files, None, exc
+    return report_files, manifest_path, None
 
 
 class LogAnalyzerApp(App):
@@ -254,6 +273,13 @@ class LogAnalyzerApp(App):
                     )
 
             yield Static("", id="export-status", classes="export-status", markup=False)
+            yield Checkbox("包含證據清單（JSON）", value=False, id="include_manifest")
+            yield Static(
+                "證據清單包含分析條件、來源核對與報表雜湊，不含日誌內容快照。來源核對比對掃描時記錄的檔案大小與修改時間，以及匯出時計算雜湊前後的檔案大小與修改時間；不證明掃描時的日誌內容不可變。",
+                classes="field-hint",
+                id="manifest-hint",
+                markup=False,
+            )
             yield Button("執行匯出", variant="primary", id="confirm-export")
 
     def _compose_level_settings(self) -> ComposeResult:
@@ -271,7 +297,9 @@ class LogAnalyzerApp(App):
 
     def _compose_actions(self) -> ComposeResult:
         with Container(id="form-actions"):
+            yield Button("管理分析配方", id="manage-recipes")
             yield Button("開始分析", variant="primary", id="run")
+        yield Static("", id="recipe-feedback", classes="recipe-feedback", markup=False)
 
     def _compose_result_panel(self) -> ComposeResult:
         with Container(id="output-panel"):
@@ -361,7 +389,11 @@ class LogAnalyzerApp(App):
         return width < 112 or height < 18
 
     def on_input_changed(self, event: Input.Changed) -> None:
+        if not self.is_running:
+            return
         if event.input.id == "path":
+            if self._normalize_recipe_source(event.value) != getattr(self, "_recipe_autofill_source", ""):
+                self._recipe_autofill_source = ""
             self.update_path_preview(event.value)
         elif event.input.id == "output_path":
             self.update_path_preview(event.value, "#output-path-status", require_writable=True)
@@ -433,6 +465,7 @@ class LogAnalyzerApp(App):
             "browse-events": self.action_browse_events,
             "export-result": self.action_show_export_settings,
             "clear": self.action_clear_result,
+            "manage-recipes": self.action_manage_recipes,
             "toggle_advanced_settings": self.action_toggle_advanced_settings,
             "browse_path": self.action_browse_path,
             "browse_output_path": self.action_browse_output_path,
@@ -557,8 +590,32 @@ class LogAnalyzerApp(App):
     def _handle_unexpected_error(self, result_box: RichLog, exc: Exception) -> None:
         logger.exception("TUI 分析發生未預期錯誤", exc_info=exc)
         self._release_last_result()
+        if not self.is_running:
+            return
         self._set_result(result_box, build_error_view("執行失敗", str(exc)))
         self._set_result_status("failed")
+
+    def _handle_analysis_error(self, result_box: RichLog, exc: Exception) -> None:
+        self._release_last_result()
+        if not self.is_running:
+            return
+
+        if isinstance(exc, NoMatchingLogsError):
+            view = build_zero_result_view(exc.diagnostics)
+            status = "no_results"
+        elif isinstance(exc, PermissionError):
+            view = build_error_view("權限不足", str(exc))
+            status = "failed"
+        elif isinstance(exc, FileNotFoundError):
+            view = build_error_view("找不到資料夾", str(exc))
+            status = "failed"
+        else:
+            title = "無可分析資料" if str(exc).startswith("找不到符合條件的 log") else "輸入錯誤"
+            view = build_error_view(title, str(exc))
+            status = "failed"
+
+        self._set_result(result_box, view)
+        self._set_result_status(status)
 
     def _save_recent_analysis_state(self, request: AnalysisRequest, display_mode: str) -> None:
         recent_state = load_recent_tui_state() or {}
@@ -585,6 +642,8 @@ class LogAnalyzerApp(App):
 
     def _display_analysis_result(self, result_box: RichLog, result: AnalysisResult) -> None:
         self._last_result = result
+        if not self.is_running:
+            return
         self._set_result(
             result_box,
             build_dashboard_view(result, self._should_compact_dashboard(self.size.width, self.size.height)),
@@ -621,31 +680,17 @@ class LogAnalyzerApp(App):
             self._save_recent_analysis_state(request, display_mode)
             result = await self._analyze_request(request)
             self._display_analysis_result(result_box, result)
-        except NoMatchingLogsError as exc:
-            self._release_last_result()
-            self._set_result(result_box, build_zero_result_view(exc.diagnostics))
-            self._set_result_status("no_results")
-        except PermissionError as exc:
-            self._release_last_result()
-            self._set_result(result_box, build_error_view("權限不足", str(exc)))
-            self._set_result_status("failed")
-        except FileNotFoundError as exc:
-            self._release_last_result()
-            self._set_result(result_box, build_error_view("找不到資料夾", str(exc)))
-            self._set_result_status("failed")
-        except ValueError as exc:
-            self._release_last_result()
-            title = "無可分析資料" if str(exc).startswith("找不到符合條件的 log") else "輸入錯誤"
-            self._set_result(result_box, build_error_view(title, str(exc)))
-            self._set_result_status("failed")
+        except (NoMatchingLogsError, PermissionError, FileNotFoundError, ValueError) as exc:
+            self._handle_analysis_error(result_box, exc)
         except Exception as exc:  # noqa: BLE001
             self._handle_unexpected_error(result_box, exc)
         finally:
             self._operation_in_progress = False
-            run_button.disabled = False
-            # 恢復原本的焦點元件
-            if original_focused and not original_focused.disabled:
-                self.set_focus(original_focused)
+            if self.is_running:
+                run_button.disabled = False
+                # 恢復原本的焦點元件
+                if original_focused and original_focused.is_mounted and not original_focused.disabled:
+                    self.set_focus(original_focused)
             if getattr(self, "_release_result_when_operation_finishes", False):
                 self._release_result_when_operation_finishes = False
                 self._release_last_result(close_browser=False)
@@ -664,6 +709,69 @@ class LogAnalyzerApp(App):
         confirm_button.scroll_visible(animate=False)
         confirm_button.focus()
 
+    def _set_export_controls_disabled(self, disabled: bool) -> None:
+        for selector in ("#run", "#clear", "#export-result", "#confirm-export"):
+            self.query_one(selector, Button).disabled = disabled
+
+    def _capture_export_request(self) -> tuple[ResultExportOptions, bool, str]:
+        selected_fields = tuple(
+            field
+            for field in EXPORT_FIELDS
+            if self.query_one(f"#export_field_{field}", Checkbox).value
+        )
+        if not selected_fields:
+            raise ValueError("請至少選擇一個輸出欄位")
+
+        output_path = self.query_one("#output_path", Input).value.strip() or "."
+        output_name = self.query_one("#output_name", Input).value
+        fmt = str(self.query_one("#format", Select).value or "csv")
+        split_by_level = self.query_one("#split_by_level", Checkbox).value
+        include_manifest = self.query_one("#include_manifest", Checkbox).value
+        recent_state = load_recent_tui_state() or {}
+        recent_state.update(
+            {
+                "output_path": output_path,
+                "format": fmt,
+                "split_by_level": split_by_level,
+            }
+        )
+        self._save_recent_form_state(recent_state)
+        options = ResultExportOptions(
+            output_path=build_output_path(output_path, output_name, fmt),
+            fmt=fmt,
+            fields=None if selected_fields == EXPORT_FIELDS else selected_fields,
+            split_by_level=split_by_level,
+        )
+        return options, include_manifest, output_name
+
+    def _display_export_success(
+        self,
+        result: AnalysisResult,
+        export_outcome: tuple[list[str], str | None, Exception | None],
+        output_name: str,
+        export_status: Static,
+    ) -> None:
+        exported_files, manifest_path, manifest_error = export_outcome
+        result_box = self.query_one("#result-box", RichLog)
+        self._set_result(
+            result_box,
+            build_dashboard_view(
+                result,
+                self._should_compact_dashboard(self.size.width, self.size.height),
+            ),
+        )
+        report_paths = ", ".join(exported_files) if exported_files else "完成"
+        if manifest_error is not None:
+            export_status.update(
+                f"報表已匯出，證據清單失敗\n報表：{report_paths}\n錯誤：{manifest_error}"
+            )
+        elif manifest_path is not None:
+            export_status.update(f"報表：{report_paths}\n證據清單：{manifest_path}")
+        else:
+            export_status.update(f"匯出完成：{report_paths}")
+        if manifest_error is None:
+            self._refresh_output_name_default(output_name)
+
     async def action_confirm_export(self) -> None:
         result = self._last_result
         if (
@@ -673,76 +781,34 @@ class LogAnalyzerApp(App):
         ):
             return
 
-        run_button = self.query_one("#run", Button)
-        clear_button = self.query_one("#clear", Button)
-        export_button = self.query_one("#export-result", Button)
-        confirm_button = self.query_one("#confirm-export", Button)
         export_status = self.query_one("#export-status", Static)
         self._operation_in_progress = True
-        run_button.disabled = True
-        clear_button.disabled = True
-        export_button.disabled = True
-        confirm_button.disabled = True
+        self._set_export_controls_disabled(True)
         export_status.update("匯出中…")
 
         try:
-            selected_fields = tuple(
-                field
-                for field in EXPORT_FIELDS
-                if self.query_one(f"#export_field_{field}", Checkbox).value
-            )
-            if not selected_fields:
-                raise ValueError("請至少選擇一個輸出欄位")
-
-            output_path = self.query_one("#output_path", Input).value.strip() or "."
-            output_name = self.query_one("#output_name", Input).value
-            fmt = str(self.query_one("#format", Select).value or "csv")
-            split_by_level = self.query_one("#split_by_level", Checkbox).value
-            recent_state = load_recent_tui_state() or {}
-            recent_state.update(
-                {
-                    "output_path": output_path,
-                    "format": fmt,
-                    "split_by_level": split_by_level,
-                }
-            )
-            self._save_recent_form_state(recent_state)
-            options = ResultExportOptions(
-                output_path=build_output_path(output_path, output_name, fmt),
-                fmt=fmt,
-                fields=None if selected_fields == EXPORT_FIELDS else selected_fields,
-                split_by_level=split_by_level,
-            )
+            options, include_manifest, output_name = self._capture_export_request()
 
             loop = asyncio.get_running_loop()
-            exported_files = await loop.run_in_executor(
+            exported_files, manifest_path, manifest_error = await loop.run_in_executor(
                 None,
-                partial(export_analysis_result, result, options),
+                partial(_export_reports_and_manifest, result, options, include_manifest),
             )
-            if self.is_mounted:
-                result_box = self.query_one("#result-box", RichLog)
-                self._set_result(
-                    result_box,
-                    build_dashboard_view(
-                        result,
-                        self._should_compact_dashboard(self.size.width, self.size.height),
-                    ),
+            if self.is_running:
+                self._display_export_success(
+                    result,
+                    (exported_files, manifest_path, manifest_error),
+                    output_name,
+                    export_status,
                 )
-                export_status.update(
-                    f"匯出完成：{', '.join(exported_files)}" if exported_files else "匯出完成"
-                )
-                self._refresh_output_name_default(output_name)
         except Exception as exc:  # noqa: BLE001 - export failures must preserve the analyzed result
             logger.warning("TUI export failed: %s", exc)
-            if self.is_mounted:
+            if self.is_running:
                 export_status.update(f"匯出失敗：{exc}")
         finally:
             self._operation_in_progress = False
-            if self.is_mounted:
-                run_button.disabled = False
-                clear_button.disabled = False
-                export_button.disabled = False
-                confirm_button.disabled = False
+            if self.is_running:
+                self._set_export_controls_disabled(False)
             if getattr(self, "_release_result_when_operation_finishes", False):
                 self._release_result_when_operation_finishes = False
                 self._release_last_result(close_browser=False)
@@ -768,6 +834,7 @@ class LogAnalyzerApp(App):
         result_box = self.query_one("#result-box", RichLog)
         self._release_last_result()
         self._set_export_settings_visible(False)
+        self.query_one("#export-status", Static).update("")
         self._set_result(result_box, build_idle_view())
         self._set_result_status("idle")
 
@@ -804,6 +871,98 @@ class LogAnalyzerApp(App):
         keyword_input = self.query_one("#keyword", Input)
         keyword_input.value = ""
         keyword_input.focus()
+
+    def action_manage_recipes(self) -> None:
+        if getattr(self, "_operation_in_progress", False):
+            return
+        self.push_screen(
+            RecipeManagerScreen(RecipeStore(), self._capture_recipe_state, self._apply_recipe_state)
+        )
+
+    def _capture_recipe_state(self) -> dict[str, object]:
+        state: dict[str, object] = {
+            "path": self.query_one("#path", Input).value,
+            "pattern_mode": str(self.query_one("#pattern_mode", Select).value or "default"),
+            "log_pattern": self.query_one("#log_pattern", Input).value,
+            "logback_xml_path": self.query_one("#logback_xml_path", Input).value,
+            "start_date": self.query_one("#start_date", Input).value,
+            "start_time": self.query_one("#start_time", Input).value,
+            "end_date": self.query_one("#end_date", Input).value,
+            "end_time": self.query_one("#end_time", Input).value,
+            "keyword": self.query_one("#keyword", Input).value,
+            "ignore_case": self.query_one("#ignore_case", Checkbox).value,
+            "level_unrestricted": self.query_one("#level_unrestricted", Checkbox).value,
+            "levels": list(self._collect_checked_levels()),
+            "sort_by": str(self.query_one("#sort_by", Select).value or "time"),
+            "display_mode": str(self.query_one("#display_mode", Select).value or "summary"),
+        }
+        return {field: state[field] for field in RECIPE_FIELDS}
+
+    def _apply_recipe_state(self, name: str, recipe: Mapping[str, object]) -> str:
+        self._auto_logback_xml_path = ""
+        self._auto_log_pattern = ""
+        self._last_logback_autofill_source = ""
+        self._recipe_autofill_source = ""
+
+        text_fields = {
+            "path": "#path",
+            "log_pattern": "#log_pattern",
+            "logback_xml_path": "#logback_xml_path",
+            "start_date": "#start_date",
+            "start_time": "#start_time",
+            "end_date": "#end_date",
+            "end_time": "#end_time",
+            "keyword": "#keyword",
+        }
+        for field, selector in text_fields.items():
+            if field in recipe:
+                self.query_one(selector, Input).value = str(recipe[field])
+
+        if "path" in recipe:
+            self._recipe_autofill_source = self._normalize_recipe_source(str(recipe["path"]))
+
+        warnings = self._apply_recipe_enums(recipe)
+        for field in ("ignore_case", "level_unrestricted"):
+            if field in recipe and isinstance(recipe[field], bool):
+                selector = "#ignore_case" if field == "ignore_case" else "#level_unrestricted"
+                self.query_one(selector, Checkbox).value = recipe[field]
+        self._sync_pattern_field_visibility()
+        message = f"已載入配方「{name}」的條件；尚未執行分析。"
+        if warnings:
+            message = f"{message} 已忽略不支援的欄位值：{', '.join(warnings)}。"
+        feedback = self.query_one("#recipe-feedback", Static)
+        feedback.update(message)
+        feedback.display = True
+        return message
+
+    def _apply_recipe_enums(self, recipe: Mapping[str, object]) -> list[str]:
+        warnings: list[str] = []
+        select_fields = {
+            "pattern_mode": ("#pattern_mode", {"default", "custom"}),
+            "sort_by": ("#sort_by", {"time", "level"}),
+            "display_mode": ("#display_mode", {"full", "summary"}),
+        }
+        for field, (selector, supported_values) in select_fields.items():
+            if field not in recipe:
+                continue
+            value = recipe[field]
+            if value in supported_values:
+                self.query_one(selector, Select).value = value
+            else:
+                warnings.append(field)
+
+        if "levels" in recipe and isinstance(recipe["levels"], list):
+            allowed_levels = {"ERROR", "WARN", "INFO", "DEBUG", "TRACE"}
+            levels = {str(level).upper() for level in recipe["levels"]}
+            if levels - allowed_levels:
+                warnings.append("levels")
+            for level in allowed_levels:
+                self.query_one(f"#level_{level}", Checkbox).value = level in levels
+        return warnings
+
+    @staticmethod
+    def _normalize_recipe_source(path: str) -> str:
+        return os.path.abspath(os.path.expanduser(path.strip() or "."))
 
     def action_toggle_advanced_settings(self) -> None:
         self._set_advanced_settings_visible(not self._advanced_settings_visible)
@@ -853,7 +1012,9 @@ class LogAnalyzerApp(App):
         )
 
     def _autofill_logback_settings(self, log_dir: str) -> None:
-        normalized_dir = os.path.abspath(os.path.expanduser(log_dir.strip() or "."))
+        normalized_dir = self._normalize_recipe_source(log_dir)
+        if normalized_dir == getattr(self, "_recipe_autofill_source", ""):
+            return
         if not os.path.isdir(normalized_dir):
             return
 

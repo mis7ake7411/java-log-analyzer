@@ -54,7 +54,11 @@ def test_tui_loads_structured_responsive_stylesheets():
 
 def test_handle_unexpected_error_logs_and_displays_error(caplog):
     status_states = []
-    app = SimpleNamespace(_last_result=object(), _set_result_status=status_states.append)
+    app = SimpleNamespace(
+        _last_result=object(),
+        _set_result_status=status_states.append,
+        is_running=True,
+    )
     app._release_last_result = lambda: LogAnalyzerApp._release_last_result(app)
     result_box = object()
     displayed = {}
@@ -1745,7 +1749,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(
             await pilot.pause()
 
             sequence = []
-            for _ in range(7):
+            for _ in range(8):
                 focused = app.focused
                 sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
                 await pilot.press("tab")
@@ -1758,6 +1762,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(
                 "keyword",
                 "clear_keyword",
                 "toggle_advanced_settings",
+                "manage-recipes",
                 "run",
             ]
 

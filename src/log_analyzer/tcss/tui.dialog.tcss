@@ -136,3 +136,56 @@
 #event-browser-actions #close-event-browser {
     margin-right: 0;
 }
+
+#recipe-dialog {
+    align: center middle;
+    background: rgba(15, 23, 42, 0.78);
+}
+
+#recipe-dialog-card {
+    width: 90%;
+    height: 90%;
+    border: round #38bdf8;
+    background: #0b1220;
+    padding: 1 2;
+}
+
+#recipe-content {
+    height: 1fr;
+    overflow: auto;
+}
+
+#recipe-title {
+    text-style: bold;
+    color: #f8fafc;
+    margin-bottom: 1;
+}
+
+#recipe-selection,
+#recipe-name {
+    width: 1fr;
+    margin-bottom: 1;
+}
+
+#recipe-status {
+    height: auto;
+    min-height: 1;
+    color: #fbbf24;
+    margin-top: 1;
+}
+
+#recipe-actions {
+    height: auto;
+    layout: horizontal;
+    margin-top: 1;
+}
+
+#recipe-actions Button {
+    width: 1fr;
+    min-width: 8;
+    margin-right: 1;
+}
+
+#recipe-actions #recipe-close {
+    margin-right: 0;
+}

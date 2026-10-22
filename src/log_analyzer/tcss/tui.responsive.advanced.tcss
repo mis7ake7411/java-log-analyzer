@@ -111,3 +111,15 @@
 #form-actions.compact Button {
     min-width: 0;
 }
+
+#form-actions.wide {
+    layout: horizontal;
+}
+
+#form-actions.wide #manage-recipes {
+    width: 18;
+}
+
+#form-actions.wide #run {
+    width: 1fr;
+}
