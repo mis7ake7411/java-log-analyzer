@@ -150,6 +150,115 @@ def test_parse_log_directory_matches_legacy_parse_logs(temp_log_dir):
     assert list(actual_logs) == list(expected_logs)
 
 
+def test_parse_log_directory_reports_zero_result_scan_diagnostics(tmp_path):
+    log_dir = tmp_path / "empty-logs"
+    log_dir.mkdir()
+
+    counts, matched_logs = parse_log_directory(str(log_dir), ParseOptions())
+
+    assert counts == {}
+    assert list(matched_logs) == []
+    assert matched_logs.diagnostics.files_scanned == 0
+    assert matched_logs.diagnostics.parsed_entries == 0
+    assert matched_logs.diagnostics.after_time == 0
+    assert matched_logs.diagnostics.after_level == 0
+    assert matched_logs.diagnostics.after_keyword == 0
+
+
+def test_parse_log_directory_counts_unparseable_log_files(tmp_path):
+    log_dir = tmp_path / "unparseable-logs"
+    log_dir.mkdir()
+    (log_dir / "broken.log").write_text("not a log entry\n", encoding="utf-8")
+    (log_dir / "ignored.txt").write_text(
+        "2026-06-06 10:00:00.000 [main] INFO  com.test - Ignored\n",
+        encoding="utf-8",
+    )
+
+    counts, matched_logs = parse_log_directory(str(log_dir), ParseOptions())
+
+    assert counts == {}
+    assert list(matched_logs) == []
+    assert matched_logs.diagnostics.files_scanned == 1
+    assert matched_logs.diagnostics.parsed_entries == 0
+    assert matched_logs.diagnostics.after_time == 0
+    assert matched_logs.diagnostics.after_level == 0
+    assert matched_logs.diagnostics.after_keyword == 0
+
+
+def test_parse_log_directory_counts_events_through_sequential_filters(tmp_path):
+    log_dir = tmp_path / "filtered-logs"
+    log_dir.mkdir()
+    (log_dir / "events.log").write_text(
+        "2026-06-06 09:59:00.000 [main] INFO  com.test - Before range\n"
+        "    before-range continuation\n"
+        "2026-06-06 10:00:00.000 [main] DEBUG com.test - needle wrong level\n"
+        "2026-06-06 10:01:00.000 [main] INFO  com.test - No keyword match\n"
+        "    ordinary continuation\n"
+        "2026-06-06 10:02:00.000 [main] ERROR com.test - Needle matched\n"
+        "java.lang.RuntimeException: failure\n"
+        "    at com.test.App.main\n"
+        "2026-06-06 10:04:00.000 [main] ERROR com.test - Needle after range\n"
+        "not a log entry\n",
+        encoding="utf-8",
+    )
+
+    counts, matched_logs = parse_log_directory(
+        str(log_dir),
+        ParseOptions(
+            start_time=datetime(2026, 6, 6, 10, 0),
+            end_time=datetime(2026, 6, 6, 10, 3),
+            keyword="needle",
+            ignore_case=True,
+            levels=("INFO", "ERROR"),
+        ),
+    )
+
+    assert counts == {"ERROR": 1}
+    assert [entry["message"] for entry in matched_logs] == ["Needle matched"]
+    assert matched_logs.diagnostics.files_scanned == 1
+    assert matched_logs.diagnostics.parsed_entries == 5
+    assert matched_logs.diagnostics.after_time == 3
+    assert matched_logs.diagnostics.after_level == 2
+    assert matched_logs.diagnostics.after_keyword == 1
+    assert len(matched_logs[0]["stacktrace"].splitlines()) == 2
+
+
+def test_parse_log_directory_preserves_diagnostics_across_group_spills(tmp_path, monkeypatch):
+    log_dir = tmp_path / "spilled-logs"
+    log_dir.mkdir()
+    (log_dir / "spill.log").write_text(
+        "2026-06-06 10:00:00.000 [main] INFO  com.test - Same message\n"
+        "2026-06-06 10:01:00.000 [main] INFO  com.test - Same message\n"
+        "2026-06-06 10:02:00.000 [main] INFO  com.test - Other message\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(parser_module, "MAX_GROUPS_IN_MEMORY", 1)
+
+    counts, matched_logs = parse_log_directory(str(log_dir), ParseOptions())
+    groups = list(matched_logs)
+    same_message = next(group for group in groups if group["message"] == "Same message")
+
+    assert counts == {"INFO": 3}
+    assert len(groups) == 2
+    assert same_message["count"] == 2
+    assert same_message["line_numbers"] == [1, 2]
+    assert matched_logs.diagnostics.files_scanned == 1
+    assert matched_logs.diagnostics.parsed_entries == 3
+    assert matched_logs.diagnostics.after_time == 3
+    assert matched_logs.diagnostics.after_level == 3
+    assert matched_logs.diagnostics.after_keyword == 3
+    assert matched_logs.source_states["spill.log"]["stable"] is True
+
+
+def test_matched_logs_store_diagnostics_are_independent_by_default():
+    first = MatchedLogsStore("", 0)
+    second = MatchedLogsStore("", 0)
+
+    first.diagnostics.files_scanned = 1
+
+    assert second.diagnostics.files_scanned == 0
+
+
 def test_parse_log_directory_normalizes_naive_parse_options(temp_log_dir):
     counts, _logs = parse_log_directory(
         temp_log_dir,

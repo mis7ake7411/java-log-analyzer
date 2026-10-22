@@ -107,10 +107,11 @@ def commit_entry(grouped_logs, counts, entry, keyword, ignore_case):
     內部輔助函式：套用文字過濾後，才將 log 納入統計與分組
     """
     if not should_include(entry["full_text"], keyword, ignore_case):
-        return
+        return False
 
     counts[entry["level"]] += 1
     add_to_grouped_logs(grouped_logs, entry)
+    return True
 
 
 def add_to_grouped_logs(grouped_logs, entry):

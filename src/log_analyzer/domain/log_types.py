@@ -1,7 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Protocol, TypedDict, runtime_checkable
+
+
+@dataclass
+class ScanDiagnostics:
+    files_scanned: int = 0
+    parsed_entries: int = 0
+    after_time: int = 0
+    after_level: int = 0
+    after_keyword: int = 0
 
 
 class LogEntry(TypedDict, total=False):
