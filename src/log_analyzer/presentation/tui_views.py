@@ -6,6 +6,7 @@ from rich.text import Text
 
 from ..application.analysis_service import AnalysisResult
 from ..application.dashboard_summary import DashboardAnalysis, aggregate_dashboard_summary
+from ..domain.log_types import ScanDiagnostics
 from .error_messages import get_error_hint
 
 
@@ -50,6 +51,35 @@ def build_error_view(title: str, message: str) -> Panel:
             Text(title, style="bold red"),
             Text(message, style="white"),
             Text(get_error_hint(title, message), style="dim"),
+        ),
+    )
+
+
+def build_zero_result_view(diagnostics: ScanDiagnostics) -> Panel:
+    if diagnostics.files_scanned == 0:
+        reason = "找不到 .log 檔案，請確認輸入目錄。"
+    elif diagnostics.parsed_entries == 0:
+        reason = "找到 .log 檔案，但沒有內容符合目前的 Logback Pattern。"
+    elif diagnostics.after_time == 0:
+        reason = "沒有事件通過時間解析或時間範圍，請確認日誌時間與條件。"
+    elif diagnostics.after_level == 0:
+        reason = "Level 篩選排除了所有時間範圍內的事件。"
+    elif diagnostics.after_keyword == 0:
+        reason = "關鍵字篩選排除了所有 Level 事件。"
+    else:
+        reason = "目前沒有可顯示的分析結果。"
+
+    return _build_status_panel(
+        "沒有符合資料",
+        "yellow",
+        (
+            Text("沒有符合資料", style="bold yellow"),
+            Text(reason, style="white"),
+            Text(f"掃描 .log 檔案：{diagnostics.files_scanned}", style="cyan"),
+            Text(f"符合 Pattern 的事件：{diagnostics.parsed_entries}", style="cyan"),
+            Text(f"時間範圍後：{diagnostics.after_time}", style="cyan"),
+            Text(f"Level 後：{diagnostics.after_level}", style="cyan"),
+            Text(f"關鍵字後：{diagnostics.after_keyword}", style="cyan"),
         ),
     )
 

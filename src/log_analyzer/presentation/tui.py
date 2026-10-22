@@ -11,7 +11,13 @@ from textual.containers import Container, ScrollableContainer
 from textual.events import Paste, Resize
 from textual.widgets import Button, Checkbox, Footer, Header, Input, Label, RichLog, Select, Static
 
-from ..application.analysis_service import DEFAULT_SELECTED_LEVELS, AnalysisResult, build_output_path, run_analysis
+from ..application.analysis_service import (
+    DEFAULT_SELECTED_LEVELS,
+    AnalysisResult,
+    NoMatchingLogsError,
+    build_output_path,
+    run_analysis,
+)
 from ..domain.logback_pattern import DEFAULT_LOGBACK_PATTERN
 from ..domain.logback_xml import find_best_logback_pattern
 from .tui_dialogs import DirectoryPickerScreen, FilePickerScreen, ShortcutInput
@@ -25,7 +31,14 @@ from .tui_inputs import (
     get_default_start_time_text,
     parse_datetime_range_inputs,
 )
-from .tui_views import build_dashboard_view, build_error_view, build_idle_view, build_loading_view, format_path_status
+from .tui_views import (
+    build_dashboard_view,
+    build_error_view,
+    build_idle_view,
+    build_loading_view,
+    build_zero_result_view,
+    format_path_status,
+)
 from ..infrastructure.paths import get_system_root_path, inspect_directory_path, validate_pasted_path
 from ..version import get_package_version
 
@@ -46,6 +59,7 @@ class LogAnalyzerApp(App):
         str(_PACKAGE_ROOT / "tcss" / "tui.responsive.advanced.tcss"),
     ]
     _last_result: AnalysisResult | None = None
+    _result_state = "idle"
     _advanced_settings_visible: bool = False
     _auto_logback_xml_path: str = ""
     _auto_log_pattern: str = ""
@@ -232,6 +246,7 @@ class LogAnalyzerApp(App):
                 with Container(classes="level-filter-row"):
                     for level in ("ERROR", "WARN", "INFO", "DEBUG", "TRACE"):
                         yield Checkbox(level, value=level in DEFAULT_SELECTED_LEVELS, id=f"level_{level}")
+                yield Checkbox("不限 Level", value=False, id="level_unrestricted")
                 with Container(classes="level-filter-actions"):
                     yield Button("全選", id="select_all_levels")
                     yield Button("清空", id="clear_levels")
@@ -253,6 +268,10 @@ class LogAnalyzerApp(App):
                 wrap=True,
                 min_width=0,
             )
+            with Container(id="zero-result-actions", classes="zero-results-hidden"):
+                yield Button("清除時間並重試", id="retry_without_time", disabled=True)
+                yield Button("不限 Level 並重試", id="retry_without_level", disabled=True)
+                yield Button("清除關鍵字並重試", id="retry_without_keyword", disabled=True)
             with Container(id="output-actions"):
                 yield Button("查看事件原文", id="browse-events", disabled=True)
                 yield Button("清除結果", id="clear")
@@ -397,6 +416,18 @@ class LogAnalyzerApp(App):
             self._set_all_levels(True)
         elif event.button.id == "clear_levels":
             self._set_all_levels(False)
+        else:
+            await self._handle_zero_result_retry(event.button.id)
+
+    async def _handle_zero_result_retry(self, button_id: str) -> None:
+        retry_actions = {
+            "retry_without_time": self.action_retry_without_time,
+            "retry_without_level": self.action_retry_without_level,
+            "retry_without_keyword": self.action_retry_without_keyword,
+        }
+        retry_action = retry_actions.get(button_id)
+        if retry_action is not None:
+            await retry_action()
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "display_mode":
@@ -552,7 +583,8 @@ class LogAnalyzerApp(App):
                     "ignore_case": ignore_case,
                     "display_mode": display_mode,
                     "sort_by": sort_by,
-                    "levels": list(selected_levels),
+                    "levels": list(selected_levels or self._collect_checked_levels() or DEFAULT_SELECTED_LEVELS),
+                    "level_unrestricted": self.query_one("#level_unrestricted", Checkbox).value,
                     "split_by_level": split_by_level,
                     "format": fmt,
                     "start_date": start_date_text,
@@ -590,6 +622,10 @@ class LogAnalyzerApp(App):
             )
             self._set_result_status("complete", result)
             self._refresh_output_name_default(output_name)
+        except NoMatchingLogsError as exc:
+            self._release_last_result()
+            self._set_result(result_box, build_zero_result_view(exc.diagnostics))
+            self._set_result_status("no_results")
         except PermissionError as exc:
             self._release_last_result()
             self._set_result(result_box, build_error_view("權限不足", str(exc)))
@@ -611,8 +647,21 @@ class LogAnalyzerApp(App):
             if original_focused and not original_focused.disabled:
                 self.set_focus(original_focused)
 
+    async def action_retry_without_time(self) -> None:
+        for field_id in ("start_date", "start_time", "end_date", "end_time"):
+            self.query_one(f"#{field_id}", Input).value = ""
+        await self.action_run_analysis()
+
+    async def action_retry_without_level(self) -> None:
+        self.query_one("#level_unrestricted", Checkbox).value = True
+        await self.action_run_analysis()
+
+    async def action_retry_without_keyword(self) -> None:
+        self.query_one("#keyword", Input).value = ""
+        await self.action_run_analysis()
+
     def action_clear_result(self) -> None:
-        if self._last_result is None:
+        if self._last_result is None and self._result_state != "no_results":
             return
         result_box = self.query_one("#result-box", RichLog)
         self._release_last_result()
@@ -765,7 +814,24 @@ class LogAnalyzerApp(App):
         output_name_input = self.query_one("#output_name", Input)
         output_name_input.value = self._auto_output_name
 
-    def _collect_form_values(self) -> tuple[str, str, str, str, str, str, str, str, str, str, str, str, tuple[str, ...], bool, bool, str]:
+    def _collect_form_values(self) -> tuple[
+        str,
+        str,
+        str,
+        str,
+        str,
+        str,
+        str,
+        str,
+        str,
+        str,
+        str,
+        str,
+        tuple[str, ...] | None,
+        bool,
+        bool,
+        str,
+    ]:
         path = self.query_one("#path", Input).value.strip() or "."
         output_path = self.query_one("#output_path", Input).value.strip() or "."
         output_name = self.query_one("#output_name", Input).value.strip()
@@ -801,12 +867,18 @@ class LogAnalyzerApp(App):
             str(fmt),
         )
 
-    def _collect_selected_levels(self) -> tuple[str, ...]:
-        levels = tuple(
+    def _collect_checked_levels(self) -> tuple[str, ...]:
+        return tuple(
             level
             for level in ("ERROR", "WARN", "INFO", "DEBUG", "TRACE")
             if self.query_one(f"#level_{level}", Checkbox).value
         )
+
+    def _collect_selected_levels(self) -> tuple[str, ...] | None:
+        if self.query_one("#level_unrestricted", Checkbox).value:
+            return None
+
+        levels = self._collect_checked_levels()
         if not levels:
             raise ValueError("至少選擇一個 Log 層級")
         return levels
@@ -831,10 +903,34 @@ class LogAnalyzerApp(App):
     def _set_result_status(self, state: str, result: AnalysisResult | None = None) -> None:
         status = self.query_one("#result-status", Static)
         clear_button = self.query_one("#clear", Button)
+        self._result_state = state
+        retry_actions = self.query_one("#zero-result-actions", Container)
+        if state == "no_results":
+            retry_actions.remove_class("zero-results-hidden")
+        else:
+            retry_actions.add_class("zero-results-hidden")
+
         if state == "complete" and result is not None:
             status.update(f"狀態：完成｜總 Log {result.total_logs}｜命中 {result.matched_occurrences}")
             clear_button.disabled = False
             self.query_one("#browse-events", Button).disabled = False
+            for button_id in ("retry_without_time", "retry_without_level", "retry_without_keyword"):
+                self.query_one(f"#{button_id}", Button).disabled = True
+            return
+
+        if state == "no_results":
+            status.update("狀態：沒有符合資料")
+            clear_button.disabled = False
+            self.query_one("#browse-events", Button).disabled = True
+            has_time_filter = any(
+                self.query_one(f"#{field_id}", Input).value.strip()
+                for field_id in ("start_date", "start_time", "end_date", "end_time")
+            )
+            has_level_filter = not self.query_one("#level_unrestricted", Checkbox).value
+            has_keyword_filter = bool(self.query_one("#keyword", Input).value.strip())
+            self.query_one("#retry_without_time", Button).disabled = not has_time_filter
+            self.query_one("#retry_without_level", Button).disabled = not has_level_filter
+            self.query_one("#retry_without_keyword", Button).disabled = not has_keyword_filter
             return
 
         messages = {
@@ -845,6 +941,8 @@ class LogAnalyzerApp(App):
         status.update(messages[state])
         clear_button.disabled = True
         self.query_one("#browse-events", Button).disabled = True
+        for button_id in ("retry_without_time", "retry_without_level", "retry_without_keyword"):
+            self.query_one(f"#{button_id}", Button).disabled = True
 
     def _sync_pattern_field_visibility(self) -> None:
         pattern_mode = self.query_one("#pattern_mode", Select).value or "default"
@@ -874,6 +972,8 @@ class LogAnalyzerApp(App):
             self.query_one("#format", Select).value = str(state["format"])
         if isinstance(state.get("split_by_level"), bool):
             self.query_one("#split_by_level", Checkbox).value = state["split_by_level"]
+        if isinstance(state.get("level_unrestricted"), bool):
+            self.query_one("#level_unrestricted", Checkbox).value = state["level_unrestricted"]
         levels = state.get("levels")
         if isinstance(levels, list):
             selected_levels = {str(level).upper() for level in levels}

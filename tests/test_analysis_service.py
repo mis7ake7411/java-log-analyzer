@@ -1,21 +1,121 @@
+from collections import Counter
 from io import StringIO
 from pathlib import Path
 from typing import get_type_hints
 
+import pytest
 from rich.console import Console
 
+import log_analyzer.application.analysis_service as analysis_service
 from log_analyzer.application.analysis_service import (
     AnalysisOptions,
     AnalysisResult,
+    NoMatchingLogsError,
     run_analysis,
     run_analysis_with_options,
 )
-from log_analyzer.domain.log_types import MatchedLogs
+from log_analyzer.domain.log_types import MatchedLogs, ScanDiagnostics
 from log_analyzer.presentation.tui_views import build_dashboard_view
 
 
 def test_analysis_result_declares_matched_logs_contract():
     assert get_type_hints(AnalysisResult)["matched_logs"] is MatchedLogs
+
+
+def test_analysis_result_defaults_scan_diagnostics():
+    result = AnalysisResult(
+        input_path="",
+        output_path="",
+        format_name="csv",
+        keyword="未設定",
+        ignore_case=False,
+        total_logs=0,
+        matched_groups=0,
+        matched_occurrences=0,
+        level_summary=[],
+        selected_levels=(),
+        sort_by="time",
+        counts=Counter(),
+        matched_logs=[],
+        exported_files=[],
+    )
+
+    assert getattr(result, "diagnostics", None) == ScanDiagnostics()
+
+
+def test_no_matches_carry_scan_diagnostics_and_real_scan_can_succeed_after_retry(tmp_path):
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / "app.log").write_text(
+        "2026-06-07 12:00:00.000 [main] INFO  com.test.App - Started\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(NoMatchingLogsError) as caught:
+        run_analysis(
+            str(logs),
+            str(tmp_path / "report.csv"),
+            None,
+            None,
+            "not-present",
+            False,
+            "time",
+            "csv",
+        )
+
+    assert str(caught.value).startswith("找不到符合條件的 log")
+    assert caught.value.diagnostics == ScanDiagnostics(1, 1, 1, 1, 0)
+
+    result = run_analysis(
+        str(logs),
+        str(tmp_path / "retry-report.csv"),
+        None,
+        None,
+        None,
+        False,
+        "time",
+        "csv",
+    )
+
+    assert result.total_logs == 1
+    assert result.diagnostics == ScanDiagnostics(1, 1, 1, 1, 1)
+    result.matched_logs.release()
+
+
+def test_no_matches_release_empty_matched_store_before_raising(tmp_path, monkeypatch):
+    class EmptyMatchedStore(list):
+        diagnostics = ScanDiagnostics(1, 0, 0, 0, 0)
+
+        def __init__(self):
+            super().__init__()
+            self.released = False
+
+        def release(self):
+            self.released = True
+
+    matched_store = EmptyMatchedStore()
+    monkeypatch.setattr(
+        analysis_service,
+        "parse_log_directory",
+        lambda _path, _options: (Counter(), matched_store),
+    )
+
+    with pytest.raises(NoMatchingLogsError) as caught:
+        run_analysis_with_options(
+            AnalysisOptions(
+                path=str(tmp_path),
+                output_path=str(tmp_path / "report.csv"),
+                start_dt=None,
+                end_dt=None,
+                keyword=None,
+                ignore_case=False,
+                sort_by="time",
+                fmt="csv",
+            )
+        )
+
+    assert caught.value.diagnostics is matched_store.diagnostics
+    assert matched_store.released is True
 
 
 def test_run_analysis_can_skip_returning_full_details(tmp_path):

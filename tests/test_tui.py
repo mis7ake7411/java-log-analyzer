@@ -354,6 +354,7 @@ def test_collect_form_values_includes_time_fields():
         "#level_INFO": FakeCheckbox(False),
         "#level_DEBUG": FakeCheckbox(True),
         "#level_TRACE": FakeCheckbox(False),
+        "#level_unrestricted": FakeCheckbox(False),
         "#split_by_level": FakeCheckbox(True),
         "#ignore_case": FakeCheckbox(True),
         "#format": FakeSelect("json"),

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from .dashboard_summary import DashboardAnalysis, aggregate_dashboard_summary
-from ..domain.log_types import MatchedLogs, SourceSnapshot
+from ..domain.log_types import MatchedLogs, ScanDiagnostics, SourceSnapshot
 from ..domain.parser import ParseOptions, parse_log_directory
 from ..infrastructure.exporter import export_results
 from ..infrastructure.paths import ensure_readable_directory, ensure_writable_directory
@@ -53,6 +53,15 @@ class AnalysisResult:
     exported_files: list[str]
     dashboard_summary: DashboardAnalysis | None = None
     source_states: dict[str, SourceSnapshot] = field(default_factory=dict)
+    diagnostics: ScanDiagnostics = field(default_factory=ScanDiagnostics)
+
+
+class NoMatchingLogsError(ValueError):
+    """沒有符合分析條件的 Log，並保留掃描階段的診斷資訊。"""
+
+    def __init__(self, diagnostics: ScanDiagnostics) -> None:
+        self.diagnostics = diagnostics
+        super().__init__("找不到符合條件的 log請確認目錄、關鍵字或資料內容")
 
 
 def build_output_path(output_dir: str, output_name: str, fmt: str) -> str:
@@ -119,9 +128,12 @@ def run_analysis_with_options(options: AnalysisOptions) -> AnalysisResult:
             levels=options.levels,
         ),
     )
+    diagnostics = getattr(matched_logs, "diagnostics", ScanDiagnostics())
 
     if not counts and not matched_logs:
-        raise ValueError("找不到符合條件的 log請確認目錄、關鍵字或資料內容")
+        if hasattr(matched_logs, "release"):
+            matched_logs.release()
+        raise NoMatchingLogsError(diagnostics)
 
     exported_files = [
         os.path.abspath(path)
@@ -166,4 +178,5 @@ def run_analysis_with_options(options: AnalysisOptions) -> AnalysisResult:
         exported_files=exported_files,
         dashboard_summary=dashboard_summary,
         source_states=source_states,
+        diagnostics=diagnostics,
     )

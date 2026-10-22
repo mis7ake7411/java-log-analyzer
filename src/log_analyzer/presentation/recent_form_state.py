@@ -13,6 +13,7 @@ _ALLOWED_KEYS = {
     "display_mode",
     "sort_by",
     "levels",
+    "level_unrestricted",
     "split_by_level",
     "format",
     "start_date",
