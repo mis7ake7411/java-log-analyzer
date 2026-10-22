@@ -13,13 +13,17 @@ from textual.widgets import Button, Checkbox, Footer, Header, Input, Label, Rich
 
 from ..application.analysis_service import (
     DEFAULT_SELECTED_LEVELS,
+    AnalysisRequest,
     AnalysisResult,
     NoMatchingLogsError,
+    ResultExportOptions,
+    analyze_logs,
     build_output_path,
-    run_analysis,
+    export_analysis_result,
 )
 from ..domain.logback_pattern import DEFAULT_LOGBACK_PATTERN
 from ..domain.logback_xml import find_best_logback_pattern
+from ..infrastructure.export_fields import EXPORT_FIELDS, EXPORT_FIELD_LABELS
 from .tui_dialogs import DirectoryPickerScreen, FilePickerScreen, ShortcutInput
 from .tui_event_browser import EventBrowserScreen
 from .recent_form_state import load_recent_tui_state, save_recent_tui_state
@@ -82,6 +86,7 @@ class LogAnalyzerApp(App):
                     with ScrollableContainer(id="form-panel", can_focus=False):
                         yield from self._compose_basic_input_fields()
                         yield from self._compose_advanced_settings()
+                        yield from self._compose_export_settings()
                     yield from self._compose_actions()
 
                 yield from self._compose_result_panel()
@@ -106,13 +111,6 @@ class LogAnalyzerApp(App):
         yield Static("", classes="path-status", id="path-status")
 
         with Container(classes="field"):
-            yield Label("目標資料夾")
-            with Container(classes="path-row"):
-                yield ShortcutInput(placeholder="例如：./exports", value=".", id="output_path")
-                yield Button("瀏覽", id="browse_output_path")
-        yield Static("", classes="path-status", id="output-path-status")
-
-        with Container(classes="field"):
             yield Label("關鍵字")
             with Container(classes="path-row"):
                 yield ShortcutInput(placeholder="例如：Order_123 或 SQLException", id="keyword")
@@ -133,16 +131,6 @@ class LogAnalyzerApp(App):
             yield from self._compose_level_settings()
 
     def _compose_advanced_output_settings(self) -> ComposeResult:
-        with Container(classes="field"):
-            yield Label("輸出檔名")
-            with Container(classes="field-body"):
-                yield ShortcutInput(
-                    placeholder="例如：analysis_123000",
-                    value=self._auto_output_name,
-                    id="output_name",
-                )
-                yield Static("副檔名由輸出格式自動決定", classes="field-hint")
-
         with Container(classes="field"):
             yield Label("Logback XML")
             with Container(classes="path-row compact-buttons"):
@@ -202,25 +190,10 @@ class LogAnalyzerApp(App):
         yield Static("", classes="field-hint")
 
     def _compose_display_settings(self) -> ComposeResult:
-        with Container(classes="field-row"):
-            with Container(classes="field field--inline field--ignore"):
-                yield Label("忽略大小寫")
-                yield Checkbox(value=True, id="ignore_case")
+        with Container(classes="field-row"), Container(classes="field field--inline field--ignore"):
+            yield Label("忽略大小寫")
+            yield Checkbox(value=True, id="ignore_case")
 
-            with Container(classes="field field--inline field--split-output"):
-                yield Label("依 Level 分檔")
-                yield Checkbox(value=False, id="split_by_level")
-        yield Static("", classes="path-status", id="path-status")
-
-        with Container(classes="field field--inline field--format"):
-            yield Label("輸出格式")
-            yield Select(
-                [("CSV (Excel)", "csv"), ("JSON", "json"), ("Markdown", "md")],
-                value="csv",
-                id="format",
-            )
-        yield Static("", classes="field-hint")
-        
         with Container(classes="field-row"):
             with Container(classes="field field--inline field--sort"):
                 yield Label("排序方式")
@@ -238,6 +211,50 @@ class LogAnalyzerApp(App):
                     id="display_mode",
                 )
         yield Static("", classes="field-hint")
+
+    def _compose_export_settings(self) -> ComposeResult:
+        with Container(id="export-settings", classes="export-settings"):
+            yield Static("匯出設定", classes="section-title")
+            with Container(classes="field"):
+                yield Label("目標資料夾")
+                with Container(classes="path-row"):
+                    yield ShortcutInput(placeholder="例如：./exports", value=".", id="output_path")
+                    yield Button("瀏覽", id="browse_output_path")
+                yield Static("", classes="path-status", id="output-path-status")
+
+            with Container(classes="field"):
+                yield Label("輸出檔名")
+                with Container(classes="field-body"):
+                    yield ShortcutInput(
+                        placeholder="例如：analysis_123000",
+                        value=self._auto_output_name,
+                        id="output_name",
+                    )
+                    yield Static("副檔名由輸出格式自動決定", classes="field-hint")
+
+            with Container(classes="field-row"):
+                with Container(classes="field field--inline field--format"):
+                    yield Label("輸出格式")
+                    yield Select(
+                        [("CSV (Excel)", "csv"), ("JSON", "json"), ("Markdown", "md")],
+                        value="csv",
+                        id="format",
+                    )
+                with Container(classes="field field--inline field--split-output"):
+                    yield Label("依 Level 分檔")
+                    yield Checkbox(value=False, id="split_by_level")
+
+            yield Label("輸出欄位", classes="field-label")
+            with Container(id="export-fields", classes="export-fields"):
+                for field in EXPORT_FIELDS:
+                    yield Checkbox(
+                        EXPORT_FIELD_LABELS[field],
+                        value=True,
+                        id=f"export_field_{field}",
+                    )
+
+            yield Static("", id="export-status", classes="export-status", markup=False)
+            yield Button("執行匯出", variant="primary", id="confirm-export")
 
     def _compose_level_settings(self) -> ComposeResult:
         with Container(classes="field"):
@@ -274,6 +291,7 @@ class LogAnalyzerApp(App):
                 yield Button("清除關鍵字並重試", id="retry_without_keyword", disabled=True)
             with Container(id="output-actions"):
                 yield Button("查看事件原文", id="browse-events", disabled=True)
+                yield Button("匯出結果", id="export-result", disabled=True)
                 yield Button("清除結果", id="clear")
 
     def on_mount(self) -> None:
@@ -284,13 +302,17 @@ class LogAnalyzerApp(App):
         self._sync_pattern_field_visibility()
         self.call_after_refresh(self.set_focus, None)
         self._set_advanced_settings_visible(False)
+        self._set_export_settings_visible(False)
         self._sync_layout(self.size.width, self.size.height)
         self._set_result_status("idle")
         self.update_path_preview(path_input.value)
         self.update_path_preview(output_path_input.value, "#output-path-status", require_writable=True)
 
     def on_unmount(self) -> None:
-        self._release_last_result(close_browser=False)
+        if getattr(self, "_operation_in_progress", False):
+            self._release_result_when_operation_finishes = True
+        else:
+            self._release_last_result(close_browser=False)
 
     def on_resize(self, event: Resize) -> None:
         self._sync_layout(event.size.width, event.size.height)
@@ -381,10 +403,11 @@ class LogAnalyzerApp(App):
         self.query_one("#logback-xml-status", Static).update(f"[{color}]{message}[/{color}]")
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id in {"output_path", "output_name"}:
+            await self.action_confirm_export()
+            return
         if event.input.id in {
             "path",
-            "output_path",
-            "output_name",
             "keyword",
             "log_pattern",
             "logback_xml_path",
@@ -396,28 +419,33 @@ class LogAnalyzerApp(App):
             await self.action_run_analysis()
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "run":
-            await self.action_run_analysis()
-        elif event.button.id == "browse-events":
-            self.action_browse_events()
-        elif event.button.id == "clear":
-            self.action_clear_result()
-        elif event.button.id == "toggle_advanced_settings":
-            self.action_toggle_advanced_settings()
-        elif event.button.id == "browse_path":
-            self.action_browse_path()
-        elif event.button.id == "browse_output_path":
-            self.action_browse_output_path()
-        elif event.button.id == "clear_keyword":
-            self.action_clear_keyword()
-        elif event.button.id == "browse_logback_xml":
-            self.action_browse_logback_xml()
-        elif event.button.id == "select_all_levels":
-            self._set_all_levels(True)
-        elif event.button.id == "clear_levels":
-            self._set_all_levels(False)
-        else:
-            await self._handle_zero_result_retry(event.button.id)
+        button_id = event.button.id
+        async_actions = {
+            "run": self.action_run_analysis,
+            "confirm-export": self.action_confirm_export,
+        }
+        async_action = async_actions.get(button_id)
+        if async_action is not None:
+            await async_action()
+            return
+
+        actions = {
+            "browse-events": self.action_browse_events,
+            "export-result": self.action_show_export_settings,
+            "clear": self.action_clear_result,
+            "toggle_advanced_settings": self.action_toggle_advanced_settings,
+            "browse_path": self.action_browse_path,
+            "browse_output_path": self.action_browse_output_path,
+            "clear_keyword": self.action_clear_keyword,
+            "browse_logback_xml": self.action_browse_logback_xml,
+            "select_all_levels": partial(self._set_all_levels, True),
+            "clear_levels": partial(self._set_all_levels, False),
+        }
+        action = actions.get(button_id)
+        if action is not None:
+            action()
+            return
+        await self._handle_zero_result_retry(button_id)
 
     async def _handle_zero_result_retry(self, button_id: str) -> None:
         retry_actions = {
@@ -532,11 +560,50 @@ class LogAnalyzerApp(App):
         self._set_result(result_box, build_error_view("執行失敗", str(exc)))
         self._set_result_status("failed")
 
-    async def action_run_analysis(self) -> None:
-        run_button = self.query_one("#run", Button)
-        clear_button = self.query_one("#clear", Button)
-        result_box = self.query_one("#result-box", RichLog)
+    def _save_recent_analysis_state(self, request: AnalysisRequest, display_mode: str) -> None:
+        recent_state = load_recent_tui_state() or {}
+        recent_state.update(
+            {
+                "path": request.path,
+                "keyword": request.keyword or "",
+                "ignore_case": request.ignore_case,
+                "display_mode": display_mode,
+                "sort_by": request.sort_by,
+                "levels": list(request.levels or self._collect_checked_levels() or DEFAULT_SELECTED_LEVELS),
+                "level_unrestricted": request.levels is None,
+                "start_date": self.query_one("#start_date", Input).value.strip(),
+                "start_time": self.query_one("#start_time", Input).value.strip(),
+                "end_date": self.query_one("#end_date", Input).value.strip(),
+                "end_time": self.query_one("#end_time", Input).value.strip(),
+            }
+        )
+        self._save_recent_form_state(recent_state)
 
+    async def _analyze_request(self, request: AnalysisRequest) -> AnalysisResult:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, partial(analyze_logs, request))
+
+    def _display_analysis_result(self, result_box: RichLog, result: AnalysisResult) -> None:
+        self._last_result = result
+        self._set_result(
+            result_box,
+            build_dashboard_view(result, self._should_compact_dashboard(self.size.width, self.size.height)),
+        )
+        self._set_result_status("complete", result)
+
+    async def action_run_analysis(self) -> None:
+        if getattr(self, "_operation_in_progress", False):
+            return
+        if self._focused_inside_export_settings():
+            if getattr(self.focused, "id", None) != "browse_output_path":
+                await self.action_confirm_export()
+            return
+
+        run_button = self.query_one("#run", Button)
+        result_box = self.query_one("#result-box", RichLog)
+        self._operation_in_progress = True
+        self._set_export_settings_visible(False)
+        self.query_one("#export-status", Static).update("")
         self._release_last_result()
 
         # 記錄當下聚焦的元件，並暫時清除焦點，避免焦點自動轉移至「清除結果」按鈕造成反白
@@ -545,83 +612,15 @@ class LogAnalyzerApp(App):
 
         # 停用按鈕以防二次點擊
         run_button.disabled = True
-        clear_button.disabled = True
         self._set_result_status("running")
         self._set_result(result_box, build_loading_view())
 
         try:
             self._autofill_logback_settings(self.query_one("#path", Input).value.strip() or ".")
-            (
-                path,
-                output_path,
-                output_name,
-                start_date_text,
-                start_time_text,
-                end_date_text,
-                end_time_text,
-                keyword,
-                pattern_mode,
-                log_pattern,
-                display_mode,
-                sort_by,
-                selected_levels,
-                split_by_level,
-                ignore_case,
-                fmt,
-            ) = self._collect_form_values()
-            start_dt, end_dt = parse_datetime_range_inputs(
-                start_date_text,
-                start_time_text,
-                end_date_text,
-                end_time_text,
-            )
-            self._save_recent_form_state(
-                {
-                    "path": path,
-                    "output_path": output_path,
-                    "keyword": keyword,
-                    "ignore_case": ignore_case,
-                    "display_mode": display_mode,
-                    "sort_by": sort_by,
-                    "levels": list(selected_levels or self._collect_checked_levels() or DEFAULT_SELECTED_LEVELS),
-                    "level_unrestricted": self.query_one("#level_unrestricted", Checkbox).value,
-                    "split_by_level": split_by_level,
-                    "format": fmt,
-                    "start_date": start_date_text,
-                    "start_time": start_time_text,
-                    "end_date": end_date_text,
-                    "end_time": end_time_text,
-                }
-            )
-            normalized_output = build_output_path(output_path, output_name, fmt)
-            selected_pattern = log_pattern if pattern_mode == "custom" else None
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(
-                None,
-                partial(
-                    run_analysis,
-                    path=path,
-                    output_path=normalized_output,
-                    start_dt=start_dt,
-                    end_dt=end_dt,
-                    keyword=keyword or None,
-                    ignore_case=ignore_case,
-                    sort_by=sort_by,
-                    fmt=fmt,
-                    log_pattern=selected_pattern,
-                    max_export_bytes=None,
-                    include_details=True,
-                    levels=selected_levels,
-                    split_by_level=split_by_level,
-                ),
-            )
-            self._last_result = result
-            self._set_result(
-                result_box,
-                build_dashboard_view(result, self._should_compact_dashboard(self.size.width, self.size.height)),
-            )
-            self._set_result_status("complete", result)
-            self._refresh_output_name_default(output_name)
+            request, display_mode = self._collect_form_values()
+            self._save_recent_analysis_state(request, display_mode)
+            result = await self._analyze_request(request)
+            self._display_analysis_result(result_box, result)
         except NoMatchingLogsError as exc:
             self._release_last_result()
             self._set_result(result_box, build_zero_result_view(exc.diagnostics))
@@ -642,10 +641,111 @@ class LogAnalyzerApp(App):
         except Exception as exc:  # noqa: BLE001
             self._handle_unexpected_error(result_box, exc)
         finally:
+            self._operation_in_progress = False
             run_button.disabled = False
             # 恢復原本的焦點元件
             if original_focused and not original_focused.disabled:
                 self.set_focus(original_focused)
+            if getattr(self, "_release_result_when_operation_finishes", False):
+                self._release_result_when_operation_finishes = False
+                self._release_last_result(close_browser=False)
+
+    def action_show_export_settings(self) -> None:
+        if getattr(self, "_operation_in_progress", False):
+            return
+        if self._last_result is None or self._result_state != "complete":
+            return
+
+        self._set_export_settings_visible(True)
+        self.call_after_refresh(self._reveal_export_confirmation)
+
+    def _reveal_export_confirmation(self) -> None:
+        confirm_button = self.query_one("#confirm-export", Button)
+        confirm_button.scroll_visible(animate=False)
+        confirm_button.focus()
+
+    async def action_confirm_export(self) -> None:
+        result = self._last_result
+        if (
+            getattr(self, "_operation_in_progress", False)
+            or result is None
+            or self._result_state != "complete"
+        ):
+            return
+
+        run_button = self.query_one("#run", Button)
+        clear_button = self.query_one("#clear", Button)
+        export_button = self.query_one("#export-result", Button)
+        confirm_button = self.query_one("#confirm-export", Button)
+        export_status = self.query_one("#export-status", Static)
+        self._operation_in_progress = True
+        run_button.disabled = True
+        clear_button.disabled = True
+        export_button.disabled = True
+        confirm_button.disabled = True
+        export_status.update("匯出中…")
+
+        try:
+            selected_fields = tuple(
+                field
+                for field in EXPORT_FIELDS
+                if self.query_one(f"#export_field_{field}", Checkbox).value
+            )
+            if not selected_fields:
+                raise ValueError("請至少選擇一個輸出欄位")
+
+            output_path = self.query_one("#output_path", Input).value.strip() or "."
+            output_name = self.query_one("#output_name", Input).value
+            fmt = str(self.query_one("#format", Select).value or "csv")
+            split_by_level = self.query_one("#split_by_level", Checkbox).value
+            recent_state = load_recent_tui_state() or {}
+            recent_state.update(
+                {
+                    "output_path": output_path,
+                    "format": fmt,
+                    "split_by_level": split_by_level,
+                }
+            )
+            self._save_recent_form_state(recent_state)
+            options = ResultExportOptions(
+                output_path=build_output_path(output_path, output_name, fmt),
+                fmt=fmt,
+                fields=None if selected_fields == EXPORT_FIELDS else selected_fields,
+                split_by_level=split_by_level,
+            )
+
+            loop = asyncio.get_running_loop()
+            exported_files = await loop.run_in_executor(
+                None,
+                partial(export_analysis_result, result, options),
+            )
+            if self.is_mounted:
+                result_box = self.query_one("#result-box", RichLog)
+                self._set_result(
+                    result_box,
+                    build_dashboard_view(
+                        result,
+                        self._should_compact_dashboard(self.size.width, self.size.height),
+                    ),
+                )
+                export_status.update(
+                    f"匯出完成：{', '.join(exported_files)}" if exported_files else "匯出完成"
+                )
+                self._refresh_output_name_default(output_name)
+        except Exception as exc:  # noqa: BLE001 - export failures must preserve the analyzed result
+            logger.warning("TUI export failed: %s", exc)
+            if self.is_mounted:
+                export_status.update(f"匯出失敗：{exc}")
+        finally:
+            self._operation_in_progress = False
+            if self.is_mounted:
+                run_button.disabled = False
+                clear_button.disabled = False
+                export_button.disabled = False
+                confirm_button.disabled = False
+            if getattr(self, "_release_result_when_operation_finishes", False):
+                self._release_result_when_operation_finishes = False
+                self._release_last_result(close_browser=False)
 
     async def action_retry_without_time(self) -> None:
         for field_id in ("start_date", "start_time", "end_date", "end_time"):
@@ -661,10 +761,13 @@ class LogAnalyzerApp(App):
         await self.action_run_analysis()
 
     def action_clear_result(self) -> None:
+        if getattr(self, "_operation_in_progress", False):
+            return
         if self._last_result is None and self._result_state != "no_results":
             return
         result_box = self.query_one("#result-box", RichLog)
         self._release_last_result()
+        self._set_export_settings_visible(False)
         self._set_result(result_box, build_idle_view())
         self._set_result_status("idle")
 
@@ -712,6 +815,17 @@ class LogAnalyzerApp(App):
 
         toggle_button = self.query_one("#toggle_advanced_settings", Button)
         toggle_button.label = "收合進階設定" if visible else "展開進階設定"
+
+    def _set_export_settings_visible(self, visible: bool) -> None:
+        self.query_one("#export-settings", Container).display = visible
+
+    def _focused_inside_export_settings(self) -> bool:
+        widget = self.focused
+        while widget is not None:
+            if widget.id == "export-settings":
+                return True
+            widget = widget.parent
+        return False
 
     def action_load_logback_xml(self) -> None:
         status = self.query_one("#logback-xml-status", Static)
@@ -814,27 +928,8 @@ class LogAnalyzerApp(App):
         output_name_input = self.query_one("#output_name", Input)
         output_name_input.value = self._auto_output_name
 
-    def _collect_form_values(self) -> tuple[
-        str,
-        str,
-        str,
-        str,
-        str,
-        str,
-        str,
-        str,
-        str,
-        str,
-        str,
-        str,
-        tuple[str, ...] | None,
-        bool,
-        bool,
-        str,
-    ]:
+    def _collect_form_values(self) -> tuple[AnalysisRequest, str]:
         path = self.query_one("#path", Input).value.strip() or "."
-        output_path = self.query_one("#output_path", Input).value.strip() or "."
-        output_name = self.query_one("#output_name", Input).value.strip()
         start_date = self.query_one("#start_date", Input).value.strip()
         start_time = self.query_one("#start_time", Input).value.strip()
         end_date = self.query_one("#end_date", Input).value.strip()
@@ -845,27 +940,24 @@ class LogAnalyzerApp(App):
         display_mode = self.query_one("#display_mode", Select).value or "summary"
         sort_by = self.query_one("#sort_by", Select).value or "time"
         selected_levels = self._collect_selected_levels()
-        split_by_level = self.query_one("#split_by_level", Checkbox).value
         ignore_case = self.query_one("#ignore_case", Checkbox).value
-        fmt = self.query_one("#format", Select).value or "csv"
-        return (
-            path,
-            output_path,
-            output_name,
+        start_dt, end_dt = parse_datetime_range_inputs(
             start_date,
             start_time,
             end_date,
             end_time,
-            keyword,
-            str(pattern_mode),
-            log_pattern,
-            str(display_mode),
-            str(sort_by),
-            selected_levels,
-            split_by_level,
-            ignore_case,
-            str(fmt),
         )
+        request = AnalysisRequest(
+            path=path,
+            start_dt=start_dt,
+            end_dt=end_dt,
+            keyword=keyword or None,
+            ignore_case=ignore_case,
+            sort_by=str(sort_by),
+            log_pattern=log_pattern if pattern_mode == "custom" else None,
+            levels=selected_levels,
+        )
+        return request, str(display_mode)
 
     def _collect_checked_levels(self) -> tuple[str, ...]:
         return tuple(
@@ -903,7 +995,12 @@ class LogAnalyzerApp(App):
     def _set_result_status(self, state: str, result: AnalysisResult | None = None) -> None:
         status = self.query_one("#result-status", Static)
         clear_button = self.query_one("#clear", Button)
+        export_button = self.query_one("#export-result", Button)
+        confirm_button = self.query_one("#confirm-export", Button)
         self._result_state = state
+        can_export = state == "complete" and result is not None
+        export_button.disabled = not can_export
+        confirm_button.disabled = not can_export
         retry_actions = self.query_one("#zero-result-actions", Container)
         if state == "no_results":
             retry_actions.remove_class("zero-results-hidden")

@@ -37,7 +37,7 @@ def build_loading_view() -> Panel:
         "cyan",
         (
             Text("分析中，請稍候...", style="bold cyan"),
-            Text("正在掃描 Log 目錄、套用條件並產生輸出", style="white"),
+            Text("正在掃描 Log 目錄並套用條件", style="white"),
             Text("大型資料夾可能需要較久時間", style="dim"),
         ),
     )
@@ -93,6 +93,7 @@ def format_path_status(message: str, color: str, require_writable: bool) -> Text
 
 def build_dashboard_view(result: AnalysisResult, compact: bool) -> Group:
     analysis = analyze_dashboard(result)
+    has_export = bool(result.exported_files)
     overview = Panel(
         Group(
             Text("分析完成", style="bold green"),
@@ -114,14 +115,22 @@ def build_dashboard_view(result: AnalysisResult, compact: bool) -> Group:
         _metric_card("總 Log", str(result.total_logs), "cyan", "整體筆數"),
         _metric_card("群組", str(result.matched_groups), "green", "符合條件的事件群組"),
         _metric_card("命中", str(result.matched_occurrences), "yellow", "條件觸發總次數"),
-        _metric_card("格式", result.format_name.upper(), "magenta", "輸出檔案格式"),
+        _metric_card(
+            "格式",
+            result.format_name.upper() if has_export else "尚未匯出",
+            "magenta",
+            "輸出檔案格式" if has_export else "分析結果已保留",
+        ),
     ]
 
     metadata = Table.grid(padding=(0, 1))
     metadata.add_column(style="bold cyan", width=12)
     metadata.add_column(ratio=1)
     metadata.add_row("輸入目錄", result.input_path)
-    metadata.add_row("輸出檔案", result.output_path)
+    metadata.add_row(
+        "輸出檔案",
+        "\n".join(result.exported_files) if has_export else "尚未匯出",
+    )
     if len(result.exported_files) > 1:
         metadata.add_row("分割檔案", f"{len(result.exported_files)} 個")
     metadata.add_row("關鍵字", result.keyword)
