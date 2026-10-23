@@ -3,6 +3,7 @@ import hashlib
 import importlib
 import importlib.util
 import json
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -165,12 +166,12 @@ def test_manifest_uses_file_source_root_and_reports_verified_changed_and_missing
             "2026-06-07 12:00:00.000 INFO  [main] com.test.App: changed after analysis\n",
             encoding="utf-8",
         )
-        manifest_path = export_evidence_manifest(result, options, ())
+        manifest_path = export_evidence_manifest(result, replace(options, overwrite=True), ())
         changed = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
         assert changed["sources"][0]["verification_status"] == "changed"
 
         source.unlink()
-        manifest_path = export_evidence_manifest(result, options, ())
+        manifest_path = export_evidence_manifest(result, replace(options, overwrite=True), ())
         missing = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
         assert missing["sources"][0]["verification_status"] == "missing"
     finally:
@@ -338,19 +339,23 @@ def test_manifest_replace_failure_preserves_previous_manifest_and_reports(tmp_pa
     manifest_path.write_text("previous manifest", encoding="utf-8")
     report_bytes = {path: Path(path).read_bytes() for path in report_files}
 
-    import log_analyzer.application.evidence_manifest as evidence_manifest
+    import log_analyzer.infrastructure.exporting.transaction as export_transaction
 
-    def fail_replace(_source, _target):
-        raise OSError("simulated replace failure")
+    def fail_publish(_source, _target):
+        raise OSError("simulated publish failure")
 
-    monkeypatch.setattr(evidence_manifest.os, "replace", fail_replace)
+    monkeypatch.setattr(export_transaction, "_publish_no_clobber", fail_publish)
 
-    with pytest.raises(OSError, match="simulated replace failure"):
-        export_evidence_manifest(result, report_options, report_files)
+    with pytest.raises(OSError, match="simulated publish failure"):
+        export_evidence_manifest(
+            result,
+            replace(report_options, overwrite=True),
+            report_files,
+        )
 
     assert manifest_path.read_text(encoding="utf-8") == "previous manifest"
     assert {path: Path(path).read_bytes() for path in report_files} == report_bytes
-    assert list(tmp_path.glob(".selected-report_manifest.json.*.tmp")) == []
+    assert list(tmp_path.glob(".selected-report_manifest.json.export-*")) == []
 
 
 def test_missing_report_fails_without_replacing_existing_manifest(tmp_path):
@@ -362,4 +367,19 @@ def test_missing_report_fails_without_replacing_existing_manifest(tmp_path):
     with pytest.raises(FileNotFoundError):
         export_evidence_manifest(result, report_options, [str(tmp_path / "missing.csv")])
 
+    assert manifest_path.read_text(encoding="utf-8") == "previous manifest"
+
+
+def test_manifest_refuses_to_overwrite_existing_target_by_default(tmp_path):
+    export_evidence_manifest = _export_evidence_manifest()
+    result, report_options, report_files, _source, _logs = _analyzed_export(tmp_path)
+    manifest_path = tmp_path / "selected-report_manifest.json"
+    manifest_path.write_text("previous manifest", encoding="utf-8")
+
+    from log_analyzer.infrastructure.exporting import ExportConflictError
+
+    with pytest.raises(ExportConflictError) as error:
+        export_evidence_manifest(result, report_options, report_files)
+
+    assert error.value.paths == (str(manifest_path.resolve()),)
     assert manifest_path.read_text(encoding="utf-8") == "previous manifest"

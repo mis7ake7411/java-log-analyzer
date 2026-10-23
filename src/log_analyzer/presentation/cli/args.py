@@ -31,6 +31,7 @@ def build_argument_parser(get_package_version):
     parser.add_argument("--sort", choices=["time", "level"], default="time", help="結果排序方式：time 時間排序，level 依 Log Level 分組排序")
     parser.add_argument("--max-export-mb", type=int, help="單一輸出檔案的最大大小 (MB)，超過時自動分割")
     parser.add_argument("--split-by-level", action="store_true", help="依 Log Level 分開輸出檔案；只有多個 Level 有資料時才分檔")
+    parser.add_argument("--overwrite", action="store_true", help="明確允許覆蓋已存在的輸出檔案")
     parser.add_argument("--tui", action="store_true", help="啟動互動式介面 (TUI)")
     parser.add_argument("--version", action="version", version=f"%(prog)s {get_package_version()}")
     return parser

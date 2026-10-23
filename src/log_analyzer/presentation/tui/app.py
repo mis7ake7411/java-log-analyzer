@@ -22,15 +22,22 @@ from ...application.analysis_service import (
     ResultExportOptions,
     analyze_logs,
     build_output_path,
+    export_analysis_bundle,
     export_analysis_result,
 )
-from ...application.evidence_manifest import export_evidence_manifest
 from ...domain.log_sources import LogSourceSelection, select_log_source
 from ...domain.logback_pattern import DEFAULT_LOGBACK_PATTERN
 from ...domain.logback_xml import LogbackPatternCandidate, find_best_logback_pattern
 from ...infrastructure.exporting.fields import EXPORT_FIELDS, EXPORT_FIELD_LABELS
+from ...infrastructure.exporting import ExportConflictError
 from ...infrastructure.recipe_store import RECIPE_FIELDS, RecipeStore
-from .dialogs import DirectoryPickerScreen, FilePickerScreen, ShortcutInput, SourcePickerScreen
+from .dialogs import (
+    DirectoryPickerScreen,
+    ExportConflictScreen,
+    FilePickerScreen,
+    ShortcutInput,
+    SourcePickerScreen,
+)
 from .event_browser import EventBrowserScreen
 from .recipes import RecipeManagerScreen
 from .recent_state import load_recent_tui_state, save_recent_tui_state
@@ -89,15 +96,10 @@ def _export_reports_and_manifest(
     result: AnalysisResult,
     options: ResultExportOptions,
     include_manifest: bool,
-) -> tuple[list[str], str | None, Exception | None]:
-    report_files = export_analysis_result(result, options)
-    if not include_manifest:
-        return report_files, None, None
-    try:
-        manifest_path = export_evidence_manifest(result, options, report_files)
-    except Exception as exc:  # noqa: BLE001 - reports succeeded and remain a retryable partial success
-        return report_files, None, exc
-    return report_files, manifest_path, None
+) -> tuple[list[str], str | None]:
+    if include_manifest:
+        return export_analysis_bundle(result, options)
+    return export_analysis_result(result, options), None
 
 
 class LogAnalyzerApp(App):
@@ -366,6 +368,9 @@ class LogAnalyzerApp(App):
         self.update_path_preview(output_path_input.value, "#output-path-status", require_writable=True)
 
     def on_unmount(self) -> None:
+        if getattr(self, "_pending_export_conflict", None) is not None:
+            self._pending_export_conflict = None
+            self._operation_in_progress = False
         if getattr(self, "_operation_in_progress", False):
             self._release_result_when_operation_finishes = True
         else:
@@ -900,11 +905,11 @@ class LogAnalyzerApp(App):
     def _display_export_success(
         self,
         result: AnalysisResult,
-        export_outcome: tuple[list[str], str | None, Exception | None],
+        export_outcome: tuple[list[str], str | None],
         output_name: str,
         export_status: Static,
     ) -> None:
-        exported_files, manifest_path, manifest_error = export_outcome
+        exported_files, manifest_path = export_outcome
         result_box = self.query_one("#result-box", RichLog)
         self._set_result(
             result_box,
@@ -914,16 +919,11 @@ class LogAnalyzerApp(App):
             ),
         )
         report_paths = ", ".join(exported_files) if exported_files else "完成"
-        if manifest_error is not None:
-            export_status.update(
-                f"報表已匯出，證據清單失敗\n報表：{report_paths}\n錯誤：{manifest_error}"
-            )
-        elif manifest_path is not None:
+        if manifest_path is not None:
             export_status.update(f"報表：{report_paths}\n證據清單：{manifest_path}")
         else:
             export_status.update(f"匯出完成：{report_paths}")
-        if manifest_error is None:
-            self._refresh_output_name_default(output_name)
+        self._refresh_output_name_default(output_name)
 
     async def action_confirm_export(self) -> None:
         result = self._last_result
@@ -941,30 +941,87 @@ class LogAnalyzerApp(App):
 
         try:
             options, include_manifest, output_name = self._capture_export_request()
-
-            loop = asyncio.get_running_loop()
-            exported_files, manifest_path, manifest_error = await loop.run_in_executor(
-                None,
-                partial(_export_reports_and_manifest, result, options, include_manifest),
-            )
-            if self.is_running:
-                self._display_export_success(
-                    result,
-                    (exported_files, manifest_path, manifest_error),
-                    output_name,
-                    export_status,
-                )
         except Exception as exc:  # noqa: BLE001 - export failures must preserve the analyzed result
             logger.warning("TUI export failed: %s", exc)
             if self.is_running:
                 export_status.update(f"匯出失敗：{exc}")
+            self._finish_export_operation()
+            return
+
+        await self._run_frozen_export(result, options, include_manifest, output_name)
+
+    async def _run_frozen_export(
+        self,
+        result: AnalysisResult,
+        options: ResultExportOptions,
+        include_manifest: bool,
+        output_name: str,
+    ) -> None:
+        keep_operation_open = False
+        try:
+            loop = asyncio.get_running_loop()
+            export_outcome = await loop.run_in_executor(
+                None,
+                partial(_export_reports_and_manifest, result, options, include_manifest),
+            )
+            if self.is_running and self._last_result is result:
+                self._display_export_success(result, export_outcome, output_name, self.query_one("#export-status", Static))
+        except ExportConflictError as exc:
+            logger.info("TUI export conflicts with existing paths: %s", exc.paths)
+            if self.is_running and self._last_result is result and self._result_state == "complete":
+                self._pending_export_conflict = (result, options, include_manifest, output_name)
+                self.push_screen(ExportConflictScreen(exc.paths), self._on_export_conflict_choice)
+                keep_operation_open = True
+        except Exception as exc:  # noqa: BLE001 - export failures must preserve the analyzed result
+            logger.warning("TUI export failed: %s", exc)
+            if self.is_running and self._last_result is result:
+                self.query_one("#export-status", Static).update(f"匯出失敗：{exc}")
         finally:
-            self._operation_in_progress = False
-            if self.is_running:
-                self._set_export_controls_disabled(False)
-            if getattr(self, "_release_result_when_operation_finishes", False):
-                self._release_result_when_operation_finishes = False
-                self._release_last_result(close_browser=False)
+            if not keep_operation_open:
+                self._finish_export_operation()
+
+    def _on_export_conflict_choice(self, choice: str | None) -> None:
+        pending = getattr(self, "_pending_export_conflict", None)
+        self._pending_export_conflict = None
+        if pending is None:
+            self._finish_export_operation()
+            return
+
+        result, options, include_manifest, output_name = pending
+        if (
+            choice == "overwrite"
+            and self.is_running
+            and self._last_result is result
+            and self._result_state == "complete"
+        ):
+            asyncio.create_task(
+                self._run_frozen_export(
+                    result,
+                    replace(options, overwrite=True),
+                    include_manifest,
+                    output_name,
+                )
+            )
+            return
+
+        if self.is_running:
+            status = self.query_one("#export-status", Static)
+            if choice == "rename":
+                status.update("請修改輸出檔名後重新匯出")
+                output_name_input = self.query_one("#output_name", Input)
+                output_name_input.focus()
+                output_name_input.select_all()
+            else:
+                status.update("匯出已取消")
+        self._finish_export_operation()
+
+    def _finish_export_operation(self) -> None:
+        self._operation_in_progress = False
+        if self.is_running:
+            self._set_export_controls_disabled(False)
+        if getattr(self, "_release_result_when_operation_finishes", False):
+            self._release_result_when_operation_finishes = False
+            self._release_last_result(close_browser=False)
 
     async def action_retry_without_time(self) -> None:
         for field_id in ("start_date", "start_time", "end_date", "end_time"):

@@ -8,13 +8,18 @@ from rich.console import Console
 
 import log_analyzer.application.analysis_service as analysis_service
 from log_analyzer.application.analysis_service import (
+    AnalysisRequest,
     AnalysisOptions,
     AnalysisResult,
     NoMatchingLogsError,
+    ResultExportOptions,
+    analyze_logs,
+    export_analysis_result,
     run_analysis,
     run_analysis_with_options,
 )
 from log_analyzer.domain.log_types import MatchedLogs, ScanDiagnostics
+from log_analyzer.infrastructure.exporting import ExportConflictError
 from log_analyzer.presentation.tui.views import build_dashboard_view
 
 
@@ -55,9 +60,11 @@ def test_analysis_options_pass_frozen_file_selection_to_analysis(tmp_path):
         "2026-06-07 12:00:01.000 ERROR [main] com.test.App: sibling\n",
         encoding="utf-8",
     )
+    output_path = tmp_path / "selected.csv"
+    output_path.write_text("previous report", encoding="utf-8")
     options = AnalysisOptions(
         path=str(logs_dir),
-        output_path=str(tmp_path / "selected.csv"),
+        output_path=str(output_path),
         start_dt=None,
         end_dt=None,
         keyword=None,
@@ -66,6 +73,7 @@ def test_analysis_options_pass_frozen_file_selection_to_analysis(tmp_path):
         fmt="csv",
         log_pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{0}: %msg%n",
         selected_files=("chosen.txt",),
+        overwrite=True,
     )
 
     try:
@@ -77,6 +85,7 @@ def test_analysis_options_pass_frozen_file_selection_to_analysis(tmp_path):
         assert result.counts == {"INFO": 1}
         assert result.analysis_request.selected_files == ("chosen.txt",)
         assert set(result.source_states) == {"chosen.txt"}
+        assert output_path.read_text(encoding="utf-8-sig") != "previous report"
     finally:
         result.matched_logs.release()
 
@@ -295,3 +304,51 @@ def test_run_analysis_with_options_matches_legacy_counts(tmp_path):
     assert options_result.total_logs == legacy_result.total_logs
     assert options_result.matched_groups == legacy_result.matched_groups
     assert options_result.matched_occurrences == legacy_result.matched_occurrences
+
+
+def test_legacy_run_analysis_accepts_keyword_only_overwrite(tmp_path):
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / "app.log").write_text(
+        "2026-06-07 12:00:00.000 [main] INFO  com.test.App - Started\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "report.csv"
+    output.write_text("previous report", encoding="utf-8")
+
+    with pytest.raises(ExportConflictError):
+        run_analysis(
+            str(logs), str(output), None, None, None, False, "time", "csv"
+        )
+
+    result = run_analysis(
+        str(logs), str(output), None, None, None, False, "time", "csv", overwrite=True
+    )
+
+    assert output.read_text(encoding="utf-8-sig") != "previous report"
+    assert result.exported_files == [str(output.resolve())]
+
+
+def test_export_analysis_result_never_overwrites_a_source_log_even_with_overwrite(tmp_path):
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    source = logs / "app.log"
+    source.write_text(
+        "2026-06-07 12:00:00.000 [main] INFO  com.test.App - Started\n",
+        encoding="utf-8",
+    )
+    result = analyze_logs(AnalysisRequest(path=str(logs)))
+    original = source.read_bytes()
+    result.output_path = "prior.csv"
+    result.format_name = "md"
+    result.exported_files = ["prior.md"]
+    before = (result.output_path, result.format_name, list(result.exported_files))
+
+    with pytest.raises(ValueError, match="來源"):
+        export_analysis_result(
+            result,
+            ResultExportOptions(output_path=str(source), fmt="csv", overwrite=True),
+        )
+
+    assert source.read_bytes() == original
+    assert (result.output_path, result.format_name, result.exported_files) == before
