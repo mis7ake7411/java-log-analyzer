@@ -765,53 +765,35 @@ def test_logback_xml_controls_exist():
 
 def test_load_logback_xml_action_updates_preview_without_enabling_override(monkeypatch, tmp_path):
     xml_file = tmp_path / "logback.xml"
-    xml_file.write_text("<configuration />", encoding="utf-8")
+    xml_file.write_text(
+        '<configuration><property name="FILE_LOG_PATTERN" value="%d %-5level [%thread] %logger{0}: %msg%n"/></configuration>',
+        encoding="utf-8",
+    )
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
+    (log_dir / "app.log").write_text(
+        "2026-05-25 15:50:33,198 INFO  [main] YtMamApp: Starting YtMamApp\n"
+        "2026-05-25 15:50:34,198 WARN  [main] YtMamApp: Starting YtMamApp\n",
+        encoding="utf-8",
+    )
 
-    class FakeInput:
-        def __init__(self, value: str = "") -> None:
-            self.value = value
-            self.focused = False
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.query_one("#logback_xml_path").value = str(xml_file)
+            app.query_one("#path").value = str(log_dir)
+            app.query_one("#log_pattern").value = "keep this manual draft"
 
-        def focus(self) -> None:
-            self.focused = True
+            app.action_load_logback_xml()
 
-    class FakeStatic:
-        def __init__(self) -> None:
-            self.value = ""
+            assert app.query_one("#manual_pattern_override").value is False
+            assert app.query_one("#log_pattern").value == "keep this manual draft"
+            assert "%d %-5level [%thread] %logger{0}: %msg%n" in app.query_one("#pattern-preview").render().plain
+            assert xml_file.name in app.query_one("#pattern-source").render().plain
+            assert "命中 2/2" in app.query_one("#logback-xml-status").render().plain
 
-        def update(self, value: str) -> None:
-            self.value = value
-
-    class FakePattern:
-        name = "FILE Pattern"
-        pattern = "%d %-5level [%thread] %logger{0}: %msg%n"
-        matches = 2
-        checked = 2
-
-    mapping = {
-        "#logback-xml-status": FakeStatic(),
-        "#logback_xml_path": FakeInput(str(xml_file)),
-        "#path": FakeInput(str(log_dir)),
-        "#manual_pattern_override": SimpleNamespace(value=False),
-        "#log_pattern": FakeInput("keep this manual draft"),
-        "#pattern-source": FakeStatic(),
-        "#pattern-preview": FakeStatic(),
-    }
-
-    monkeypatch.setattr("log_analyzer.presentation.tui.app.find_best_logback_pattern", lambda *_args, **_kwargs: FakePattern())
-
-    app = LogAnalyzerApp()
-    app.query_one = lambda selector, *_args, **_kwargs: mapping[selector]  # type: ignore[assignment]
-
-    app.action_load_logback_xml()
-
-    assert mapping["#manual_pattern_override"].value is False
-    assert mapping["#log_pattern"].value == "keep this manual draft"
-    assert "%d %-5level [%thread] %logger{0}: %msg%n" in mapping["#pattern-preview"].value
-    assert xml_file.name in mapping["#pattern-source"].value
-    assert "命中 2/2" in mapping["#logback-xml-status"].value
+    asyncio.run(run_check())
 
 
 def test_apply_selected_logback_xml_updates_input():
@@ -917,55 +899,36 @@ def test_paste_log_file_preserves_focused_log_file(tmp_path):
     asyncio.run(run_check())
 
 
-def test_apply_and_load_logback_xml_updates_preview_without_changing_manual_pattern(monkeypatch, tmp_path):
+def test_apply_and_load_logback_xml_updates_preview_without_changing_manual_pattern(tmp_path):
     xml_file = tmp_path / "logback.xml"
-    xml_file.write_text("<configuration />", encoding="utf-8")
+    xml_file.write_text(
+        '<configuration><property name="FILE_LOG_PATTERN" value="%d %-5level [%thread] %logger{0}: %msg%n"/></configuration>',
+        encoding="utf-8",
+    )
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
+    (log_dir / "app.log").write_text(
+        "2026-05-25 15:50:33,198 INFO  [main] YtMamApp: Starting YtMamApp\n"
+        "2026-05-25 15:50:34,198 WARN  [main] YtMamApp: Starting YtMamApp\n",
+        encoding="utf-8",
+    )
 
-    class FakeInput:
-        def __init__(self, value: str = "") -> None:
-            self.value = value
-            self.focused = False
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.query_one("#path").value = str(log_dir)
+            app.query_one("#log_pattern").value = "retained manual text"
 
-        def focus(self) -> None:
-            self.focused = True
+            app._apply_and_load_logback_xml(str(xml_file))
 
-    class FakeStatic:
-        def __init__(self) -> None:
-            self.value = ""
+            assert app.query_one("#logback_xml_path").value == str(xml_file)
+            assert app.query_one("#manual_pattern_override").value is False
+            assert app.query_one("#log_pattern").value == "retained manual text"
+            assert xml_file.name in app.query_one("#pattern-source").render().plain
+            assert "命中 2/2" in app.query_one("#logback-xml-status").render().plain
 
-        def update(self, value: str) -> None:
-            self.value = value
-
-    class FakePattern:
-        name = "FILE Pattern"
-        pattern = "%d %-5level [%thread] %logger{0}: %msg%n"
-        matches = 2
-        checked = 2
-
-    mapping = {
-        "#logback-xml-status": FakeStatic(),
-        "#logback_xml_path": FakeInput(),
-        "#path": FakeInput(str(log_dir)),
-        "#manual_pattern_override": SimpleNamespace(value=False),
-        "#log_pattern": FakeInput("retained manual text"),
-        "#pattern-source": FakeStatic(),
-        "#pattern-preview": FakeStatic(),
-    }
-
-    monkeypatch.setattr("log_analyzer.presentation.tui.app.find_best_logback_pattern", lambda *_args, **_kwargs: FakePattern())
-
-    app = LogAnalyzerApp()
-    app.query_one = lambda selector, *_args, **_kwargs: mapping[selector]  # type: ignore[assignment]
-
-    app._apply_and_load_logback_xml(str(xml_file))
-
-    assert mapping["#logback_xml_path"].value == str(xml_file)
-    assert mapping["#manual_pattern_override"].value is False
-    assert mapping["#log_pattern"].value == "retained manual text"
-    assert xml_file.name in mapping["#pattern-source"].value
-    assert "命中 2/2" in mapping["#logback-xml-status"].value
+    asyncio.run(run_check())
 
 
 @pytest.mark.parametrize("submit_via", ["run_button", "xml_input"])
@@ -1246,7 +1209,7 @@ def test_clearing_selected_xml_uses_default_on_next_analysis(monkeypatch, tmp_pa
     )
     xml_file = tmp_path / "config" / "logback.xml"
     xml_file.parent.mkdir()
-    xml_pattern = "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{0}: %msg%n"
+    xml_pattern = "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
     xml_file.write_text(
         f'<configuration><property name="FILE_LOG_PATTERN" value="{xml_pattern}"/></configuration>',
         encoding="utf-8",

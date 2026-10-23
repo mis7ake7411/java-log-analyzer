@@ -4,7 +4,7 @@ import asyncio
 import logging
 import os
 from collections.abc import Mapping
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
 from xml.etree.ElementTree import ParseError
@@ -27,7 +27,12 @@ from ...application.analysis_service import (
 )
 from ...domain.log_sources import LogSourceSelection, select_log_source
 from ...domain.logback_pattern import DEFAULT_LOGBACK_PATTERN
-from ...domain.logback_xml import LogbackPatternCandidate, find_best_logback_pattern
+from ...domain.logback_xml import (
+    LogbackPatternAssessment,
+    LogbackPatternCandidate,
+    assess_logback_patterns,
+    find_best_logback_pattern,
+)
 from ...infrastructure.exporting.fields import EXPORT_FIELDS, EXPORT_FIELD_LABELS
 from ...infrastructure.exporting import ExportConflictError
 from ...infrastructure.recipe_store import RECIPE_FIELDS, RecipeStore
@@ -35,6 +40,7 @@ from .dialogs import (
     DirectoryPickerScreen,
     ExportConflictScreen,
     FilePickerScreen,
+    LogbackPatternConfirmationScreen,
     ShortcutInput,
     SourcePickerScreen,
 )
@@ -68,6 +74,15 @@ from ...version import get_package_version
 __all__ = ["get_system_root_path"]
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingPatternAnalysis:
+    assessment: LogbackPatternAssessment
+    request: AnalysisRequest
+    display_mode: str
+    result_box: RichLog
+    original_focused: object | None
 
 
 class _ResponsiveAdvancedSettings(Container):
@@ -117,7 +132,9 @@ class LogAnalyzerApp(App):
     _result_state = "idle"
     _advanced_settings_visible: bool = False
     _auto_logback_xml_path: str = ""
+    _auto_logback_xml_paths: tuple[str, ...] = ()
     _last_logback_autofill_source: str = ""
+    _pending_pattern_analysis: _PendingPatternAnalysis | None = None
     BINDINGS = [
         ("q", "quit", "離開"),
         ("enter", "run_analysis", "開始分析"),
@@ -352,6 +369,8 @@ class LogAnalyzerApp(App):
                 yield Button("清除結果", id="clear")
 
     def on_mount(self) -> None:
+        self._auto_logback_xml_paths = ()
+        self._pending_pattern_analysis = None
         path_input = self.query_one("#path", Input)
         output_path_input = self.query_one("#output_path", Input)
         self.query_one("#result-box", RichLog).can_focus = False
@@ -368,6 +387,10 @@ class LogAnalyzerApp(App):
         self.update_path_preview(output_path_input.value, "#output-path-status", require_writable=True)
 
     def on_unmount(self) -> None:
+        if getattr(self, "_pending_pattern_analysis", None) is not None:
+            self._pending_pattern_analysis = None
+            self._operation_in_progress = False
+            self._release_last_result(close_browser=False)
         if getattr(self, "_pending_export_conflict", None) is not None:
             self._pending_export_conflict = None
             self._operation_in_progress = False
@@ -477,6 +500,7 @@ class LogAnalyzerApp(App):
             ):
                 self.query_one("#logback_xml_path", Input).value = ""
                 self._auto_logback_xml_path = ""
+                self._auto_logback_xml_paths = ()
                 self._last_logback_autofill_source = ""
             self._sync_pattern_preview_for_current_selection()
             self.update_path_preview(event.value)
@@ -486,6 +510,8 @@ class LogAnalyzerApp(App):
             current_xml_path = self.query_one("#logback_xml_path", Input).value.strip()
             if current_xml_path and current_xml_path != getattr(self, "_auto_logback_xml_path", ""):
                 self._recipe_autofill_source = ""
+            if current_xml_path != getattr(self, "_auto_logback_xml_path", ""):
+                self._auto_logback_xml_paths = ()
             if current_xml_path != getattr(self, "_auto_logback_xml_path", ""):
                 self._sync_pattern_preview_for_current_selection()
         elif event.input.id == "log_pattern":
@@ -529,6 +555,9 @@ class LogAnalyzerApp(App):
             self.update_path_preview(normalized_path)
             self._autofill_logback_settings(normalized_path)
         elif path_input.id == "logback_xml_path":
+            self._auto_logback_xml_path = ""
+            self._auto_logback_xml_paths = ()
+            self._last_logback_autofill_source = ""
             self._recipe_autofill_source = ""
             self._sync_pattern_preview_for_current_selection()
         return True
@@ -721,6 +750,9 @@ class LogAnalyzerApp(App):
         if not selected_path:
             return
 
+        self._auto_logback_xml_path = ""
+        self._auto_logback_xml_paths = ()
+        self._last_logback_autofill_source = ""
         xml_input = self.query_one("#logback_xml_path", Input)
         xml_input.value = selected_path
         self._recipe_autofill_source = ""
@@ -806,19 +838,9 @@ class LogAnalyzerApp(App):
 
         run_button = self.query_one("#run", Button)
         result_box = self.query_one("#result-box", RichLog)
-        self._operation_in_progress = True
-        self._set_export_settings_visible(False)
-        self.query_one("#export-status", Static).update("")
-        self._release_last_result()
-
-        # 記錄當下聚焦的元件，並暫時清除焦點，避免焦點自動轉移至「清除結果」按鈕造成反白
         original_focused = self.focused
-        self.set_focus(None)
-
-        # 停用按鈕以防二次點擊
-        run_button.disabled = True
-        self._set_result_status("running")
-        self._set_result(result_box, build_loading_view())
+        self._operation_in_progress = True
+        confirmation_pending = False
 
         try:
             log_dir = self.query_one("#path", Input).value.strip() or "."
@@ -829,12 +851,184 @@ class LogAnalyzerApp(App):
                 raise
             self._show_source_scope(source)
             self._autofill_logback_settings(source.path, selected_files=source.filenames)
-            self._load_selected_logback_pattern_for_analysis(
-                source.path,
-                selected_files=source.filenames,
-            )
+
+            manual_override = self.query_one("#manual_pattern_override", Checkbox).value
+            if manual_override:
+                self._load_selected_logback_pattern_for_analysis(
+                    source.path,
+                    selected_files=source.filenames,
+                )
+            else:
+                self._analysis_log_pattern = None
+
             request, display_mode = self._collect_form_values()
             request = replace(request, path=source.path, selected_files=source.filenames)
+
+            assessment = None if manual_override else self._assess_logback_pattern_for_analysis(source)
+            if assessment is not None and assessment.status == "uncertain":
+                self._pending_pattern_analysis = _PendingPatternAnalysis(
+                    assessment=assessment,
+                    request=request,
+                    display_mode=display_mode,
+                    result_box=result_box,
+                    original_focused=original_focused,
+                )
+                self.push_screen(
+                    LogbackPatternConfirmationScreen(assessment),
+                    callback=self._on_pattern_confirmation,
+                )
+                confirmation_pending = True
+                return
+
+            if not manual_override:
+                request = replace(request, log_pattern=self._analysis_log_pattern)
+            await self._execute_frozen_analysis(request, display_mode, result_box, original_focused)
+        except (NoMatchingLogsError, PermissionError, FileNotFoundError, ValueError) as exc:
+            self._handle_analysis_error(result_box, exc)
+        except Exception as exc:  # noqa: BLE001
+            self._handle_unexpected_error(result_box, exc)
+        finally:
+            if not confirmation_pending:
+                self._finish_analysis_operation(original_focused, run_button)
+
+    def _assess_logback_pattern_for_analysis(
+        self,
+        source: LogSourceSelection,
+    ) -> LogbackPatternAssessment | None:
+        status = self.query_one("#logback-xml-status", Static)
+        xml_path = self.query_one("#logback_xml_path", Input).value.strip()
+        if not xml_path:
+            self._analysis_log_pattern = None
+            status.update("")
+            self._set_pattern_preview(
+                "預設 Logback",
+                DEFAULT_LOGBACK_PATTERN,
+                seed_pattern=DEFAULT_LOGBACK_PATTERN,
+            )
+            return None
+
+        auto_xml_path = getattr(self, "_auto_logback_xml_path", "")
+        if xml_path == auto_xml_path and auto_xml_path:
+            discovered_paths = self._find_logback_xml_candidates(source.root)
+            self._auto_logback_xml_paths = tuple(discovered_paths)
+            if not discovered_paths:
+                self._auto_logback_xml_path = ""
+                self.query_one("#logback_xml_path", Input).value = ""
+                self._analysis_log_pattern = None
+                status.update("")
+                self._set_pattern_preview(
+                    "預設 Logback",
+                    DEFAULT_LOGBACK_PATTERN,
+                    seed_pattern=DEFAULT_LOGBACK_PATTERN,
+                )
+                return None
+            if auto_xml_path not in discovered_paths:
+                auto_xml_path = discovered_paths[0]
+                self._auto_logback_xml_path = auto_xml_path
+                self.query_one("#logback_xml_path", Input).value = auto_xml_path
+            xml_paths = tuple(discovered_paths)
+        else:
+            xml_paths = (xml_path,)
+        try:
+            assessment = assess_logback_patterns(
+                xml_paths,
+                source.root,
+                selected_files=source.filenames,
+            )
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"無法評估 Logback XML：{exc}") from exc
+
+        if assessment.status == "ready" and assessment.selected is not None:
+            candidate = assessment.selected
+            self._analysis_log_pattern = candidate.pattern
+            self._set_pattern_preview(
+                f"XML（{Path(candidate.xml_path).name}）",
+                candidate.pattern,
+                seed_pattern=candidate.pattern,
+            )
+            status.update(
+                f"已自動選用 {candidate.name}，命中 {candidate.matches}/{candidate.checked}"
+            )
+            return assessment
+
+        self._analysis_log_pattern = None
+        status.update(assessment.reason)
+        self._set_pattern_preview(
+            f"XML（{len(xml_paths)} 份）" if len(xml_paths) > 1 else f"XML（{Path(xml_path).name}）",
+            assessment.reason,
+            seed_pattern=None,
+        )
+        if assessment.status == "unsupported":
+            raise ValueError(f"{assessment.reason}請檢查 XML，或啟用手動覆寫指定 Pattern。")
+        return assessment
+
+    def _on_pattern_confirmation(self, candidate: LogbackPatternCandidate | None) -> None:
+        pending = self._pending_pattern_analysis
+        self._pending_pattern_analysis = None
+        if pending is None:
+            return
+
+        self._operation_in_progress = False
+        if candidate is None or not self.is_running:
+            return
+        if not any(item is candidate for item in pending.assessment.candidates) or candidate.error is not None:
+            return
+
+        self._analysis_log_pattern = candidate.pattern
+        self._set_pattern_preview(
+            f"已確認 XML（{Path(candidate.xml_path).name}）",
+            candidate.pattern,
+            seed_pattern=candidate.pattern,
+        )
+        self.query_one("#logback-xml-status", Static).update(
+            f"已確認使用 {candidate.name}，命中 {candidate.matches}/{candidate.checked}"
+        )
+        request = replace(pending.request, log_pattern=candidate.pattern)
+        self._operation_in_progress = True
+        asyncio.create_task(
+            self._resume_confirmed_pattern_analysis(
+                request,
+                pending.display_mode,
+                pending.result_box,
+                pending.original_focused,
+            )
+        )
+
+    async def _resume_confirmed_pattern_analysis(
+        self,
+        request: AnalysisRequest,
+        display_mode: str,
+        result_box: RichLog,
+        original_focused: object | None,
+    ) -> None:
+        run_button: Button | None = None
+        try:
+            if not self.is_running:
+                return
+            run_button = self.query_one("#run", Button)
+            await self._execute_frozen_analysis(request, display_mode, result_box, original_focused)
+        finally:
+            self._finish_analysis_operation(original_focused, run_button)
+
+    async def _execute_frozen_analysis(
+        self,
+        request: AnalysisRequest,
+        display_mode: str,
+        result_box: RichLog,
+        original_focused: object | None,
+    ) -> None:
+        run_button = self.query_one("#run", Button)
+        self._set_export_settings_visible(False)
+        self.query_one("#export-status", Static).update("")
+        self._release_last_result()
+
+        # 確認 Pattern 後才進入執行狀態並停用按鈕。
+        self.set_focus(None)
+        run_button.disabled = True
+        self._set_result_status("running")
+        self._set_result(result_box, build_loading_view())
+
+        try:
             self._save_recent_analysis_state(request, display_mode)
             result = await self._analyze_request(request)
             self._display_analysis_result(result_box, result)
@@ -842,16 +1036,25 @@ class LogAnalyzerApp(App):
             self._handle_analysis_error(result_box, exc)
         except Exception as exc:  # noqa: BLE001
             self._handle_unexpected_error(result_box, exc)
-        finally:
-            self._operation_in_progress = False
-            if self.is_running:
+
+    def _finish_analysis_operation(
+        self,
+        original_focused: object | None,
+        run_button: Button | None,
+    ) -> None:
+        self._operation_in_progress = False
+        if self.is_running:
+            if run_button is not None:
                 run_button.disabled = False
-                # 恢復原本的焦點元件
-                if original_focused and original_focused.is_mounted and not original_focused.disabled:
-                    self.set_focus(original_focused)
-            if getattr(self, "_release_result_when_operation_finishes", False):
-                self._release_result_when_operation_finishes = False
-                self._release_last_result(close_browser=False)
+            if (
+                original_focused
+                and getattr(original_focused, "is_mounted", False)
+                and not getattr(original_focused, "disabled", False)
+            ):
+                self.set_focus(original_focused)
+        if getattr(self, "_release_result_when_operation_finishes", False):
+            self._release_result_when_operation_finishes = False
+            self._release_last_result(close_browser=False)
 
     def action_show_export_settings(self) -> None:
         if getattr(self, "_operation_in_progress", False):
@@ -1114,6 +1317,7 @@ class LogAnalyzerApp(App):
 
     def _apply_recipe_state(self, name: str, recipe: Mapping[str, object]) -> str:
         self._auto_logback_xml_path = ""
+        self._auto_logback_xml_paths = ()
         self._last_logback_autofill_source = ""
         self._recipe_autofill_source = ""
 
@@ -1152,6 +1356,7 @@ class LogAnalyzerApp(App):
                 pattern_input.value = ""
                 xml_input.value = ""
                 override.value = False
+                self._auto_logback_xml_paths = ()
                 default_source = str(recipe.get("path") or self.query_one("#path", Input).value or ".")
                 self._recipe_autofill_source = self._normalize_recipe_source(default_source)
             else:
@@ -1263,19 +1468,17 @@ class LogAnalyzerApp(App):
 
         try:
             source = select_log_source(log_dir, selected_files=selected_files)
-            best_pattern = find_best_logback_pattern(
-                xml_path,
+            assessment = assess_logback_patterns(
+                (xml_path,),
                 source.root,
                 selected_files=source.filenames,
             )
-        except ParseError as exc:
-            raise ValueError(f"無法解析 Logback XML：{exc}") from exc
         except OSError as exc:
             raise ValueError(f"無法讀取 Logback XML：{exc}") from exc
 
-        if best_pattern is None:
-            raise ValueError("找不到可用的 Logback pattern")
-        return best_pattern
+        if assessment.status == "ready" and assessment.selected is not None:
+            return assessment.selected
+        raise ValueError(assessment.reason)
 
     def _load_selected_logback_pattern_for_analysis(
         self,
@@ -1355,6 +1558,7 @@ class LogAnalyzerApp(App):
             if current_xml and current_xml == previous_auto_xml:
                 xml_input.value = ""
                 self._auto_logback_xml_path = ""
+                self._auto_logback_xml_paths = ()
                 self._last_logback_autofill_source = ""
                 self._sync_pattern_preview_for_current_selection()
             return
@@ -1365,37 +1569,59 @@ class LogAnalyzerApp(App):
         ) or not can_update_xml:
             return
 
-        best_xml_path, best_pattern = self._find_best_logback_xml_candidate(source)
-
-        if best_pattern is None:
+        xml_paths = self._find_logback_xml_candidates(source.root)
+        if not xml_paths:
             if current_xml and current_xml == previous_auto_xml:
                 xml_input.value = ""
                 self._auto_logback_xml_path = ""
+            self._auto_logback_xml_paths = ()
             self._last_logback_autofill_source = ""
             self.query_one("#logback-xml-status", Static).update("")
             self._sync_pattern_preview_for_current_selection()
             return
 
+        best_xml_path, best_pattern = self._find_best_logback_xml_candidate(source)
+        best_xml_path = best_xml_path or xml_paths[0]
+
         xml_input.value = best_xml_path
         self._auto_logback_xml_path = best_xml_path
-        self._set_pattern_preview(
-            f"XML（{Path(best_xml_path).name}）",
-            best_pattern.pattern,
-            seed_pattern=best_pattern.pattern,
-        )
-
-        self.query_one("#logback-xml-status", Static).update(
-            f"已自動載入 {Path(best_xml_path).name}，命中 {best_pattern.matches}/{best_pattern.checked}"
-        )
+        self._auto_logback_xml_paths = tuple(xml_paths)
+        status = self.query_one("#logback-xml-status", Static)
+        if best_pattern is not None:
+            candidate_xml_path = getattr(best_pattern, "xml_path", "") or best_xml_path
+            self._set_pattern_preview(
+                f"XML（{Path(candidate_xml_path).name}）",
+                best_pattern.pattern,
+                seed_pattern=best_pattern.pattern,
+            )
+            status.update(
+                f"已自動載入 {best_pattern.name[:80]}（{Path(candidate_xml_path).name[:120]}），"
+                f"命中 {best_pattern.matches}/{best_pattern.checked}"
+            )
+        else:
+            assessment = assess_logback_patterns(
+                xml_paths,
+                source.root,
+                selected_files=source.filenames,
+            )
+            reason = assessment.reason
+            self._set_pattern_preview(
+                f"XML（{len(xml_paths)} 份）" if len(xml_paths) > 1 else f"XML（{Path(best_xml_path).name}）",
+                reason,
+                seed_pattern=None,
+            )
+            status.update(reason)
         self._last_logback_autofill_source = normalized_source
 
     def _find_best_logback_xml_candidate(
         self,
         source: LogSourceSelection,
     ) -> tuple[str, LogbackPatternCandidate | None]:
-        best_xml_path = ""
-        best_pattern: LogbackPatternCandidate | None = None
-        for xml_path in self._find_logback_xml_candidates(source.root):
+        xml_paths = self._find_logback_xml_candidates(source.root)
+        if not xml_paths:
+            return "", None
+        if len(xml_paths) == 1:
+            xml_path = xml_paths[0]
             try:
                 candidate = find_best_logback_pattern(
                     xml_path,
@@ -1403,13 +1629,18 @@ class LogAnalyzerApp(App):
                     selected_files=source.filenames,
                 )
             except (OSError, ParseError, ValueError):
-                continue
-            if candidate is None:
-                continue
-            if best_pattern is None or (candidate.matches, candidate.score) > (best_pattern.matches, best_pattern.score):
-                best_xml_path = xml_path
-                best_pattern = candidate
-        return best_xml_path, best_pattern
+                candidate = None
+            candidate_xml_path = getattr(candidate, "xml_path", "") if candidate else ""
+            return candidate_xml_path or xml_path, candidate
+
+        assessment = assess_logback_patterns(
+            xml_paths,
+            source.root,
+            selected_files=source.filenames,
+        )
+        if assessment.status == "ready" and assessment.selected is not None:
+            return assessment.selected.xml_path, assessment.selected
+        return xml_paths[0], None
 
     def _find_logback_xml_candidates(self, log_dir: str) -> list[str]:
         candidates: list[str] = []
@@ -1573,7 +1804,7 @@ class LogAnalyzerApp(App):
     def _set_pattern_preview(self, source: str, pattern: str, seed_pattern: str | None = None) -> None:
         self._preview_seed_pattern = seed_pattern
         self.query_one("#pattern-source", Static).update(f"格式來源：{source}")
-        self.query_one("#pattern-preview", Static).update(f"有效 Pattern：{pattern}")
+        self.query_one("#pattern-preview", Static).update(f"Pattern 資訊：{pattern}")
 
     def _sync_pattern_preview_for_current_selection(self) -> None:
         if self.query_one("#manual_pattern_override", Checkbox).value:

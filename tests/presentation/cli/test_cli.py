@@ -143,6 +143,7 @@ def test_main_freezes_single_file_scope_for_xml_and_analysis(
     assert captured_options.path == selected_path
     assert captured_options.selected_files == ("chosen.LoG",)
     assert resolved_scopes == [(str(xml_file), selected_path, None, ("chosen.LoG",))]
+    assert "sibling.txt" not in scope_output_before_analysis
     assert scope_output_before_analysis.splitlines() == [
         "來源模式：單一檔案",
         f"來源路徑：{selected_path}",
@@ -151,7 +152,81 @@ def test_main_freezes_single_file_scope_for_xml_and_analysis(
         "  - chosen.LoG",
         "分析 Level：ERROR, WARN, INFO",
     ]
-    assert "sibling.txt" not in scope_output_before_analysis
+
+
+def test_uncertain_xml_pattern_exits_before_creating_report(monkeypatch, capsys, tmp_path):
+    source_dir = tmp_path / "logs"
+    source_dir.mkdir()
+    (source_dir / "app.log").write_text("not a log line\n", encoding="utf-8")
+    xml_path = tmp_path / "logback.xml"
+    xml_path.write_text(
+        '<configuration><property name="LOG_PATTERN" value="%d [%thread] %-5level %logger - %msg%n"/></configuration>',
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "report.csv"
+    analysis_calls = []
+
+    def capture_analysis(options):
+        analysis_calls.append(options)
+        return _analysis_result()
+
+    monkeypatch.setattr(
+        cli.sys,
+        "argv",
+        [
+            "log-analyzer",
+            str(source_dir),
+            "--logback-xml",
+            str(xml_path),
+            "-o",
+            str(output_path),
+        ],
+    )
+    monkeypatch.setattr(cli, "run_analysis_with_options", capture_analysis)
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 1
+    assert not analysis_calls
+    assert not output_path.exists()
+    output = capsys.readouterr().out
+    assert "--pattern" in output
+    assert "不確定" in output
+
+
+def test_unsupported_xml_pattern_reports_candidate_error_before_analysis(monkeypatch, capsys, tmp_path):
+    source_dir = tmp_path / "logs"
+    source_dir.mkdir()
+    (source_dir / "app.log").write_text("sample\n", encoding="utf-8")
+    xml_path = tmp_path / "logback.xml"
+    xml_path.write_text(
+        '<configuration><property name="FILE_LOG_PATTERN" value="%d %springProperty%n"/></configuration>',
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "report.csv"
+    analysis_calls = []
+
+    def capture_analysis(options):
+        analysis_calls.append(options)
+        return _analysis_result()
+
+    monkeypatch.setattr(
+        cli.sys,
+        "argv",
+        ["log-analyzer", str(source_dir), "--logback-xml", str(xml_path), "-o", str(output_path)],
+    )
+    monkeypatch.setattr(cli, "run_analysis_with_options", capture_analysis)
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 1
+    assert not analysis_calls
+    assert not output_path.exists()
+    output = capsys.readouterr().out
+    assert "FILE_LOG_PATTERN" in output
+    assert "%springProperty" in output
 
 
 def test_main_rejects_empty_directory_without_expanding_to_parent(

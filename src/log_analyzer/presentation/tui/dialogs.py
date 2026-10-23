@@ -12,6 +12,7 @@ from textual.widgets import Button, DirectoryTree, Input, Label, Static
 from textual.containers import VerticalScroll
 
 from ...domain.log_sources import select_log_source
+from ...domain.logback_xml import LogbackPatternAssessment, LogbackPatternCandidate
 from ...infrastructure.paths import (
     get_system_root_path,
     inspect_directory_path,
@@ -61,6 +62,90 @@ class ExportConflictScreen(ModalScreen[str | None]):
         }
         if event.button.id in actions:
             self.dismiss(actions[event.button.id])
+
+
+class LogbackPatternConfirmationScreen(ModalScreen[LogbackPatternCandidate | None]):
+    """展示不確定的 Logback Pattern 與樣本，等待使用者明確選擇。"""
+
+    BINDINGS = [("escape", "cancel", "取消")]
+
+    def __init__(self, assessment: LogbackPatternAssessment) -> None:
+        self.assessment = assessment
+        super().__init__()
+
+    def compose(self):
+        message = (
+            f"{self.assessment.reason} 抽樣 {self.assessment.checked} 個非空行；"
+            "最多取前 50 行，堆疊續行可能影響比例。請選擇可用的 Pattern。"
+        )
+        with Container(id="pattern-confirmation"), Container(id="pattern-confirmation-card"):
+            yield Static("確認 Logback Pattern", id="pattern-confirmation-title")
+            yield Static(message, id="pattern-confirmation-message", markup=False)
+            with VerticalScroll(id="pattern-candidates"):
+                for index, candidate in enumerate(self.assessment.candidates):
+                    with Container(classes="pattern-candidate"):
+                        yield Static(
+                            f"{candidate.name[:80]} · {candidate.xml_path[:300]} · 命中 {candidate.matches}/{candidate.checked}",
+                            classes="pattern-candidate-title",
+                            markup=False,
+                        )
+                        yield Static(
+                            f"Pattern：{candidate.pattern[:500]}",
+                            classes="pattern-candidate-pattern",
+                            markup=False,
+                        )
+                        if candidate.error:
+                            yield Static(
+                                f"不可選：{candidate.error[:200]}",
+                                classes="pattern-candidate-error",
+                                markup=False,
+                            )
+                        else:
+                            yield Button(
+                                f"使用此 Pattern（命中 {candidate.matches}/{candidate.checked}）",
+                                id=f"pattern-select-{index}",
+                                variant="primary",
+                            )
+                        for preview in candidate.previews:
+                            label = "命中樣本" if preview.fields is not None else "未命中樣本"
+                            yield Static(
+                                f"{label}：{preview.raw}",
+                                classes="pattern-candidate-preview",
+                                markup=False,
+                            )
+                            if preview.fields is not None:
+                                parsed = " | ".join(
+                                    f"{name}={value}"
+                                    for name, value in preview.fields.items()
+                                )
+                                yield Static(
+                                    f"解析：{parsed}",
+                                    classes="pattern-candidate-preview",
+                                    markup=False,
+                                )
+            with Container(id="pattern-confirmation-actions"):
+                yield Button("取消分析", id="pattern-cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#pattern-cancel", Button).focus()
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id or ""
+        if button_id == "pattern-cancel":
+            self.dismiss(None)
+            return
+        if not button_id.startswith("pattern-select-"):
+            return
+        try:
+            index = int(button_id.removeprefix("pattern-select-"))
+            candidate = self.assessment.candidates[index]
+        except (ValueError, IndexError):
+            return
+        if candidate.error is None:
+            self.dismiss(candidate)
 
 
 class FolderOnlyDirectoryTree(DirectoryTree):
