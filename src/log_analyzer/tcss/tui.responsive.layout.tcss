@@ -52,7 +52,8 @@
 }
 
 #content.compact #form-column {
-    width: auto;
+    width: 1fr;
+    min-width: 0;
     margin-right: 0;
     margin-bottom: 1;
     height: 1fr;
@@ -60,7 +61,8 @@
 }
 
 #content.compact #form-panel {
-    width: auto;
+    width: 100%;
+    min-width: 0;
     margin-right: 0;
     margin-bottom: 1;
     height: 1fr;
@@ -69,7 +71,8 @@
 }
 
 #content.compact #output-panel {
-    width: auto;
+    width: 1fr;
+    min-width: 0;
     height: 1fr;
     min-height: 8;
 }

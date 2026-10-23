@@ -123,3 +123,15 @@
 #form-actions.wide #run {
     width: 1fr;
 }
+
+#form-actions.compact {
+    layout: horizontal;
+}
+
+#form-actions.compact #manage-recipes {
+    width: 18;
+}
+
+#form-actions.compact #run {
+    width: 1fr;
+}
