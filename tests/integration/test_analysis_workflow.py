@@ -6,6 +6,10 @@ import pytest
 
 import log_analyzer.application.analysis_service as analysis_service
 from log_analyzer.domain.parser import MatchedLogsStore
+from log_analyzer.application.source_preview import read_source_context
+
+
+STANDARD_LOG_PATTERN = "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{0}: %msg%n"
 
 
 def _write_log(logs_dir):
@@ -59,6 +63,87 @@ def test_analysis_request_levels_are_copied_to_an_immutable_tuple(tmp_path):
 
         assert result.analysis_request.levels == ("ERROR",)
         assert result.selected_levels == ("ERROR",)
+    finally:
+        _release(result)
+
+
+def test_analyze_logs_uses_only_a_selected_file_and_keeps_the_preview_root(tmp_path):
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir()
+    selected_file = logs_dir / "chosen.LOG"
+    selected_file.write_text(
+        "2026-06-07 12:00:00.000 INFO  [main] com.test.App: selected\n",
+        encoding="utf-8",
+    )
+    (logs_dir / "sibling.log").write_text(
+        "2026-06-07 12:00:01.000 ERROR [main] com.test.App: sibling\n",
+        encoding="utf-8",
+    )
+
+    try:
+        result = analysis_service.analyze_logs(
+            _request(selected_file, log_pattern=STANDARD_LOG_PATTERN)
+        )
+    except (FileNotFoundError, ValueError) as error:
+        pytest.fail(f"a supported single log file should be analyzable: {error}")
+
+    try:
+        assert result.input_path == str(logs_dir.resolve())
+        assert result.analysis_request.path == str(selected_file.resolve())
+        assert result.analysis_request.selected_files == ("chosen.LOG",)
+        assert result.counts == {"INFO": 1}
+        assert set(result.source_states) == {"chosen.LOG"}
+        assert result.diagnostics.files_scanned == 1
+        preview = read_source_context(
+            result.input_path,
+            {"filename": "chosen.LOG", "line_number": 1},
+            result.source_states["chosen.LOG"],
+        )
+        assert preview.path_line == f"{selected_file.resolve()}:1"
+        assert preview.lines == ((1, "2026-06-07 12:00:00.000 INFO  [main] com.test.App: selected"),)
+        assert preview.warning is None
+    finally:
+        _release(result)
+
+
+def test_analyze_logs_does_not_expand_frozen_selection_after_new_file_arrives(
+    tmp_path, monkeypatch
+):
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir()
+    (logs_dir / "chosen.log").write_text(
+        "2026-06-07 12:00:00.000 INFO  [main] com.test.App: selected\n",
+        encoding="utf-8",
+    )
+    (logs_dir / "sibling.log").write_text(
+        "2026-06-07 12:00:01.000 ERROR [main] com.test.App: sibling\n",
+        encoding="utf-8",
+    )
+    real_parse = analysis_service.parse_log_directory
+
+    def add_file_before_parse(path, options):
+        (logs_dir / "arrived.log").write_text(
+            "2026-06-07 12:00:02.000 WARN  [main] com.test.App: arrived\n",
+            encoding="utf-8",
+        )
+        return real_parse(path, options)
+
+    monkeypatch.setattr(analysis_service, "parse_log_directory", add_file_before_parse)
+    try:
+        result = analysis_service.analyze_logs(
+            _request(
+                logs_dir,
+                log_pattern=STANDARD_LOG_PATTERN,
+                selected_files=("chosen.log",),
+            )
+        )
+    except TypeError as error:
+        pytest.fail(f"analysis requests should preserve selected files: {error}")
+
+    try:
+        assert result.counts == {"INFO": 1}
+        assert set(result.source_states) == {"chosen.log"}
+        assert result.diagnostics.files_scanned == 1
     finally:
         _release(result)
 

@@ -1,5 +1,7 @@
 from datetime import datetime
+from types import SimpleNamespace
 
+from log_analyzer.presentation.cli import runtime
 from log_analyzer.presentation.cli.runtime import parse_datetime_value, resolve_levels
 
 
@@ -41,3 +43,32 @@ def test_resolve_levels_all_expands_to_every_supported_level():
 
 def test_resolve_levels_all_takes_precedence_when_mixed_with_other_levels():
     assert resolve_levels(["ERROR", "ALL"]) == ("ERROR", "WARN", "INFO", "DEBUG", "TRACE")
+
+
+def test_resolve_logback_pattern_passes_frozen_files_to_xml_sampling(monkeypatch, tmp_path):
+    selected_files = ("chosen.LOG",)
+    captured_call = None
+    best_pattern = SimpleNamespace(
+        name="FILE_LOG_PATTERN",
+        pattern="%msg%n",
+        matches=1,
+        checked=1,
+    )
+
+    def find_best(xml_path, source_path, *, selected_files=None):
+        nonlocal captured_call
+        captured_call = (xml_path, source_path, selected_files)
+        return best_pattern
+
+    monkeypatch.setattr(runtime, "find_best_logback_pattern", find_best)
+
+    pattern, notice = runtime.resolve_logback_pattern(
+        "logback.xml",
+        str(tmp_path),
+        None,
+        selected_files=selected_files,
+    )
+
+    assert captured_call == ("logback.xml", str(tmp_path), selected_files)
+    assert pattern == "%msg%n"
+    assert notice == "已從 logback XML 選用 pattern：FILE_LOG_PATTERN，命中 1/1"

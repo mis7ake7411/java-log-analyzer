@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from collections.abc import Iterable
 
 from .logback_pattern import UnsupportedLogbackPatternError, compile_logback_pattern
+from .log_sources import select_log_source
 
 
 @dataclass
@@ -47,9 +48,11 @@ def find_best_logback_pattern(
     xml_path: str,
     log_dir: str,
     sample_limit: int = 50,
+    *,
+    selected_files: tuple[str, ...] | None = None,
 ) -> LogbackPatternCandidate | None:
     candidates = load_logback_patterns(xml_path)
-    samples = list(_read_log_samples(log_dir, sample_limit))
+    samples = list(_read_log_samples(log_dir, sample_limit, selected_files=selected_files))
     if not candidates:
         return None
 
@@ -72,16 +75,19 @@ def _score_candidate(
     return scored
 
 
-def _read_log_samples(log_dir: str, sample_limit: int) -> Iterable[str]:
-    if not os.path.isdir(log_dir):
-        return
-
+def _read_log_samples(
+    log_dir: str,
+    sample_limit: int,
+    *,
+    selected_files: tuple[str, ...] | None = None,
+) -> Iterable[str]:
+    source = select_log_source(log_dir, selected_files=selected_files)
     remaining = sample_limit
-    for filename in _log_filenames(log_dir):
+    for filename in source.filenames:
         if remaining <= 0:
             break
 
-        filepath = os.path.join(log_dir, filename)
+        filepath = os.path.join(source.root, filename)
         for line in _iter_nonempty_lines(filepath):
             if remaining <= 0:
                 break
@@ -104,10 +110,6 @@ def _encoder_candidate(root: ET.Element, element: ET.Element) -> LogbackPatternC
     appender_name = _nearest_appender_name(root, element)
     name = f"{appender_name} Pattern" if appender_name else "Pattern"
     return LogbackPatternCandidate(name, text, "encoder")
-
-
-def _log_filenames(log_dir: str) -> Iterable[str]:
-    return (filename for filename in sorted(os.listdir(log_dir)) if filename.endswith(".log"))
 
 
 def _iter_nonempty_lines(filepath: str) -> Iterable[str]:

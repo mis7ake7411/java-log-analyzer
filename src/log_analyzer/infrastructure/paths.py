@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from ..domain.log_sources import SUPPORTED_LOG_EXTENSIONS
+
 
 def normalize_pasted_path(path: str) -> str | None:
     """將終端貼上的單一路徑正規化為絕對路徑。"""
@@ -52,9 +54,10 @@ def validate_pasted_path(path: str, field_id: str) -> tuple[bool, str, str]:
 
 def _validate_pasted_log_path(path: str) -> tuple[bool, str, str]:
     if os.path.isfile(path):
-        if Path(path).suffix.lower() not in {".log", ".txt", ".out"}:
+        if Path(path).suffix.lower() not in SUPPORTED_LOG_EXTENSIONS:
             return False, path, "Log 檔案僅支援 .log、.txt 或 .out"
-        path = os.path.dirname(path)
+        _, message, is_valid, _ = inspect_file_path(path)
+        return is_valid, path, message
     _, message, is_valid, _ = inspect_directory_path(path)
     return is_valid, path, message
 

@@ -205,8 +205,17 @@ def test_unrestricted_level_disables_controls_without_losing_selection(monkeypat
             for level, selected in levels.items():
                 app.query_one(f"#level_{level}").value = selected
 
+            unrestricted = app.query_one("#level_unrestricted")
+            unrestricted.scroll_visible(animate=False, immediate=True)
+            await pilot.pause()
+            form_viewport = app.query_one("#form-panel").scrollable_content_region
+            assert unrestricted.region.y >= form_viewport.y
+            assert unrestricted.region.y + unrestricted.region.height <= (
+                form_viewport.y + form_viewport.height
+            )
             await pilot.click("#level_unrestricted")
             await pilot.pause()
+            assert unrestricted.value is True
 
             for level, selected in levels.items():
                 checkbox = app.query_one(f"#level_{level}")
@@ -220,6 +229,7 @@ def test_unrestricted_level_disables_controls_without_losing_selection(monkeypat
 
             await pilot.click("#level_unrestricted")
             await pilot.pause()
+            assert unrestricted.value is False
             for level, selected in levels.items():
                 checkbox = app.query_one(f"#level_{level}")
                 assert checkbox.value is selected

@@ -4,14 +4,15 @@ import asyncio
 import logging
 import os
 from collections.abc import Mapping
+from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from xml.etree.ElementTree import ParseError
 
 from textual.app import App, ComposeResult
-from textual.containers import Container, ScrollableContainer
+from textual.containers import Container, ScrollableContainer, VerticalScroll
 from textual.events import Paste, Resize
-from textual.widgets import Button, Checkbox, Footer, Header, Input, Label, RichLog, Select, Static
+from textual.widgets import Button, Checkbox, Collapsible, Footer, Header, Input, Label, RichLog, Select, Static
 
 from ...application.analysis_service import (
     DEFAULT_SELECTED_LEVELS,
@@ -24,11 +25,12 @@ from ...application.analysis_service import (
     export_analysis_result,
 )
 from ...application.evidence_manifest import export_evidence_manifest
+from ...domain.log_sources import LogSourceSelection, select_log_source
 from ...domain.logback_pattern import DEFAULT_LOGBACK_PATTERN
 from ...domain.logback_xml import LogbackPatternCandidate, find_best_logback_pattern
 from ...infrastructure.exporting.fields import EXPORT_FIELDS, EXPORT_FIELD_LABELS
 from ...infrastructure.recipe_store import RECIPE_FIELDS, RecipeStore
-from .dialogs import DirectoryPickerScreen, FilePickerScreen, ShortcutInput
+from .dialogs import DirectoryPickerScreen, FilePickerScreen, ShortcutInput, SourcePickerScreen
 from .event_browser import EventBrowserScreen
 from .recipes import RecipeManagerScreen
 from .recent_state import load_recent_tui_state, save_recent_tui_state
@@ -48,12 +50,29 @@ from .views import (
     build_zero_result_view,
     format_path_status,
 )
-from ...infrastructure.paths import get_system_root_path, inspect_directory_path, validate_pasted_path
+from ...infrastructure.paths import (
+    get_system_root_path,
+    inspect_directory_path,
+    inspect_file_path,
+    validate_pasted_path,
+)
 from ...version import get_package_version
 
 __all__ = ["get_system_root_path"]
 
 logger = logging.getLogger(__name__)
+
+
+class _ResponsiveAdvancedSettings(Container):
+    def on_resize(self, event: Resize) -> None:
+        app = self.app
+        if getattr(app, "_advanced_settings_visible", False):
+            app.call_after_refresh(app._sync_advanced_layout)
+
+
+class _SourceScopeList(VerticalScroll):
+    def allow_focus(self) -> bool:
+        return self.display and self.max_scroll_y > 0
 
 
 class _DashboardResultLog(RichLog):
@@ -133,11 +152,15 @@ class LogAnalyzerApp(App):
         yield Static("輸入設定", classes="section-title")
 
         with Container(classes="field"):
-            yield Label("Log 目錄")
+            yield Label("Log 來源（檔案或資料夾）")
             with Container(classes="path-row"):
                 yield ShortcutInput(placeholder="例如：./logs", value=".", id="path")
                 yield Button("瀏覽", id="browse_path")
         yield Static("", classes="path-status", id="path-status")
+        with Container(id="source-scope-preview"):
+            yield Static("尚未選擇 Log 來源", id="source-scope-summary", markup=False)
+            with _SourceScopeList(id="source-scope-list"):
+                yield Static("", markup=False, id="source-scope-filenames")
 
         with Container(classes="field"):
             yield Label("關鍵字")
@@ -150,7 +173,7 @@ class LogAnalyzerApp(App):
         yield Static("", classes="field-hint")
 
     def _compose_advanced_settings(self) -> ComposeResult:
-        with Container(id="advanced-settings", classes="advanced-settings"):
+        with _ResponsiveAdvancedSettings(id="advanced-settings", classes="advanced-settings"):
             with Container(id="advanced-settings-title-row"):
                 yield Static("進階設定", classes="section-title section-title--sub")
 
@@ -174,14 +197,15 @@ class LogAnalyzerApp(App):
             yield Label("Pattern")
             with Container(classes="field-body"):
                 yield ShortcutInput(placeholder=DEFAULT_LOGBACK_PATTERN, id="log_pattern")
-                yield Static("僅在啟用手動覆寫時套用；僅支援常見 Logback token", classes="field-hint")
+                yield Static("僅支援常見 Logback token", classes="field-hint")
         yield Static("格式來源：預設 Logback", classes="field-hint", id="pattern-source", markup=False)
-        yield Static(
-            f"有效 Pattern：{DEFAULT_LOGBACK_PATTERN}",
-            classes="field-hint",
-            id="pattern-preview",
-            markup=False,
-        )
+        with Collapsible(title="檢視套用的 Pattern", collapsed=True, id="pattern-details"):
+            yield Static(
+                f"有效 Pattern：{DEFAULT_LOGBACK_PATTERN}",
+                classes="field-hint",
+                id="pattern-preview",
+                markup=False,
+            )
 
     def _compose_time_settings(self) -> ComposeResult:
         with Container(classes="time-section"):
@@ -370,9 +394,15 @@ class LogAnalyzerApp(App):
         form_panel = self.query_one("#form-panel", ScrollableContainer)
         form_actions = self.query_one("#form-actions", Container)
         content = self.query_one("#content", ScrollableContainer)
+        shell = self.query_one("#shell", Container)
+        hero = self.query_one("#hero", Container)
         hero_title_row = self.query_one("#hero-title-row", Container)
 
         if compact:
+            shell.remove_class("wide")
+            shell.add_class("compact")
+            hero.remove_class("wide")
+            hero.add_class("compact")
             content.remove_class("wide")
             content.add_class("compact")
             form_panel.remove_class("wide")
@@ -382,6 +412,10 @@ class LogAnalyzerApp(App):
             hero_title_row.remove_class("wide")
             hero_title_row.add_class("compact")
         else:
+            shell.remove_class("compact")
+            shell.add_class("wide")
+            hero.remove_class("compact")
+            hero.add_class("wide")
             content.remove_class("compact")
             content.add_class("wide")
             form_panel.remove_class("compact")
@@ -390,6 +424,35 @@ class LogAnalyzerApp(App):
             form_actions.add_class("wide")
             hero_title_row.remove_class("compact")
             hero_title_row.add_class("wide")
+
+        if height <= 32:
+            content.add_class("short")
+        else:
+            content.remove_class("short")
+
+        self.call_after_refresh(self._sync_advanced_layout)
+        self.call_after_refresh(self._sync_advanced_layout_after_refresh)
+
+    def _sync_advanced_layout(self) -> None:
+        if not self.is_mounted:
+            return
+
+        advanced_settings = self.query_one("#advanced-settings", Container)
+        is_wide = advanced_settings.content_size.width >= 72
+        was_wide = advanced_settings.has_class("advanced-wide")
+        was_compact = advanced_settings.has_class("advanced-compact")
+        if is_wide and not was_wide:
+            advanced_settings.remove_class("advanced-compact")
+            advanced_settings.add_class("advanced-wide")
+        elif not is_wide and not was_compact:
+            advanced_settings.remove_class("advanced-wide")
+            advanced_settings.add_class("advanced-compact")
+        if is_wide != was_wide or (not is_wide) != was_compact:
+            self.call_after_refresh(self._sync_advanced_layout)
+
+    def _sync_advanced_layout_after_refresh(self) -> None:
+        if self.is_mounted:
+            self.call_after_refresh(self._sync_advanced_layout)
 
     def _is_compact(self, width: int, height: int) -> bool:
         return width < 112 or height < 18
@@ -451,11 +514,14 @@ class LogAnalyzerApp(App):
         is_valid, normalized_path, message = validate_pasted_path(pasted_text, path_input.id)
         if not is_valid:
             self._update_pasted_path_status(path_input.id, message, "red")
+            if path_input.id == "path":
+                self._clear_source_scope_preview(message)
             return True
 
         path_input.value = normalized_path
         self._update_pasted_path_status(path_input.id, message, "green")
         if path_input.id == "path":
+            self.update_path_preview(normalized_path)
             self._autofill_logback_settings(normalized_path)
         elif path_input.id == "logback_xml_path":
             self._recipe_autofill_source = ""
@@ -532,15 +598,54 @@ class LogAnalyzerApp(App):
             await retry_action()
 
     def update_path_preview(self, path: str, status_id: str = "#path-status", require_writable: bool = False) -> None:
+        if status_id == "#path-status":
+            self._refresh_source_scope_preview(path)
+            return
         preview = self.query_one(status_id, Static)
         # 狀態列即時反映路徑可用性，避免要按執行才發現權限或拼字錯誤
         color, message, _, _ = inspect_directory_path(path, require_writable=require_writable)
         preview.update(format_path_status(message, color, require_writable=require_writable))
 
+    def _refresh_source_scope_preview(self, path: str) -> LogSourceSelection | None:
+        try:
+            source = select_log_source(path.strip() or ".")
+        except (OSError, ValueError) as exc:
+            self._clear_source_scope_preview(str(exc))
+            return None
+        self._show_source_scope(source)
+        return source
+
+    def _show_source_scope(self, source: LogSourceSelection) -> None:
+        if source.is_file:
+            color, message, is_valid, _ = inspect_file_path(source.path)
+            mode = "單一檔案"
+        else:
+            color, message, is_valid, _ = inspect_directory_path(source.path)
+            mode = "資料夾（不含子目錄）"
+
+        if not is_valid:
+            self._clear_source_scope_preview(message)
+            return
+
+        self.query_one("#path-status", Static).update(format_path_status(message, color, False))
+        self.query_one("#source-scope-summary", Static).update(
+            f"{mode} · 支援檔案 {len(source.filenames)} 個"
+        )
+        self.query_one("#source-scope-filenames", Static).update("\n".join(source.filenames))
+        scope_list = self.query_one("#source-scope-list", VerticalScroll)
+        scope_list.display = bool(source.filenames)
+
+    def _clear_source_scope_preview(self, message: str) -> None:
+        self.query_one("#path-status", Static).update(format_path_status(message, "red", False))
+        self.query_one("#source-scope-summary", Static).update(f"來源無效：{message}")
+        self.query_one("#source-scope-filenames", Static).update("")
+        scope_list = self.query_one("#source-scope-list", VerticalScroll)
+        scope_list.display = False
+
     def action_browse_path(self) -> None:
         self._open_directory_picker(
             target_id="path",
-            title="選擇 Log 目錄",
+            title="\u9078\u64c7 Log \u4f86\u6e90",
             hint="可用樹狀瀏覽，或直接手動輸入路徑",
             confirm_label="使用此路徑",
             require_writable=False,
@@ -577,8 +682,18 @@ class LogAnalyzerApp(App):
     ) -> None:
         current_path = self.query_one(f"#{target_id}", Input).value.strip() or "."
         # 瀏覽成功後直接回填到對應欄位，手動輸入仍保留為 fallback
+        if target_id == "path":
+            picker = SourcePickerScreen(current_path, title, hint, confirm_label)
+        else:
+            picker = DirectoryPickerScreen(
+                current_path,
+                title,
+                hint,
+                confirm_label,
+                require_writable=require_writable,
+            )
         self.push_screen(
-            DirectoryPickerScreen(current_path, title, hint, confirm_label, require_writable=require_writable),
+            picker,
             callback=lambda selected_path: self._apply_selected_directory(target_id, selected_path),
         )
 
@@ -702,9 +817,19 @@ class LogAnalyzerApp(App):
 
         try:
             log_dir = self.query_one("#path", Input).value.strip() or "."
-            self._autofill_logback_settings(log_dir)
-            self._load_selected_logback_pattern_for_analysis(log_dir)
+            try:
+                source = select_log_source(log_dir)
+            except (OSError, ValueError) as exc:
+                self._clear_source_scope_preview(str(exc))
+                raise
+            self._show_source_scope(source)
+            self._autofill_logback_settings(source.path, selected_files=source.filenames)
+            self._load_selected_logback_pattern_for_analysis(
+                source.path,
+                selected_files=source.filenames,
+            )
             request, display_mode = self._collect_form_values()
+            request = replace(request, path=source.path, selected_files=source.filenames)
             self._save_recent_analysis_state(request, display_mode)
             result = await self._analyze_request(request)
             self._display_analysis_result(result_box, result)
@@ -1025,6 +1150,10 @@ class LogAnalyzerApp(App):
 
         toggle_button = self.query_one("#toggle_advanced_settings", Button)
         toggle_button.label = "收合進階設定" if visible else "展開進階設定"
+        if self.is_mounted:
+            self._sync_advanced_layout()
+            self.call_after_refresh(self._sync_advanced_layout)
+            self.call_after_refresh(self._sync_advanced_layout_after_refresh)
 
     def _set_export_settings_visible(self, visible: bool) -> None:
         self.query_one("#export-settings", Container).display = visible
@@ -1066,12 +1195,22 @@ class LogAnalyzerApp(App):
             f"已載入 {best_pattern.name}，命中 {best_pattern.matches}/{best_pattern.checked}"
         )
 
-    def _read_selected_logback_pattern(self, xml_path: str, log_dir: str) -> LogbackPatternCandidate:
+    def _read_selected_logback_pattern(
+        self,
+        xml_path: str,
+        log_dir: str,
+        selected_files: tuple[str, ...] | None = None,
+    ) -> LogbackPatternCandidate:
         if not os.path.isfile(xml_path):
             raise ValueError(f"找不到檔案：{os.path.abspath(xml_path)}")
 
         try:
-            best_pattern = find_best_logback_pattern(xml_path, log_dir)
+            source = select_log_source(log_dir, selected_files=selected_files)
+            best_pattern = find_best_logback_pattern(
+                xml_path,
+                source.root,
+                selected_files=source.filenames,
+            )
         except ParseError as exc:
             raise ValueError(f"無法解析 Logback XML：{exc}") from exc
         except OSError as exc:
@@ -1081,7 +1220,11 @@ class LogAnalyzerApp(App):
             raise ValueError("找不到可用的 Logback pattern")
         return best_pattern
 
-    def _load_selected_logback_pattern_for_analysis(self, log_dir: str) -> str | None:
+    def _load_selected_logback_pattern_for_analysis(
+        self,
+        log_dir: str,
+        selected_files: tuple[str, ...] | None = None,
+    ) -> str | None:
         self._analysis_log_pattern = None
         manual_override = self.query_one("#manual_pattern_override", Checkbox).value
         pattern_input = self.query_one("#log_pattern", Input)
@@ -1109,7 +1252,11 @@ class LogAnalyzerApp(App):
             return None
 
         try:
-            best_pattern = self._read_selected_logback_pattern(xml_path, log_dir)
+            best_pattern = self._read_selected_logback_pattern(
+                xml_path,
+                log_dir,
+                selected_files=selected_files,
+            )
         except ValueError as exc:
             message = str(exc)
             status.update(message)
@@ -1126,19 +1273,28 @@ class LogAnalyzerApp(App):
         status.update(f"已載入 {best_pattern.name}，命中 {best_pattern.matches}/{best_pattern.checked}")
         return best_pattern.pattern
 
-    def _autofill_logback_settings(self, log_dir: str) -> None:
+    def _autofill_logback_settings(
+        self,
+        log_dir: str,
+        selected_files: tuple[str, ...] | None = None,
+    ) -> None:
         if self.query_one("#manual_pattern_override", Checkbox).value:
             return
 
-        normalized_dir = self._normalize_recipe_source(log_dir)
-        if normalized_dir == getattr(self, "_recipe_autofill_source", ""):
+        try:
+            source = select_log_source(log_dir, selected_files=selected_files)
+        except (OSError, ValueError):
+            return
+
+        normalized_source = self._normalize_recipe_source(source.path)
+        if normalized_source == getattr(self, "_recipe_autofill_source", ""):
             return
 
         xml_input = self.query_one("#logback_xml_path", Input)
         current_xml = xml_input.value.strip()
         previous_auto_xml = self._auto_logback_xml_path
         can_update_xml = not current_xml or current_xml == previous_auto_xml
-        if not os.path.isdir(normalized_dir):
+        if not os.path.isdir(source.root):
             if current_xml and current_xml == previous_auto_xml:
                 xml_input.value = ""
                 self._auto_logback_xml_path = ""
@@ -1147,26 +1303,12 @@ class LogAnalyzerApp(App):
             return
 
         if (
-            normalized_dir == self._last_logback_autofill_source
+            normalized_source == self._last_logback_autofill_source
             and current_xml == previous_auto_xml
-        ):
+        ) or not can_update_xml:
             return
 
-        if not can_update_xml:
-            return
-
-        best_xml_path = ""
-        best_pattern = None
-        for xml_path in self._find_logback_xml_candidates(normalized_dir):
-            try:
-                candidate = find_best_logback_pattern(xml_path, normalized_dir)
-            except (OSError, ParseError, ValueError):
-                continue
-            if candidate is None:
-                continue
-            if best_pattern is None or (candidate.matches, candidate.score) > (best_pattern.matches, best_pattern.score):
-                best_xml_path = xml_path
-                best_pattern = candidate
+        best_xml_path, best_pattern = self._find_best_logback_xml_candidate(source)
 
         if best_pattern is None:
             if current_xml and current_xml == previous_auto_xml:
@@ -1188,7 +1330,29 @@ class LogAnalyzerApp(App):
         self.query_one("#logback-xml-status", Static).update(
             f"已自動載入 {Path(best_xml_path).name}，命中 {best_pattern.matches}/{best_pattern.checked}"
         )
-        self._last_logback_autofill_source = normalized_dir
+        self._last_logback_autofill_source = normalized_source
+
+    def _find_best_logback_xml_candidate(
+        self,
+        source: LogSourceSelection,
+    ) -> tuple[str, LogbackPatternCandidate | None]:
+        best_xml_path = ""
+        best_pattern: LogbackPatternCandidate | None = None
+        for xml_path in self._find_logback_xml_candidates(source.root):
+            try:
+                candidate = find_best_logback_pattern(
+                    xml_path,
+                    source.root,
+                    selected_files=source.filenames,
+                )
+            except (OSError, ParseError, ValueError):
+                continue
+            if candidate is None:
+                continue
+            if best_pattern is None or (candidate.matches, candidate.score) > (best_pattern.matches, best_pattern.score):
+                best_xml_path = xml_path
+                best_pattern = candidate
+        return best_xml_path, best_pattern
 
     def _find_logback_xml_candidates(self, log_dir: str) -> list[str]:
         candidates: list[str] = []
@@ -1340,7 +1504,14 @@ class LogAnalyzerApp(App):
 
     def _sync_pattern_field_visibility(self) -> None:
         pattern_field = self.query_one("#pattern-field", Container)
-        pattern_field.display = self.query_one("#manual_pattern_override", Checkbox).value
+        manual_override = self.query_one("#manual_pattern_override", Checkbox).value
+        pattern_field.display = manual_override
+        if getattr(self, "is_mounted", False):
+            self.query_one("#pattern-source", Static).display = not manual_override
+            details = self.query_one("#pattern-details", Collapsible)
+            details.display = not manual_override
+            if not manual_override:
+                details.collapsed = True
 
     def _set_pattern_preview(self, source: str, pattern: str, seed_pattern: str | None = None) -> None:
         self._preview_seed_pattern = seed_pattern

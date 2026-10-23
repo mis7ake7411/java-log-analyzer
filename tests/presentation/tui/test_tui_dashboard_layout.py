@@ -14,6 +14,7 @@ def _result(
     *,
     exported_files: tuple[str, ...] = (),
     input_path: str = "C:/logs",
+    analysis_request_path: str | None = None,
     keyword: str = "timeout",
     level_summary: tuple[tuple[str, int], ...] = (
         ("DEBUG", 602),
@@ -28,6 +29,7 @@ def _result(
         matched_occurrences=738,
         format_name="csv",
         input_path=input_path,
+        analysis_request=SimpleNamespace(path=analysis_request_path),
         output_path="C:/exports/report.csv",
         exported_files=exported_files,
         keyword=keyword,
@@ -194,6 +196,18 @@ def test_analysis_information_and_level_distribution_are_full_width_sections() -
         )
         positions = [output.index(title) for title in section_titles]
         assert positions == sorted(positions)
+
+
+def test_dashboard_displays_the_actual_selected_file_path() -> None:
+    output = _render(
+        _result(input_path="C:/logs", analysis_request_path="C:/logs/api.log"),
+        width=140,
+        compact=True,
+    )
+
+    assert "Log 來源" in output
+    assert "C:/logs/api.log" in output
+    assert "輸入目錄" not in output
 
 
 def test_level_bars_expand_with_width_and_percent_is_share_of_total() -> None:

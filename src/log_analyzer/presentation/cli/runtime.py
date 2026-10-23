@@ -33,12 +33,18 @@ def resolve_logback_pattern(
     logback_xml: str | None,
     target_dir: str,
     selected_pattern: str | None,
+    *,
+    selected_files: tuple[str, ...] | None = None,
 ):
     """必要時從 logback.xml 選出最合適的 pattern"""
     if not logback_xml or selected_pattern:
         return selected_pattern, None
 
-    best_pattern = find_best_logback_pattern(logback_xml, target_dir)
+    best_pattern = find_best_logback_pattern(
+        logback_xml,
+        target_dir,
+        selected_files=selected_files,
+    )
     if best_pattern is None:
         raise ValueError("logback XML 中找不到可用的 pattern")
 

@@ -85,6 +85,45 @@
     margin-left: 1;
 }
 
+#source-scope-preview {
+    width: 1fr;
+    height: auto;
+    min-height: 0;
+    min-width: 0;
+    margin-bottom: 0;
+}
+
+#source-scope-summary {
+    width: 1fr;
+    min-width: 0;
+    height: auto;
+    min-height: 1;
+    color: #94a3b8;
+    overflow-x: hidden;
+    text-wrap: wrap;
+}
+
+#source-scope-list {
+    width: 1fr;
+    min-width: 0;
+    height: auto;
+    min-height: 0;
+    max-height: 5;
+    display: none;
+    padding: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+#source-scope-filenames {
+    width: 1fr;
+    min-width: 0;
+    height: auto;
+    color: #cbd5e1;
+    overflow-x: hidden;
+    text-wrap: wrap;
+}
+
 .path-row.compact-buttons Button {
     width: 8;
 }
@@ -123,6 +162,10 @@
     width: 1fr;
 }
 
+#form-actions #manage-recipes {
+    margin-right: 1;
+}
+
 #recipe-feedback {
     display: none;
     height: auto;
@@ -158,4 +201,19 @@
 
 #zero-result-actions Button {
     width: 1fr;
+}
+
+#pattern-details {
+    width: 1fr;
+    min-width: 0;
+    max-width: 100%;
+}
+
+#pattern-preview {
+    width: 1fr;
+    height: auto;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+    text-wrap: wrap;
 }

@@ -7,7 +7,12 @@ def build_argument_parser(get_package_version):
     """建立 CLI 參數解析器"""
     parser = argparse.ArgumentParser(prog="log-analyzer", description="Java Logback 日誌分析工具")
 
-    parser.add_argument("dir", nargs="?", default=".", help="包含 .log 檔案的目錄路徑 (預設: 當前目錄)")
+    parser.add_argument(
+        "dir",
+        nargs="?",
+        default=".",
+        help="Log 檔案或資料夾路徑 (預設: 當前目錄)",
+    )
     parser.add_argument("-f", "--format", choices=["csv", "json", "md"], default="csv", help="輸出的檔案格式 (預設: csv)")
     parser.add_argument("-o", "--output", help="輸出的報表路徑 (若未指定，將自動根據格式產生)")
     parser.add_argument("-k", "--keyword", help="欲搜尋的關鍵字 (例如：訂單編號或特定錯誤訊息)")

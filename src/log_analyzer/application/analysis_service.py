@@ -7,9 +7,10 @@ from datetime import datetime
 
 from .dashboard_summary import DashboardAnalysis, aggregate_dashboard_summary
 from ..domain.log_types import MatchedLogs, ScanDiagnostics, SourceSnapshot
+from ..domain.log_sources import select_log_source
 from ..domain.parser import ParseOptions, parse_log_directory
 from ..infrastructure.exporting import ExportOptions, export_with_options
-from ..infrastructure.paths import ensure_readable_directory, ensure_writable_directory
+from ..infrastructure.paths import ensure_writable_directory
 
 DEFAULT_SELECTED_LEVELS = ("ERROR", "WARN", "INFO")
 
@@ -26,6 +27,7 @@ class AnalysisRequest:
     sort_by: str = "time"
     log_pattern: str | None = None
     levels: tuple[str, ...] | None = DEFAULT_SELECTED_LEVELS
+    selected_files: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +58,7 @@ class AnalysisOptions:
     include_details: bool = True
     levels: tuple[str, ...] | None = DEFAULT_SELECTED_LEVELS
     split_by_level: bool = False
+    selected_files: tuple[str, ...] | None = None
 
 
 @dataclass(slots=True)
@@ -151,6 +154,7 @@ def run_analysis_with_options(options: AnalysisOptions) -> AnalysisResult:
             sort_by=options.sort_by,
             log_pattern=options.log_pattern,
             levels=options.levels,
+            selected_files=options.selected_files,
         )
     )
     try:
@@ -175,10 +179,10 @@ def run_analysis_with_options(options: AnalysisOptions) -> AnalysisResult:
 
 def analyze_logs(request: AnalysisRequest) -> AnalysisResult:
     """掃描來源日誌並保留可供後續匯出的分析結果。"""
-    normalized_path = ensure_readable_directory(request.path)
+    source = select_log_source(request.path, selected_files=request.selected_files)
     normalized_levels = None if request.levels is None else tuple(request.levels)
     normalized_request = AnalysisRequest(
-        path=normalized_path,
+        path=source.path,
         start_dt=request.start_dt,
         end_dt=request.end_dt,
         keyword=request.keyword,
@@ -186,9 +190,10 @@ def analyze_logs(request: AnalysisRequest) -> AnalysisResult:
         sort_by=request.sort_by,
         log_pattern=request.log_pattern,
         levels=normalized_levels,
+        selected_files=source.filenames,
     )
     counts, matched_logs = parse_log_directory(
-        normalized_path,
+        source.root,
         ParseOptions(
             start_time=normalized_request.start_dt,
             end_time=normalized_request.end_dt,
@@ -197,6 +202,7 @@ def analyze_logs(request: AnalysisRequest) -> AnalysisResult:
             log_pattern=normalized_request.log_pattern,
             sort_by=normalized_request.sort_by,
             levels=normalized_request.levels,
+            selected_files=source.filenames,
         ),
     )
     diagnostics = getattr(matched_logs, "diagnostics", ScanDiagnostics())
@@ -208,7 +214,7 @@ def analyze_logs(request: AnalysisRequest) -> AnalysisResult:
         source_states: dict[str, SourceSnapshot] = dict(getattr(matched_logs, "source_states", {}))
         dashboard_summary, matched_occurrences = aggregate_dashboard_summary(matched_logs)
         return AnalysisResult(
-            input_path=normalized_path,
+            input_path=source.root,
             output_path="",
             format_name="未匯出",
             keyword=normalized_request.keyword or "未設定",

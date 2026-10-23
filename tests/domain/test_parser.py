@@ -56,6 +56,93 @@ def test_parse_logs_matches_standard_logback_fixtures(tmp_path):
     ]
 
 
+def test_iter_logs_discovers_supported_extensions_case_insensitively(tmp_path):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    for filename, message in (
+        ("a.LOG", "uppercase extension"),
+        ("b.txt", "text extension"),
+        ("c.OUT", "output extension"),
+    ):
+        (log_dir / filename).write_text(
+            f"2026-06-06 10:00:00.001 INFO  [main] com.test.App: {message}\n",
+            encoding="utf-8",
+        )
+    (log_dir / "ignored.json").write_text("unsupported\n", encoding="utf-8")
+    (log_dir / "directory.log").mkdir()
+    nested = log_dir / "nested"
+    nested.mkdir()
+    (nested / "inside.log").write_text(
+        "2026-06-06 10:00:00.001 INFO  [main] com.test.App: nested\n",
+        encoding="utf-8",
+    )
+
+    try:
+        entries = list(iter_logs(str(log_dir), log_pattern=STANDARD_LOG_PATTERN))
+    except OSError as error:
+        pytest.fail(f"directory discovery should skip non-file entries: {error}")
+
+    assert [entry["message"] for entry in entries] == [
+        "uppercase extension",
+        "text extension",
+        "output extension",
+    ]
+    assert {entry["filename"] for entry in entries} == {"a.LOG", "b.txt", "c.OUT"}
+
+
+def test_iter_logs_uses_explicit_selection_without_expanding_it(tmp_path):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "chosen.txt").write_text(
+        "2026-06-06 10:00:00.001 INFO  [main] com.test.App: chosen\n",
+        encoding="utf-8",
+    )
+    (log_dir / "sibling.log").write_text(
+        "2026-06-06 10:00:00.001 ERROR [main] com.test.App: sibling\n",
+        encoding="utf-8",
+    )
+
+    try:
+        selected = list(
+            iter_logs(
+                str(log_dir),
+                log_pattern=STANDARD_LOG_PATTERN,
+                selected_files=("chosen.txt",),
+            )
+        )
+        empty = list(
+            iter_logs(
+                str(log_dir),
+                log_pattern=STANDARD_LOG_PATTERN,
+                selected_files=(),
+            )
+        )
+    except TypeError as error:
+        pytest.fail(f"iter_logs should accept a frozen file selection: {error}")
+
+    assert [entry["message"] for entry in selected] == ["chosen"]
+    assert empty == []
+
+
+def test_iter_logs_accepts_a_single_file_without_reading_its_sibling(tmp_path):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    selected_file = log_dir / "chosen.txt"
+    selected_file.write_text(
+        "2026-06-06 10:00:00.001 INFO  [main] com.test.App: chosen\n",
+        encoding="utf-8",
+    )
+    (log_dir / "sibling.log").write_text(
+        "2026-06-06 10:00:00.001 ERROR [main] com.test.App: sibling\n",
+        encoding="utf-8",
+    )
+
+    entries = list(iter_logs(str(selected_file), log_pattern=STANDARD_LOG_PATTERN))
+
+    assert [entry["message"] for entry in entries] == ["chosen"]
+    assert {entry["filename"] for entry in entries} == {"chosen.txt"}
+
+
 def test_parse_logs_filters_selected_levels(temp_log_dir):
     counts, errors = parse_logs(temp_log_dir, levels=("ERROR",))
 
@@ -169,7 +256,7 @@ def test_parse_log_directory_counts_unparseable_log_files(tmp_path):
     log_dir = tmp_path / "unparseable-logs"
     log_dir.mkdir()
     (log_dir / "broken.log").write_text("not a log entry\n", encoding="utf-8")
-    (log_dir / "ignored.txt").write_text(
+    (log_dir / "ignored.json").write_text(
         "2026-06-06 10:00:00.000 [main] INFO  com.test - Ignored\n",
         encoding="utf-8",
     )

@@ -44,6 +44,43 @@ def test_analysis_result_defaults_scan_diagnostics():
     assert result.analysis_request is None
 
 
+def test_analysis_options_pass_frozen_file_selection_to_analysis(tmp_path):
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir()
+    (logs_dir / "chosen.txt").write_text(
+        "2026-06-07 12:00:00.000 INFO  [main] com.test.App: selected\n",
+        encoding="utf-8",
+    )
+    (logs_dir / "sibling.out").write_text(
+        "2026-06-07 12:00:01.000 ERROR [main] com.test.App: sibling\n",
+        encoding="utf-8",
+    )
+    options = AnalysisOptions(
+        path=str(logs_dir),
+        output_path=str(tmp_path / "selected.csv"),
+        start_dt=None,
+        end_dt=None,
+        keyword=None,
+        ignore_case=False,
+        sort_by="time",
+        fmt="csv",
+        log_pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{0}: %msg%n",
+        selected_files=("chosen.txt",),
+    )
+
+    try:
+        result = run_analysis_with_options(options)
+    except TypeError as error:
+        pytest.fail(f"analysis options should preserve selected files: {error}")
+
+    try:
+        assert result.counts == {"INFO": 1}
+        assert result.analysis_request.selected_files == ("chosen.txt",)
+        assert set(result.source_states) == {"chosen.txt"}
+    finally:
+        result.matched_logs.release()
+
+
 def test_no_matches_carry_scan_diagnostics_and_real_scan_can_succeed_after_retry(tmp_path):
     logs = tmp_path / "logs"
     logs.mkdir()
