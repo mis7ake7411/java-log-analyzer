@@ -36,7 +36,7 @@ def export_evidence_manifest(
     manifest_path = output_path.with_name(f"{output_path.stem}_manifest.json")
     outputs = [_describe_report(path) for path in report_files]
     try:
-        root = Path(request.path).resolve()
+        root = Path(result.input_path).resolve()
     except (OSError, RuntimeError, ValueError):
         root = None
     sources = [

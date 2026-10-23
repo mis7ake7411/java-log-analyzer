@@ -6,53 +6,95 @@ import pytest
 from log_analyzer.presentation.cli import entrypoint as cli
 
 
-def test_main_logs_unexpected_error_and_keeps_friendly_message(monkeypatch, caplog, capsys):
+def _analysis_result():
+    return SimpleNamespace(
+        output_path="/tmp/report.csv",
+        exported_files=["/tmp/report.csv"],
+        counts={"ERROR": 2, "INFO": 0},
+    )
+
+
+def test_main_logs_unexpected_error_and_keeps_friendly_message(
+    monkeypatch, caplog, capsys, tmp_path
+):
+    source_dir = tmp_path
+    (source_dir / "sample.log").write_text("sample\n", encoding="utf-8")
+
     def raise_unexpected(_options):
         raise RuntimeError("unexpected failure")
 
-    monkeypatch.setattr(cli.sys, "argv", ["log-analyzer", "."])
-    monkeypatch.setattr(cli, "resolve_target_dir", lambda _directory: (".", None))
-    monkeypatch.setattr(cli, "resolve_logback_pattern", lambda *_args: (None, None))
+    monkeypatch.setattr(cli.sys, "argv", ["log-analyzer", str(source_dir)])
+    monkeypatch.setattr(cli, "resolve_target_dir", lambda _directory: (str(source_dir), None))
+    monkeypatch.setattr(cli, "resolve_logback_pattern", lambda *_args, **_kwargs: (None, None))
     monkeypatch.setattr(cli, "run_analysis_with_options", raise_unexpected)
 
     with caplog.at_level(logging.ERROR), pytest.raises(SystemExit) as exc_info:
         cli.main()
 
     assert exc_info.value.code == 1
-    assert "錯誤：unexpected failure" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "來源檔數：1" in output
+    assert "錯誤：unexpected failure" in output
     assert "unexpected failure" in caplog.text
 
 
-def test_main_passes_analysis_options_and_prints_success_result(monkeypatch, capsys, tmp_path):
+def test_main_passes_analysis_options_and_prints_success_result(
+    monkeypatch, capsys, tmp_path
+):
+    source_dir = tmp_path
+    for filename in ("alpha.LOG", "middle.txt", "omega.OUT"):
+        (source_dir / filename).write_text("sample\n", encoding="utf-8")
+    (source_dir / "ignored.json").write_text("ignored\n", encoding="utf-8")
+    (source_dir / "nested").mkdir()
+    (source_dir / "nested" / "inner.log").write_text("ignored\n", encoding="utf-8")
+    (source_dir / "folder.log").mkdir()
+
     captured_options = None
-    target_dir = str(tmp_path)
+    scope_output_before_analysis = None
+    resolved_scopes = []
+    target_dir = str(source_dir)
 
     def run_with_options(options):
-        nonlocal captured_options
+        nonlocal captured_options, scope_output_before_analysis
         captured_options = options
-        return SimpleNamespace(
-            output_path="/tmp/report.csv",
-            exported_files=["/tmp/report.csv"],
-            counts={"ERROR": 2, "INFO": 0},
-        )
+        scope_output_before_analysis = capsys.readouterr().out
+        return _analysis_result()
 
-    monkeypatch.setattr(cli.sys, "argv", ["log-analyzer", "logs", "--keyword", "Order", "--ignore-case"])
+    def resolve_pattern(logback_xml, resolved_dir, selected_pattern, *, selected_files=None):
+        resolved_scopes.append((logback_xml, resolved_dir, selected_pattern, selected_files))
+        return "%msg%n", None
+
+    monkeypatch.setattr(
+        cli.sys,
+        "argv",
+        ["log-analyzer", "logs", "--keyword", "Order", "--ignore-case"],
+    )
     monkeypatch.setattr(cli, "resolve_target_dir", lambda _directory: (target_dir, None))
-    monkeypatch.setattr(cli, "resolve_logback_pattern", lambda *_args: ("%msg%n", None))
+    monkeypatch.setattr(cli, "resolve_logback_pattern", resolve_pattern)
     monkeypatch.setattr(cli, "run_analysis_with_options", run_with_options)
 
     cli.main()
 
     assert captured_options is not None
     assert captured_options.path == target_dir
+    assert captured_options.selected_files == ("alpha.LOG", "middle.txt", "omega.OUT")
     assert captured_options.output_path.endswith(".csv")
     assert captured_options.keyword == "Order"
     assert captured_options.ignore_case is True
     assert captured_options.log_pattern == "%msg%n"
     assert captured_options.include_details is False
     assert captured_options.levels == ("ERROR", "WARN", "INFO")
-    expected_output = [
-        f"正在分析目錄：{target_dir}",
+    assert resolved_scopes == [(None, target_dir, None, ("alpha.LOG", "middle.txt", "omega.OUT"))]
+
+    output = scope_output_before_analysis + capsys.readouterr().out
+    assert output.splitlines() == [
+        "來源模式：資料夾（不含子目錄）",
+        f"來源路徑：{target_dir}",
+        "來源檔數：3",
+        "完整檔名清單：",
+        "  - alpha.LOG",
+        "  - middle.txt",
+        "  - omega.OUT",
         "分析 Level：ERROR, WARN, INFO",
         "正在搜尋關鍵字：'Order' (忽略大小寫)",
         "分析完成！報表已儲存至：/tmp/report.csv (格式: CSV)",
@@ -60,4 +102,108 @@ def test_main_passes_analysis_options_and_prints_success_result(monkeypatch, cap
         "符合條件的統計摘要 (Summary)：",
         "  ERROR: 2",
     ]
-    assert capsys.readouterr().out.splitlines() == expected_output
+
+
+def test_main_freezes_single_file_scope_for_xml_and_analysis(
+    monkeypatch, capsys, tmp_path
+):
+    selected_file = tmp_path / "chosen.LoG"
+    sibling_file = tmp_path / "sibling.txt"
+    xml_file = tmp_path / "logback.xml"
+    selected_file.write_text("selected marker\n", encoding="utf-8")
+    sibling_file.write_text("sibling marker\n", encoding="utf-8")
+    xml_file.write_text("<configuration />", encoding="utf-8")
+
+    captured_options = None
+    scope_output_before_analysis = None
+    resolved_scopes = []
+
+    def run_with_options(options):
+        nonlocal captured_options, scope_output_before_analysis
+        captured_options = options
+        scope_output_before_analysis = capsys.readouterr().out
+        return _analysis_result()
+
+    def resolve_pattern(logback_xml, resolved_path, selected_pattern, *, selected_files=None):
+        resolved_scopes.append((logback_xml, resolved_path, selected_pattern, selected_files))
+        return "%msg%n", None
+
+    monkeypatch.setattr(
+        cli.sys,
+        "argv",
+        ["log-analyzer", str(selected_file), "--logback-xml", str(xml_file)],
+    )
+    monkeypatch.setattr(cli, "resolve_logback_pattern", resolve_pattern)
+    monkeypatch.setattr(cli, "run_analysis_with_options", run_with_options)
+
+    cli.main()
+
+    selected_path = str(selected_file.resolve())
+    assert captured_options is not None
+    assert captured_options.path == selected_path
+    assert captured_options.selected_files == ("chosen.LoG",)
+    assert resolved_scopes == [(str(xml_file), selected_path, None, ("chosen.LoG",))]
+    assert scope_output_before_analysis.splitlines() == [
+        "來源模式：單一檔案",
+        f"來源路徑：{selected_path}",
+        "來源檔數：1",
+        "完整檔名清單：",
+        "  - chosen.LoG",
+        "分析 Level：ERROR, WARN, INFO",
+    ]
+    assert "sibling.txt" not in scope_output_before_analysis
+
+
+def test_main_rejects_empty_directory_without_expanding_to_parent(
+    monkeypatch, capsys, tmp_path
+):
+    parent_dir = tmp_path
+    empty_dir = parent_dir / "empty"
+    empty_dir.mkdir()
+    (parent_dir / "parent.log").write_text("must not be selected\n", encoding="utf-8")
+    service_called = False
+
+    def run_with_options(_options):
+        nonlocal service_called
+        service_called = True
+        return _analysis_result()
+
+    monkeypatch.setattr(cli.sys, "argv", ["log-analyzer", str(empty_dir)])
+    monkeypatch.setattr(cli, "run_analysis_with_options", run_with_options)
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    output = capsys.readouterr().out
+    assert exc_info.value.code == 1
+    assert service_called is False
+    assert "來源檔數：0" in output
+    assert "完整檔名清單：" in output
+    assert "找不到支援的 Log 檔案" in output
+    assert "parent.log" not in output
+
+
+def test_main_rejects_missing_file_without_scanning_parent(
+    monkeypatch, capsys, tmp_path
+):
+    parent_dir = tmp_path
+    missing_file = parent_dir / "missing.log"
+    (parent_dir / "sibling.log").write_text("must not be selected\n", encoding="utf-8")
+    service_called = False
+
+    def run_with_options(_options):
+        nonlocal service_called
+        service_called = True
+        return _analysis_result()
+
+    monkeypatch.setattr(cli.sys, "argv", ["log-analyzer", str(missing_file)])
+    monkeypatch.setattr(cli, "run_analysis_with_options", run_with_options)
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    output = capsys.readouterr().out
+    assert exc_info.value.code == 1
+    assert service_called is False
+    assert "找不到日誌來源" in output
+    assert "sibling.log" not in output

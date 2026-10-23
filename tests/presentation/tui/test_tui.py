@@ -766,6 +766,8 @@ def test_logback_xml_controls_exist():
 def test_load_logback_xml_action_updates_preview_without_enabling_override(monkeypatch, tmp_path):
     xml_file = tmp_path / "logback.xml"
     xml_file.write_text("<configuration />", encoding="utf-8")
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
 
     class FakeInput:
         def __init__(self, value: str = "") -> None:
@@ -791,14 +793,14 @@ def test_load_logback_xml_action_updates_preview_without_enabling_override(monke
     mapping = {
         "#logback-xml-status": FakeStatic(),
         "#logback_xml_path": FakeInput(str(xml_file)),
-        "#path": FakeInput("./logs"),
+        "#path": FakeInput(str(log_dir)),
         "#manual_pattern_override": SimpleNamespace(value=False),
         "#log_pattern": FakeInput("keep this manual draft"),
         "#pattern-source": FakeStatic(),
         "#pattern-preview": FakeStatic(),
     }
 
-    monkeypatch.setattr("log_analyzer.presentation.tui.app.find_best_logback_pattern", lambda *_args: FakePattern())
+    monkeypatch.setattr("log_analyzer.presentation.tui.app.find_best_logback_pattern", lambda *_args, **_kwargs: FakePattern())
 
     app = LogAnalyzerApp()
     app.query_one = lambda selector, *_args, **_kwargs: mapping[selector]  # type: ignore[assignment]
@@ -890,7 +892,7 @@ def test_paste_invalid_output_path_keeps_value_and_displays_error(tmp_path):
     asyncio.run(run_check())
 
 
-def test_paste_log_file_updates_focused_log_directory(tmp_path):
+def test_paste_log_file_preserves_focused_log_file(tmp_path):
     log_file = tmp_path / "application.log"
     log_file.touch()
 
@@ -905,7 +907,7 @@ def test_paste_log_file_updates_focused_log_directory(tmp_path):
             path_input.post_message(Paste(log_file.as_uri()))
             await pilot.pause()
 
-            assert path_input.value == str(tmp_path)
+            assert path_input.value == str(log_file)
 
             await pilot.press("x")
             await pilot.pause()
@@ -918,6 +920,8 @@ def test_paste_log_file_updates_focused_log_directory(tmp_path):
 def test_apply_and_load_logback_xml_updates_preview_without_changing_manual_pattern(monkeypatch, tmp_path):
     xml_file = tmp_path / "logback.xml"
     xml_file.write_text("<configuration />", encoding="utf-8")
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
 
     class FakeInput:
         def __init__(self, value: str = "") -> None:
@@ -943,14 +947,14 @@ def test_apply_and_load_logback_xml_updates_preview_without_changing_manual_patt
     mapping = {
         "#logback-xml-status": FakeStatic(),
         "#logback_xml_path": FakeInput(),
-        "#path": FakeInput("./logs"),
+        "#path": FakeInput(str(log_dir)),
         "#manual_pattern_override": SimpleNamespace(value=False),
         "#log_pattern": FakeInput("retained manual text"),
         "#pattern-source": FakeStatic(),
         "#pattern-preview": FakeStatic(),
     }
 
-    monkeypatch.setattr("log_analyzer.presentation.tui.app.find_best_logback_pattern", lambda *_args: FakePattern())
+    monkeypatch.setattr("log_analyzer.presentation.tui.app.find_best_logback_pattern", lambda *_args, **_kwargs: FakePattern())
 
     app = LogAnalyzerApp()
     app.query_one = lambda selector, *_args, **_kwargs: mapping[selector]  # type: ignore[assignment]
@@ -1429,7 +1433,10 @@ def test_analysis_reports_invalid_selected_logback_xml(monkeypatch, tmp_path, xm
 
             assert analyzed_requests == []
             assert app._result_state == "failed"
-            assert status_message in str(app.query_one("#logback-xml-status").render())
+            xml_status = app.query_one("#logback-xml-status")
+            assert xml_status.display
+            assert status_message in str(xml_status.render())
+            assert app.query_one("#pattern-details").collapsed
 
     asyncio.run(run_check())
 
@@ -1855,6 +1862,9 @@ def test_apply_selected_directory_autofills_logback_settings(monkeypatch, tmp_pa
     mapping = {
         "#path": FakeInput(str(log_dir)),
         "#path-status": FakeStatic(),
+        "#source-scope-summary": FakeStatic(),
+        "#source-scope-filenames": FakeStatic(),
+        "#source-scope-list": SimpleNamespace(display=False, can_focus=False, max_scroll_y=0),
         "#logback_xml_path": FakeInput(),
         "#log_pattern": FakeInput(),
         "#manual_pattern_override": SimpleNamespace(value=False),
@@ -1863,7 +1873,7 @@ def test_apply_selected_directory_autofills_logback_settings(monkeypatch, tmp_pa
         "#pattern-preview": FakeStatic(),
     }
 
-    monkeypatch.setattr("log_analyzer.presentation.tui.app.find_best_logback_pattern", lambda *_args: FakePattern())
+    monkeypatch.setattr("log_analyzer.presentation.tui.app.find_best_logback_pattern", lambda *_args, **_kwargs: FakePattern())
 
     app = LogAnalyzerApp()
     app.query_one = lambda selector, *_args, **_kwargs: mapping[selector]  # type: ignore[assignment]
@@ -1908,6 +1918,9 @@ def test_apply_selected_directory_does_not_override_manual_logback_values(monkey
     mapping = {
         "#path": FakeInput(str(log_dir)),
         "#path-status": FakeStatic(),
+        "#source-scope-summary": FakeStatic(),
+        "#source-scope-filenames": FakeStatic(),
+        "#source-scope-list": SimpleNamespace(display=False, can_focus=False, max_scroll_y=0),
         "#logback_xml_path": FakeInput("/manual/logback.xml"),
         "#log_pattern": FakeInput("manual pattern"),
         "#manual_pattern_override": SimpleNamespace(value=False),
@@ -2176,7 +2189,7 @@ def test_result_replacement_clear_and_unmount_release_stores(tmp_path: Path, mon
             assert len(analysis_calls) == 1
             assert analysis_calls[0][0] is False
             assert isinstance(analysis_calls[0][1], AnalysisRequest)
-            assert analysis_calls[0][1].path == "."
+            assert analysis_calls[0][1].path == str(tmp_path)
             assert app._last_result is new_result
             assert new_path.exists()
 

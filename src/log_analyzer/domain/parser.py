@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import cast
 
 from .logback_pattern import DEFAULT_LOGBACK_REGEX, compile_logback_pattern
+from .log_sources import select_log_source
 from .parser_aggregation import commit_entry, normalize_keyword, sort_key
 from .log_types import LogEntry, MatchedLogs, ScanDiagnostics, SourceSnapshot
 from .timezone import to_local_timezone
@@ -31,6 +32,7 @@ class ParseOptions:
     log_pattern: str | None = None
     sort_by: str = "time"
     levels: tuple[str, ...] | None = None
+    selected_files: tuple[str, ...] | None = None
 
 
 @dataclass(slots=True)
@@ -180,6 +182,7 @@ def _collect_grouped_logs(directory, options, counts, diagnostics=None):
             options.log_pattern,
             source_states,
             diagnostics=diagnostics,
+            selected_files=options.selected_files,
         ):
             if selected_levels is not None and entry["level"].upper() not in selected_levels:
                 continue
@@ -216,6 +219,7 @@ def iter_logs(  # noqa: PLR0913 - preserve the existing positional API
     source_states: dict[str, SourceSnapshot] | None = None,
     *,
     diagnostics: ScanDiagnostics | None = None,
+    selected_files: tuple[str, ...] | None = None,
 ):
     """逐筆產生已解析、已套用時間區間過濾的日誌 entry"""
     if start_time is not None:
@@ -230,8 +234,9 @@ def iter_logs(  # noqa: PLR0913 - preserve the existing positional API
     if not os.path.exists(directory):
         raise FileNotFoundError(f"找不到目錄: {directory}")
 
-    for filename in _list_log_files(directory):
-        filepath = os.path.join(directory, filename)
+    source = select_log_source(directory, selected_files=selected_files)
+    for filename in source.filenames:
+        filepath = os.path.join(source.root, filename)
         before = os.stat(filepath)
         if diagnostics is not None:
             diagnostics.files_scanned += 1
@@ -358,11 +363,6 @@ def _load_sorted_chunk(path):
     with open(path, "rb") as file_handle:
         for entry in pickle.load(file_handle):
             yield entry
-
-
-def _list_log_files(directory):
-    """回傳資料夾內符合副檔名條件的 log 檔案"""
-    return sorted(filename for filename in os.listdir(directory) if filename.endswith(".log"))
 
 
 def _iter_entries_from_file(

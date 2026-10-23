@@ -10,6 +10,7 @@ from textual.events import Key, Paste
 from textual.screen import ModalScreen
 from textual.widgets import Button, DirectoryTree, Input, Label, Static
 
+from ...domain.log_sources import select_log_source
 from ...infrastructure.paths import (
     get_system_root_path,
     inspect_directory_path,
@@ -123,11 +124,13 @@ class FilePickerScreen(ModalScreen[str | None]):
         title: str,
         hint: str,
         confirm_label: str,
+        allow_directory: bool = False,
     ) -> None:
         self.initial_path = initial_path
         self.title_text = title
         self.hint_text = hint
         self.confirm_label = confirm_label
+        self.allow_directory = allow_directory
         self._selected_path: str | None = None
         super().__init__()
 
@@ -153,15 +156,24 @@ class FilePickerScreen(ModalScreen[str | None]):
         self._selected_path = selected_path
         picker_path = self.query_one("#picker-path", Input)
         picker_path.value = selected_path
-        color, message, _, _ = inspect_file_path(selected_path)
+        if self.allow_directory:
+            color, message = self._source_status(selected_path)
+        else:
+            color, message, _, _ = inspect_file_path(selected_path)
         self.query_one("#picker-status", Static).update(self._status_text(message, color))
 
     def on_directory_tree_directory_selected(self, event: DirectoryTree.DirectorySelected) -> None:
         picker_path = self.query_one("#picker-path", Input)
-        picker_path.value = str(event.path)
-        self.query_one("#picker-status", Static).update(
-            self._status_text("請選擇檔案，或手動輸入完整檔案路徑", "yellow")
-        )
+        selected_path = str(event.path)
+        picker_path.value = selected_path
+        if self.allow_directory:
+            self._selected_path = selected_path
+            color, message = self._source_status(selected_path)
+            self.query_one("#picker-status", Static).update(self._status_text(message, color))
+        else:
+            self.query_one("#picker-status", Static).update(
+                self._status_text("請選擇檔案，或手動輸入完整檔案路徑", "yellow")
+            )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "picker-cancel":
@@ -173,11 +185,30 @@ class FilePickerScreen(ModalScreen[str | None]):
     def _confirm_selection(self) -> None:
         picker_path = self.query_one("#picker-path", Input)
         selected_path = picker_path.value.strip() or self._selected_path or ""
+        if self.allow_directory:
+            try:
+                source = select_log_source(selected_path)
+            except (OSError, ValueError) as exc:
+                self.query_one("#picker-status", Static).update(self._status_text(str(exc), "red"))
+                return
+            self.dismiss(source.path)
+            return
+
         color, message, is_valid, _ = inspect_file_path(selected_path)
         if not is_valid:
             self.query_one("#picker-status", Static).update(self._status_text(message, color))
             return
         self.dismiss(os.path.abspath(selected_path))
+
+    @staticmethod
+    def _source_status(selected_path: str) -> tuple[str, str]:
+        try:
+            source = select_log_source(selected_path)
+        except (OSError, ValueError) as exc:
+            return "red", str(exc)
+        if source.is_file:
+            return "green", "可使用的 Log 檔案"
+        return "green", f"可使用的資料夾（不含子目錄，{len(source.filenames)} 個支援檔案）"
 
     def _pick_tree_root(self) -> tuple[Path, str]:
         root_path = get_system_root_path()
@@ -187,3 +218,10 @@ class FilePickerScreen(ModalScreen[str | None]):
         text = Text()
         text.append(message, style=color)
         return text
+
+
+class SourcePickerScreen(FilePickerScreen):
+    """可選擇單一 Log 檔案或資料夾的來源選擇器。"""
+
+    def __init__(self, initial_path: str, title: str, hint: str, confirm_label: str) -> None:
+        super().__init__(initial_path, title, hint, confirm_label, allow_directory=True)

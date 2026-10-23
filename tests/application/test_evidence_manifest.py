@@ -127,6 +127,56 @@ def test_manifest_captures_frozen_analysis_reports_and_source_hashes(tmp_path):
     assert "Second failure" not in serialized
 
 
+def test_manifest_uses_file_source_root_and_reports_verified_changed_and_missing(tmp_path):
+    export_evidence_manifest = _export_evidence_manifest()
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    source = logs / "chosen.txt"
+    source.write_text(
+        "2026-06-07 12:00:00.000 INFO  [main] com.test.App: selected\n",
+        encoding="utf-8",
+    )
+    (logs / "sibling.log").write_text(
+        "2026-06-07 12:00:01.000 ERROR [main] com.test.App: sibling\n",
+        encoding="utf-8",
+    )
+    try:
+        result = analyze_logs(
+            AnalysisRequest(
+                path=str(source),
+                log_pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{0}: %msg%n",
+            )
+        )
+    except (FileNotFoundError, ValueError) as error:
+        pytest.fail(f"a supported single log file should be analyzable: {error}")
+    options = ResultExportOptions(output_path=str(tmp_path / "selected.csv"), fmt="csv")
+
+    try:
+        assert result.input_path == str(logs.resolve())
+        assert result.analysis_request.path == str(source.resolve())
+        assert set(result.source_states) == {"chosen.txt"}
+
+        manifest_path = export_evidence_manifest(result, options, ())
+        verified = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+        assert [entry["filename"] for entry in verified["sources"]] == ["chosen.txt"]
+        assert verified["sources"][0]["verification_status"] == "verified"
+
+        source.write_text(
+            "2026-06-07 12:00:00.000 INFO  [main] com.test.App: changed after analysis\n",
+            encoding="utf-8",
+        )
+        manifest_path = export_evidence_manifest(result, options, ())
+        changed = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+        assert changed["sources"][0]["verification_status"] == "changed"
+
+        source.unlink()
+        manifest_path = export_evidence_manifest(result, options, ())
+        missing = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+        assert missing["sources"][0]["verification_status"] == "missing"
+    finally:
+        result.matched_logs.release()
+
+
 def test_source_changes_and_scan_failures_are_recorded_without_hashes(tmp_path):
     export_evidence_manifest = _export_evidence_manifest()
     result, report_options, report_files, source, logs = _analyzed_export(tmp_path)

@@ -11,15 +11,22 @@
 }
 
 #hero-title-row.compact {
-    layout: vertical;
+    layout: horizontal;
+    width: 1fr;
 }
 
-#hero-title-row.compact #hero-separator {
+#hero.compact {
+    padding: 0 2;
+    margin-bottom: 0;
+}
+
+#hero-title-row.compact #hero-separator,
+#hero-title-row.compact #hero-subtitle {
     display: none;
 }
 
 #hero-title-row.compact #hero-version {
-    margin-left: 0;
+    margin-left: 1;
 }
 
 /* ── Content 響應式排版 ── */

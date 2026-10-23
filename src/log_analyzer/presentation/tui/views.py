@@ -124,7 +124,9 @@ def build_dashboard_view(result: AnalysisResult, compact: bool) -> Group:
     metadata = Table.grid(padding=(0, 1), expand=True)
     metadata.add_column(style="bold cyan", width=12)
     metadata.add_column(ratio=1, no_wrap=False, overflow="fold")
-    metadata.add_row("輸入目錄", Text(result.input_path))
+    analysis_request = getattr(result, "analysis_request", None)
+    selected_path = getattr(analysis_request, "path", None)
+    metadata.add_row("Log 來源", Text(selected_path or result.input_path))
     metadata.add_row(
         "輸出檔案",
         Text("\n".join(result.exported_files) if has_export else "尚未匯出"),
