@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from types import SimpleNamespace
 
+import pytest
 from rich.cells import cell_len
 from rich.console import Console
 
@@ -44,8 +45,18 @@ def _result(
     )
 
 
-def _render(result: SimpleNamespace, width: int, compact: bool) -> str:
-    console = Console(width=width, record=True, color_system=None)
+def _render(
+    result: SimpleNamespace,
+    width: int,
+    compact: bool,
+    legacy_windows: bool | None = None,
+) -> str:
+    console = Console(
+        width=width,
+        record=True,
+        color_system=None,
+        legacy_windows=legacy_windows,
+    )
     console.print(build_dashboard_view(result, compact=compact))
     return console.export_text()
 
@@ -56,10 +67,14 @@ def _title_line(output: str, title: str) -> str:
 
 def _panel_geometry(line: str, expected_count: int) -> tuple[list[int], list[int], int]:
     left_edges = [
-        cell_len(line[:index]) for index, character in enumerate(line) if character == "┌"
+        cell_len(line[:index])
+        for index, character in enumerate(line)
+        if character in {"┌", "╭"}
     ]
     right_edges = [
-        cell_len(line[:index]) for index, character in enumerate(line) if character == "┐"
+        cell_len(line[:index])
+        for index, character in enumerate(line)
+        if character in {"┐", "╮"}
     ]
     assert len(left_edges) == expected_count
     assert len(right_edges) == expected_count
@@ -71,38 +86,58 @@ def _panel_geometry(line: str, expected_count: int) -> tuple[list[int], list[int
     return widths, gaps, right_edges[-1]
 
 
-def test_metric_cards_use_available_width_even_when_compact() -> None:
+@pytest.mark.parametrize("legacy_windows", [False, True], ids=("rounded", "legacy"))
+def test_metric_cards_use_available_width_even_when_compact(legacy_windows: bool) -> None:
     for width in (80, 100, 140):
         for compact in (False, True):
-            output = _render(_result(), width=width, compact=compact)
+            output = _render(
+                _result(),
+                width=width,
+                compact=compact,
+                legacy_windows=legacy_windows,
+            )
 
             line = _title_line(output, "總 Log")
             assert "群組" in line
             assert "命中" in line
+            assert ("┌" if legacy_windows else "╭") in line
+            assert ("┐" if legacy_windows else "╮") in line
             widths, gaps, right_edge = _panel_geometry(line, expected_count=3)
             assert max(widths) - min(widths) <= 1
             assert max(gaps) <= 2
             assert right_edge == width - 1
 
 
-def test_logger_and_thread_panels_fill_equally_and_adapt_to_actual_width() -> None:
+@pytest.mark.parametrize("legacy_windows", [False, True], ids=("rounded", "legacy"))
+def test_logger_and_thread_panels_fill_equally_and_adapt_to_actual_width(
+    legacy_windows: bool,
+) -> None:
     for width in (45, 80, 100, 140):
         for compact in (False, True):
-            output = _render(_result(), width=width, compact=compact)
+            output = _render(
+                _result(),
+                width=width,
+                compact=compact,
+                legacy_windows=legacy_windows,
+            )
             logger_line = next(
                 line
                 for line in output.splitlines()
                 if "Logger" in line
-                and "┌" in line
+                and ("┌" in line or "╭" in line)
                 and "Logger / Thread 分布" not in line
             )
             thread_line = next(
                 line
                 for line in output.splitlines()
                 if "Thread" in line
-                and "┌" in line
+                and ("┌" in line or "╭" in line)
                 and "Logger / Thread 分布" not in line
             )
+
+            for panel_line in (logger_line, thread_line):
+                assert ("┌" if legacy_windows else "╭") in panel_line
+                assert ("┐" if legacy_windows else "╮") in panel_line
 
             if width >= 100:
                 assert logger_line == thread_line

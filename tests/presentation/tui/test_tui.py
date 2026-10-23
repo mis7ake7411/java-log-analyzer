@@ -3,6 +3,7 @@ from datetime import datetime
 import logging
 import pickle
 from pathlib import Path
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -159,8 +160,15 @@ def test_ctrl_u_clears_focused_input_text():
     asyncio.run(run_check())
 
 
-def test_get_package_version_matches_installed_package():
-    assert get_package_version() == "1.0.15"
+def test_get_package_version_matches_project_version():
+    project_toml = Path(__file__).parents[3] / "pyproject.toml"
+    version_match = re.search(
+        r'(?m)^version\s*=\s*"([^"]+)"\s*$',
+        project_toml.read_text(encoding="utf-8"),
+    )
+
+    assert version_match is not None
+    assert get_package_version() == version_match.group(1)
 
 
 def test_default_datetime_field_texts():
