@@ -5,7 +5,7 @@
 ## 核心特色
 
 - **智慧解析**：支援常見 Logback 格式，並可處理多行 Exception 堆疊
-- **自訂 Pattern**：可直接貼上 `logback.xml` 的 `<pattern>` 內容，分析非預設格式的日誌
+- **自動套用 Pattern**：可貼上 Logback XML 路徑自動載入格式，也可手動覆寫 Pattern
 - **TUI 介面**：提供全螢幕互動式操作，適合手動分析與快速排查
 - **多格式匯出**：支援 `CSV`、`JSON`、`Markdown`
 - **精準篩選**：支援 Log Level、關鍵字、忽略大小寫、時間區間與排序方式設定
@@ -93,26 +93,36 @@ log-analyzer /path/to/logs
 - 終端機若將拖放轉成路徑貼上，可先聚焦 `Log 目錄`、`目標資料夾` 或 `Logback XML` 欄位再拖入；未支援 bracketed paste 的終端機無法使用此方式
 - 路徑貼上支援外層引號、`file://` URL 與 URL 編碼；多行內容會被拒絕，驗證失敗時欄位會保留原值
 - `Log 目錄` 可貼上資料夾，或 `.log`／`.txt`／`.out` 檔案（會改用其父目錄）；`目標資料夾` 必須可寫；`Logback XML` 僅接受可讀取的 `.xml` 檔案
-- `Logback XML` 可載入 `logback.xml` 或 `logback-spring.xml`，並自動挑選最符合樣本的 Pattern
-- `Log` 格式可使用預設模式，也可切換到進階 Pattern 手動指定
+- `Logback XML` 可直接貼上 `logback.xml` 或 `logback-spring.xml` 路徑，或按「瀏覽」選取；分析時會載入 XML，並挑選最符合樣本的 Pattern。指定的 XML 無法讀取或沒有可用 Pattern 時會提示錯誤，不會默默改用預設格式
+- 不需選擇格式模式；介面會顯示目前的格式來源與 Pattern。未指定 XML 時會嘗試尋找 Log 目錄中的 XML，沒有找到才使用內建 Pattern
+- 需要自行調整時，勾選「手動覆寫 Pattern」並輸入內容；手動內容優先於 XML。取消勾選後恢復自動套用，保留的手動文字不會影響分析
 - `時間區間` 採日期與時間分開輸入
-- `Log 層級` 預設分析 `ERROR / WARN / INFO`，可手動勾選 `DEBUG / TRACE`、使用全選，或勾選「不限 Level」解除 Level 篩選
+- `Log 層級` 預設分析 `ERROR / WARN / INFO`，可手動勾選 `DEBUG / TRACE`、使用全選，或勾選「不限 Level」解除 Level 篩選。選擇不限時，個別層級及全選／清除會停用；取消不限後恢復原本勾選
 - `依 Level 分檔` 會依實際有資料的 Log Level 分開匯出；只有一個 Level 有資料時仍維持單檔
 - `關鍵字` 旁提供清除按鈕
 - 輸入框支援 `Ctrl+A` 全選、`Ctrl+U` 清空
 - 介面會記住上次使用的主要條件
-- `顯示模式` 提供 `預設摘要` 與 `濃縮摘要` 兩種結果呈現方式
-- 分析完成後，結果區會顯示摘要與統計資訊，方便快速判讀
+- 摘要統一依結果區的可用寬度自動排版，不需選擇顯示模式；所有摘要與統計內容皆會保留
+- 分析完成後，結果區會顯示摘要與統計資訊；數字卡在寬版並排、窄版直排，Level 長條隨可用寬度伸展並顯示占比
 
 沒有符合資料時，結果區會列出掃描檔案數、符合 Pattern 的事件數，以及時間、Level、關鍵字各階段保留的數量。事件數不是實體行數；多行堆疊屬於同一事件。可按「清除時間並重試」、「不限 Level 並重試」或「清除關鍵字並重試」，只解除該項條件後重新分析；未使用的條件會停用對應按鈕。
+
+### 查看事件原文
+
+- 事件群組清單分行顯示層級、次數、時間、訊息及來源，保留分析時的排序方式。
+- 選擇群組後，出現位置按時間由早到晚排列；時間相同時按檔名、行號排序。
+- 詳細頁分開顯示事件資訊、分析時保留的群組代表訊息與例外堆疊，以及已核對來源的原文前後文。群組代表內容不等於每次出現的完整原文；堆疊與原文皆保留原本行序。
+- 來源檔案若已變更或無法核對，會顯示警告並停用座標複製，不會將舊的分析內容當成已核對原文。
 
 ### 命名分析配方
 
 按「管理分析配方」可保存多份常用條件：
 
 - 輸入名稱後按「儲存目前條件」；使用相同名稱會更新該配方，其他配方不受影響。
-- 選擇配方並按「套用」，回填來源、Pattern／XML、時間、關鍵字與大小寫、Level、排序及顯示設定。套用不會自動分析，也不會替換目前結果；確認條件後再按「開始分析」。
+- 選擇配方並按「套用」，回填來源、Pattern／XML、時間、關鍵字與大小寫、Level 及排序設定。套用不會自動分析，也不會替換目前結果；確認條件後再按「開始分析」。舊配方的顯示模式值會忽略，統一自動排版。
 - 選擇配方並按「刪除」，只移除選中的配方。
+
+新配方會記住自動套用或手動覆寫。舊版進階 Pattern 配方有手動內容時繼續採用；若只有 XML 路徑、沒有手動 Pattern，則改為自動載入 XML。舊版預設模式配方維持內建格式，套用時會清除原先未使用的 XML／Pattern 欄位，且不會因讀取而改寫原配方檔。
 
 配方不包含輸出位置、報表或日誌本文。配方檔保存在目前使用者的設定目錄，重啟程式後仍可讀回：
 
@@ -215,13 +225,13 @@ log-analyzer --version
 
 ## Pattern 支援範圍
 
-預設模式使用內建 Pattern：
+未使用 XML 或手動覆寫時，內建 Pattern 為：
 
 ```text
 %d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n
 ```
 
-進階模式可貼上 `logback.xml` 的 `<pattern>` 內容，但目前只支援常見 token；超出支援範圍時，工具會提示不支援的項目。
+勾選「手動覆寫 Pattern」後可貼上 `logback.xml` 的 `<pattern>` 內容，但目前只支援常見 token；超出支援範圍時，工具會提示不支援的項目。CLI 仍可使用 `--log-pattern` 或 `--logback-xml`。
 
 - 會解析成欄位：`%d` / `%date`、`%thread` / `%t`、`%level` / `%le` / `%p`、`%logger` / `%lo` / `%c`、`%msg` / `%message` / `%m`
 - 可接受但不納入輸出欄位：`%file`、`%line` / `%L`、`%class`、`%method` / `%M`、`%caller`、`%mdc` / `%X`、`%ex` / `%throwable` / `%xEx` / `%wEx` / `%wex` / `%rootException` / `%rEx`、`%n`
@@ -260,14 +270,21 @@ TUI 匯出設定可勾選附加證據清單，預設不勾選。匯出報表後�
 - `src/log_analyzer/application/analysis_service.py`：分析流程與結果組裝
 - `src/log_analyzer/application/evidence_manifest.py`：證據清單與來源／報表雜湊核對
 - `src/log_analyzer/domain/parser.py`：核心解析邏輯
-- `src/log_analyzer/infrastructure/exporter.py`：多格式匯出與自動分割
+- `src/log_analyzer/infrastructure/exporting/`：匯出流程、欄位定義與 CSV／JSON／Markdown 實作
 - `src/log_analyzer/infrastructure/recipe_store.py`：使用者本地命名配方儲存
-- `src/log_analyzer/presentation/cli.py`：CLI 進入點
-- `src/log_analyzer/presentation/tui.py`：TUI 介面
-- `src/log_analyzer/presentation/tui_views.py`：TUI 結果畫面組件
+- `src/log_analyzer/presentation/cli/`：CLI 進入點、參數定義與執行條件處理
+- `src/log_analyzer/presentation/tui/`：TUI 應用程式、輸入、對話框、事件瀏覽與結果畫面
 - `src/log_analyzer/presentation/error_messages.py`：錯誤提示整理
-- `src/log_analyzer/presentation/recent_form_state.py`：最近一次表單狀態保存
+- `src/log_analyzer/presentation/tui/recent_state.py`：最近一次表單狀態保存
 - `src/log_analyzer/tcss/`：TUI 樣式檔
+- `tests/domain/`：日誌解析、Pattern 與時間處理
+- `tests/application/`：分析服務、來源預覽與證據清單
+- `tests/infrastructure/`：匯出、路徑、命名與配方儲存
+- `tests/presentation/cli/`、`tests/presentation/tui/`：兩種介面與操作流程
+- `tests/integration/`：跨模組流程與套件相容入口
+- `tests/fixtures/`：共用測試資料
+
+舊的扁平輔助模組已移除，請使用上述分類後的模組。原有 `log-analyzer` 與 `python -m log_analyzer` 啟動方式不變。
 
 ## 適用環境
 

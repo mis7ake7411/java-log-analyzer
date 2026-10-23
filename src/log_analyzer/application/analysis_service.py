@@ -8,7 +8,7 @@ from datetime import datetime
 from .dashboard_summary import DashboardAnalysis, aggregate_dashboard_summary
 from ..domain.log_types import MatchedLogs, ScanDiagnostics, SourceSnapshot
 from ..domain.parser import ParseOptions, parse_log_directory
-from ..infrastructure.exporter import ExportOptions, export_with_options
+from ..infrastructure.exporting import ExportOptions, export_with_options
 from ..infrastructure.paths import ensure_readable_directory, ensure_writable_directory
 
 DEFAULT_SELECTED_LEVELS = ("ERROR", "WARN", "INFO")

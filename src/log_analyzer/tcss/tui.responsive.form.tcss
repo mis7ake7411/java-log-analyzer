@@ -3,10 +3,14 @@
 
 #form-panel.wide {
     padding: 1 0 1 2;
+    width: 100%;
+    min-width: 0;
 }
 
 #form-panel.compact {
     padding: 1 0 1 1;
+    width: 100%;
+    min-width: 0;
 }
 
 #form-panel.wide .field,
@@ -82,11 +86,6 @@
     margin-right: 1;
 }
 
-#form-panel.wide .field-row .field--display-mode {
-    width: 1fr;
-    margin-right: 1;
-}
-
 #form-panel.wide .field-row .field--sort {
     width: 1fr;
     margin-right: 1;
@@ -108,7 +107,6 @@
 }
 
 #form-panel.compact .field-row .field--ignore,
-#form-panel.compact .field-row .field--display-mode,
 #form-panel.compact .field-row .field--sort,
 #form-panel.compact .field-row .field--format,
 #form-panel.compact .field-row .field--split-output {

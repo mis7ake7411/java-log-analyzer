@@ -9,7 +9,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
-from ..infrastructure.export_fields import normalize_export_fields
+from ..infrastructure.exporting.fields import normalize_export_fields
 from ..version import get_package_version
 from .analysis_service import AnalysisResult, ResultExportOptions
 

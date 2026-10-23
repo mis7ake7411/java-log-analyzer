@@ -3,6 +3,7 @@
 #content {
     height: 1fr;
     min-height: 0;
+    min-width: 0;
     layout: vertical;
     overflow: hidden;
 }
@@ -13,11 +14,13 @@
     background: #0b1220;
     padding: 1 2;
     min-height: 0;
+    min-width: 0;
 }
 
 #form-column {
     height: 1fr;
     min-height: 0;
+    min-width: 0;
     layout: vertical;
 }
 
@@ -103,6 +106,7 @@
     height: 1fr;
     width: 1fr;
     min-height: 0;
+    min-width: 0;
     border: round #334155;
     background: #111827;
 }
@@ -112,6 +116,7 @@
     margin-top: 1;
     margin-bottom: 2;
     width: 1fr;
+    min-width: 0;
 }
 
 #form-actions Button {
@@ -122,6 +127,7 @@
     display: none;
     height: auto;
     min-height: 0;
+    min-width: 0;
     margin: -1 3 1 3;
     color: #fbbf24;
 }
@@ -129,6 +135,8 @@
 #output-actions {
     height: 3;
     margin-top: 1;
+    width: 1fr;
+    min-width: 0;
     layout: horizontal;
 }
 
