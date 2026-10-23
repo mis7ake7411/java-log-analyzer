@@ -48,6 +48,7 @@ def _assert_form_actions_fit(app: tui.LogAnalyzerApp) -> None:
     _assert_inside(manage_button, form_actions)
     _assert_inside(run_button, form_actions)
     assert manage_button.region.y == run_button.region.y
+    assert run_button.region.x - manage_button.region.right >= 1
     assert run_button.region.width > 0
 
 

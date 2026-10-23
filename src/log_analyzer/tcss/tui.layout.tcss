@@ -162,6 +162,10 @@
     width: 1fr;
 }
 
+#form-actions #manage-recipes {
+    margin-right: 1;
+}
+
 #recipe-feedback {
     display: none;
     height: auto;
