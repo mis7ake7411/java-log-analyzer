@@ -15,6 +15,7 @@ from .json import (
     serialize_json_log,
 )
 from .markdown import render_markdown_prefix, render_markdown_summary, serialize_markdown_log
+from .transaction import ExportTransaction
 
 MAX_EXPORT_BYTES_PER_FILE = 50 * 1024 * 1024
 
@@ -28,6 +29,7 @@ class ExportOptions:
     max_export_bytes: int | None = None
     split_by_level: bool = False
     fields: tuple[str, ...] | None = None
+    overwrite: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +41,7 @@ class _LevelExportContext:
     threshold: int
     active_levels: list[str]
     fields: tuple[str, ...] | None = None
+    final_output: Path | None = None
 
 
 def export_results(  # noqa: PLR0913 - public legacy API retained for backward compatibility
@@ -50,6 +53,7 @@ def export_results(  # noqa: PLR0913 - public legacy API retained for backward c
     split_by_level: bool = False,
     *,
     fields: tuple[str, ...] | None = None,
+    overwrite: bool = False,
 ):
     """
     根據指定的格式匯出分析結果
@@ -69,17 +73,36 @@ def export_results(  # noqa: PLR0913 - public legacy API retained for backward c
             max_export_bytes=max_export_bytes,
             split_by_level=split_by_level,
             fields=fields,
+            overwrite=overwrite,
         )
     )
 
 
-def export_with_options(options: ExportOptions) -> list[str]:
+def export_with_options(
+    options: ExportOptions,
+    *,
+    protected_paths=(),
+) -> list[str]:
+    transaction = ExportTransaction(
+        options.output_path,
+        overwrite=options.overwrite,
+        protected_paths=protected_paths,
+    )
+    try:
+        staged_paths = _stage_export_with_options(options, transaction)
+        return transaction.publish(staged_paths)
+    finally:
+        transaction.cleanup()
+
+
+def _stage_export_with_options(options: ExportOptions, transaction: ExportTransaction) -> list[str]:
     fields = (
         None
         if options.fields is None
         else normalize_export_fields(options.fields)
     )
     output = Path(options.output_path)
+    staged_output = transaction.stage_path(output.name)
     format_name = options.format.lower()
     threshold = (
         MAX_EXPORT_BYTES_PER_FILE
@@ -90,11 +113,12 @@ def export_with_options(options: ExportOptions) -> list[str]:
     context = _LevelExportContext(
         counts=options.counts,
         matched_logs=options.matched_logs,
-        output=output,
+        output=staged_output,
         format_name=format_name,
         threshold=threshold,
         active_levels=active_levels,
         fields=fields,
+        final_output=output,
     )
     if options.split_by_level and len(active_levels) > 1:
         return _export_by_level(context)
@@ -104,19 +128,21 @@ def export_with_options(options: ExportOptions) -> list[str]:
 def _export_by_level(context: _LevelExportContext) -> list[str]:
     base_name = context.output.stem
     suffix = context.output.suffix or f".{context.format_name}"
-    writers = {
-        level: _LevelFileWriter(
-            context.output.with_name(f"{base_name}_{_safe_filename_part(level)}{suffix}"),
-            {level: context.counts[level]},
-            context.format_name,
-            context.threshold,
-            context.fields,
-        )
-        for level in context.active_levels
-    }
+    writers: dict[str, _LevelFileWriter] = {}
     created_paths: list[str] = []
 
     try:
+        for level in context.active_levels:
+            writers[level] = _LevelFileWriter(
+                context.output.with_name(
+                    f"{base_name}_{_safe_filename_part(level)}{suffix}"
+                ),
+                {level: context.counts[level]},
+                context.format_name,
+                context.threshold,
+                context.fields,
+            )
+
         for log in context.matched_logs:
             level = str(log.get("level", ""))
             writer = writers.get(level)
@@ -130,15 +156,25 @@ def _export_by_level(context: _LevelExportContext) -> list[str]:
         summary_path = context.output.with_name(f"{base_name}_summary{suffix}")
         _write_text(
             summary_path,
-            _render_summary(context.counts, created_paths, context.format_name),
+            _render_summary(
+                context.counts,
+                _summary_paths(context, created_paths),
+                context.format_name,
+            ),
             _encoding_for(context.format_name),
         )
         return [str(summary_path), *created_paths]
-    except Exception:
+    except BaseException:
         for writer in writers.values():
-            writer.abort()
+            try:
+                writer.abort()
+            except BaseException:  # noqa: BLE001 - preserve the original render error after best-effort cleanup
+                pass
         for file_path in created_paths:
-            _unlink_if_exists(Path(file_path))
+            try:
+                _unlink_if_exists(Path(file_path))
+            except BaseException:  # noqa: BLE001 - keep cleaning other staged paths
+                pass
         raise
 
 
@@ -165,13 +201,27 @@ class _LevelFileWriter:
         self.current_part_log_index = 0
         self.split_occurred = False
         self.current_path = output
-        self.current_handle = _open_part_file(
-            output, counts, format_name, self.encoding, fields
-        )
-        self.current_size = _rendered_size(
-            _report_prefix(counts, format_name, fields), format_name
-        )
         self.closed = False
+        self.current_handle = None
+        try:
+            self.current_handle = _open_part_file(
+                output, counts, format_name, self.encoding, fields
+            )
+            self.current_size = _rendered_size(
+                _report_prefix(counts, format_name, fields), format_name
+            )
+        except BaseException:
+            if self.current_handle is not None:
+                try:
+                    self.current_handle.close()
+                except BaseException:  # noqa: BLE001 - preserve the constructor's original failure
+                    pass
+            self.closed = True
+            try:
+                _unlink_if_exists(output)
+            except BaseException:  # noqa: BLE001 - keep the original constructor failure
+                pass
+            raise
 
     def write(self, log) -> None:
         while True:
@@ -205,13 +255,20 @@ class _LevelFileWriter:
         return [str(self.output)]
 
     def abort(self) -> None:
+        close_error: BaseException | None = None
         if not self.closed and self.current_handle is not None:
-            self.current_handle.close()
-            self.closed = True
+            try:
+                self.current_handle.close()
+            except BaseException as error:  # noqa: BLE001 - always finish best-effort staged-file cleanup
+                close_error = error
+            finally:
+                self.closed = True
         _unlink_if_exists(self.output)
         _unlink_if_exists(self.current_path)
         for path in self.part_paths:
             _unlink_if_exists(path)
+        if close_error is not None:
+            raise close_error
 
     def write_empty_markdown_message(self) -> None:
         message = "無符合條件的記錄\n"
@@ -257,26 +314,43 @@ def _export_streaming(context: _LevelExportContext) -> list[str]:
     )
     has_any_logs = False
 
-    for log in context.matched_logs:
-        has_any_logs = True
-        writer.write(log)
+    created_paths: list[str] = []
+    try:
+        for log in context.matched_logs:
+            has_any_logs = True
+            writer.write(log)
 
-    if context.format_name == 'md' and not has_any_logs:
-        writer.write_empty_markdown_message()
+        if context.format_name == 'md' and not has_any_logs:
+            writer.write_empty_markdown_message()
 
-    created_paths = writer.close()
-    if not writer.split_occurred:
-        return created_paths
+        created_paths = writer.close()
+        if not writer.split_occurred:
+            return created_paths
 
-    summary_path = context.output.with_name(
-        f"{context.output.stem}_summary{context.output.suffix or f'.{context.format_name}'}"
-    )
-    _write_text(
-        summary_path,
-        _render_summary(context.counts, created_paths, context.format_name),
-        _encoding_for(context.format_name),
-    )
-    return [str(summary_path), *created_paths]
+        summary_path = context.output.with_name(
+            f"{context.output.stem}_summary{context.output.suffix or f'.{context.format_name}'}"
+        )
+        _write_text(
+            summary_path,
+            _render_summary(
+                context.counts,
+                _summary_paths(context, created_paths),
+                context.format_name,
+            ),
+            _encoding_for(context.format_name),
+        )
+        return [str(summary_path), *created_paths]
+    except BaseException:
+        try:
+            writer.abort()
+        except BaseException:  # noqa: BLE001 - preserve the original render error after best-effort cleanup
+            pass
+        for file_path in created_paths:
+            try:
+                _unlink_if_exists(Path(file_path))
+            except BaseException:  # noqa: BLE001 - keep cleaning other staged paths
+                pass
+        raise
 
 
 def _render_log_block(
@@ -325,8 +399,11 @@ def _open_part_file(
     file_handle = path.open("w", encoding=encoding, newline="" if encoding == "utf-8-sig" else None)
     try:
         file_handle.write(_report_prefix(counts, format_name, fields))
-    except (OSError, UnicodeError):
-        file_handle.close()
+    except BaseException:
+        try:
+            file_handle.close()
+        except BaseException:  # noqa: BLE001 - preserve the original write failure
+            pass
         raise
     return file_handle
 
@@ -344,6 +421,11 @@ def _render_summary(counts, split_files, format_name: str) -> str:
     if format_name == 'md':
         return render_markdown_summary(counts, split_files)
     return render_csv_summary(counts, split_files)
+
+
+def _summary_paths(context: _LevelExportContext, staged_paths: list[str]) -> list[str]:
+    final_output = context.final_output or context.output
+    return [str(final_output.parent / Path(path).name) for path in staged_paths]
 
 
 def _write_text(output: Path, text: str, encoding: str) -> None:

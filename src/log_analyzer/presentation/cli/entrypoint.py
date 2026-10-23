@@ -3,6 +3,7 @@ import sys
 from ...application.analysis_service import AnalysisOptions, run_analysis_with_options
 from ...domain.logback_pattern import UnsupportedLogbackPatternError
 from ...domain.log_sources import LogSourceSelection, select_log_source
+from ...infrastructure.exporting import ExportConflictError
 from .args import build_argument_parser
 from .runtime import (
     parse_datetime_value,
@@ -139,13 +140,20 @@ def _run_cli_analysis(args, target_dir: str) -> None:
         levels=selected_levels,
         split_by_level=args.split_by_level,
         selected_files=source.filenames,
+        overwrite=args.overwrite,
     )
     _print_analysis_result(run_analysis_with_options(options), args)
 
 
 def _handle_cli_error(exc: Exception) -> None:
     """輸出已知 CLI 錯誤並結束程式。"""
-    if isinstance(exc, UnsupportedLogbackPatternError):
+    if isinstance(exc, ExportConflictError):
+        paths = "\n".join(f"  - {path}" for path in exc.paths)
+        _print_error(
+            "匯出衝突",
+            f"以下輸出檔案已存在：\n{paths}\n請更改 -o 輸出路徑，或明確指定 --overwrite 覆蓋。",
+        )
+    elif isinstance(exc, UnsupportedLogbackPatternError):
         _print_error("輸入錯誤", str(exc))
     elif isinstance(exc, PermissionError):
         _print_error("權限不足", str(exc))

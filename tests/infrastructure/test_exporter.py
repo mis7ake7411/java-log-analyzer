@@ -4,7 +4,12 @@ import json
 
 import pytest
 
-from log_analyzer.infrastructure.exporting import ExportOptions, export_results, export_with_options
+from log_analyzer.infrastructure.exporting import (
+    ExportConflictError,
+    ExportOptions,
+    export_results,
+    export_with_options,
+)
 from log_analyzer.infrastructure.exporting import exporter
 
 
@@ -381,6 +386,96 @@ def test_export_by_level_context_removes_created_files_when_summary_write_fails(
         exporter._export_by_level(context)
 
     assert list(tmp_path.iterdir()) == []
+
+
+def test_level_writer_construction_failure_closes_earlier_writer_and_cleans_stage(
+    tmp_path, monkeypatch
+):
+    output_path = tmp_path / "report.csv"
+    real_open = exporter._open_part_file
+    handles = []
+    calls = 0
+
+    def fail_later_open(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("simulated second writer open failure")
+        handle = real_open(*args, **kwargs)
+        handles.append(handle)
+        return handle
+
+    monkeypatch.setattr(exporter, "_open_part_file", fail_later_open)
+
+    with pytest.raises(OSError, match="simulated second writer open failure"):
+        export_with_options(
+            ExportOptions(
+                counts={"ERROR": 1, "WARN": 1},
+                matched_logs=[_build_level_log(1, "ERROR"), _build_level_log(2, "WARN")],
+                output_path=str(output_path),
+                split_by_level=True,
+            )
+        )
+
+    assert len(handles) == 1
+    assert handles[0].closed
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_interrupted_streaming_export_closes_writer_and_cleans_stage(tmp_path, monkeypatch):
+    output_path = tmp_path / "report.csv"
+    real_open = exporter._open_part_file
+    handles = []
+
+    def track_open(*args, **kwargs):
+        handle = real_open(*args, **kwargs)
+        handles.append(handle)
+        return handle
+
+    def interrupt_render(*_args, **_kwargs):
+        raise KeyboardInterrupt("simulated rendering interrupt")
+
+    monkeypatch.setattr(exporter, "_open_part_file", track_open)
+    monkeypatch.setattr(exporter, "_render_log_block", interrupt_render)
+
+    with pytest.raises(KeyboardInterrupt, match="simulated rendering interrupt"):
+        export_results({"INFO": 1}, [_build_log(1, "payload")], str(output_path))
+
+    assert len(handles) == 1
+    assert handles[0].closed
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_cleanup_error_reports_no_publication_and_keeps_render_error_context(
+    tmp_path, monkeypatch
+):
+    import log_analyzer.infrastructure.exporting.transaction as transaction_module
+
+    output_path = tmp_path / "report.csv"
+
+    def fail_render(*_args, **_kwargs):
+        raise OSError("simulated report render failure")
+
+    def fail_cleanup(*_args, **_kwargs):
+        raise OSError("simulated stage cleanup failure")
+
+    monkeypatch.setattr(exporter, "_render_log_block", fail_render)
+    monkeypatch.setattr(transaction_module.shutil, "rmtree", fail_cleanup)
+
+    with pytest.raises(OSError) as error:
+        export_results({"INFO": 1}, [_build_log(1, "payload")], str(output_path))
+
+    chained = []
+    current = error.value
+    while current is not None and current not in chained:
+        chained.append(current)
+        current = current.__cause__ or current.__context__
+    assert any("report render failure" in str(item) for item in chained)
+    assert "暫存清理失敗" in str(error.value)
+    assert "尚無輸出發布" in str(error.value)
+    stage_dirs = list(tmp_path.glob(".report.csv.export-*"))
+    assert len(stage_dirs) == 1
+    assert str(stage_dirs[0].resolve()) in str(error.value)
 
 
 @pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")])
@@ -789,3 +884,157 @@ def test_export_field_normalization_returns_unique_canonical_selection():
         normalize_export_fields(())
     with pytest.raises(ValueError):
         normalize_export_fields(("not_a_field",))
+
+
+@pytest.mark.parametrize("fmt", ["csv", "json", "md"])
+def test_export_refuses_existing_target_without_overwrite(tmp_path, fmt):
+    output_path = tmp_path / f"report.{fmt}"
+    output_path.write_bytes(b"keep existing report")
+
+    with pytest.raises(ExportConflictError) as error:
+        export_results({"INFO": 1}, [_build_log(1, "new")], str(output_path), fmt)
+
+    assert error.value.paths == (str(output_path.resolve()),)
+    assert output_path.read_bytes() == b"keep existing report"
+    assert list(tmp_path.iterdir()) == [output_path]
+
+
+@pytest.mark.parametrize(
+    "target_name, split_by_level, max_export_bytes",
+    [
+        ("report_summary.csv", True, None),
+        ("report_WARN.csv", True, None),
+        ("report_part001.csv", False, 1),
+    ],
+)
+def test_export_refuses_summary_and_split_part_collisions(
+    tmp_path, target_name, split_by_level, max_export_bytes
+):
+    output_path = tmp_path / "report.csv"
+    existing = tmp_path / target_name
+    existing.write_bytes(b"existing output")
+    logs = [_build_level_log(1, "ERROR"), _build_level_log(2, "WARN")]
+
+    with pytest.raises(ExportConflictError) as error:
+        export_results(
+            {"ERROR": 1, "WARN": 1},
+            logs,
+            str(output_path),
+            "csv",
+            max_export_bytes=max_export_bytes,
+            split_by_level=split_by_level,
+        )
+
+    assert error.value.paths == (str(existing.resolve()),)
+    assert existing.read_bytes() == b"existing output"
+    assert {path.name for path in tmp_path.iterdir()} == {target_name}
+
+
+@pytest.mark.parametrize("fmt", ["csv", "json", "md"])
+def test_export_results_can_explicitly_overwrite_existing_target(tmp_path, fmt):
+    output_path = tmp_path / f"report.{fmt}"
+    output_path.write_text("old report", encoding="utf-8")
+
+    files = export_results(
+        {"INFO": 1},
+        [_build_log(1, "new")],
+        str(output_path),
+        fmt,
+        overwrite=True,
+    )
+
+    assert files == [str(output_path)]
+    assert output_path.read_text(encoding="utf-8-sig" if fmt == "csv" else "utf-8") != "old report"
+    assert list(tmp_path.iterdir()) == [output_path]
+
+
+@pytest.mark.parametrize("fmt", ["csv", "json", "md"])
+def test_split_summary_references_final_paths_and_never_staging_paths(tmp_path, fmt):
+    output_path = tmp_path / f"report.{fmt}"
+
+    files = export_results(
+        {"ERROR": 1, "WARN": 1},
+        [_build_level_log(1, "ERROR"), _build_level_log(2, "WARN")],
+        str(output_path),
+        fmt,
+        split_by_level=True,
+    )
+
+    summary = Path(files[0]).read_text(encoding="utf-8-sig" if fmt == "csv" else "utf-8")
+    if fmt == "json":
+        assert json.loads(summary)["split"]["files"] == files[1:]
+    else:
+        assert all(str(Path(path).resolve()) in summary for path in files[1:])
+    assert ".export-" not in summary
+    assert not any(path.name.startswith(".") for path in tmp_path.iterdir())
+
+
+def test_export_render_failure_preserves_old_split_files(tmp_path, monkeypatch):
+    output_path = tmp_path / "report.csv"
+    old_files = {
+        tmp_path / "report_summary.csv": b"old summary",
+        tmp_path / "report_ERROR.csv": b"old error",
+        tmp_path / "report_WARN.csv": b"old warn",
+    }
+    for path, content in old_files.items():
+        path.write_bytes(content)
+
+    def fail_summary(*_args, **_kwargs):
+        raise OSError("simulated summary write failure")
+
+    monkeypatch.setattr(exporter, "_write_text", fail_summary)
+
+    with pytest.raises(OSError, match="simulated summary write failure"):
+        export_results(
+            {"ERROR": 1, "WARN": 1},
+            [_build_level_log(1, "ERROR"), _build_level_log(2, "WARN")],
+            str(output_path),
+            "csv",
+            split_by_level=True,
+            overwrite=True,
+        )
+
+    assert {path: path.read_bytes() for path in old_files} == old_files
+    assert set(tmp_path.iterdir()) == set(old_files)
+
+
+@pytest.mark.parametrize("failure_point", ["write", "close", "render"])
+def test_export_failures_preserve_old_split_family(tmp_path, monkeypatch, failure_point):
+    output_path = tmp_path / "report.csv"
+    old_files = {
+        tmp_path / "report_summary.csv": b"old summary",
+        tmp_path / "report_ERROR.csv": b"old error",
+        tmp_path / "report_WARN.csv": b"old warn",
+    }
+    for path, content in old_files.items():
+        path.write_bytes(content)
+
+    if failure_point == "write":
+        def fail_write(*_args, **_kwargs):
+            raise OSError("simulated write failure")
+
+        monkeypatch.setattr(exporter, "_render_log_block", fail_write)
+    elif failure_point == "close":
+        def fail_close(handle, _format_name):
+            handle.close()
+            raise OSError("simulated close failure")
+
+        monkeypatch.setattr(exporter, "_close_part_file", fail_close)
+    else:
+        def fail_render(*_args, **_kwargs):
+            raise OSError("simulated summary render failure")
+
+        monkeypatch.setattr(exporter, "_render_summary", fail_render)
+
+    with pytest.raises(OSError, match="simulated"):
+        export_results(
+            {"ERROR": 1, "WARN": 1},
+            [_build_level_log(1, "ERROR"), _build_level_log(2, "WARN")],
+            str(output_path),
+            "csv",
+            split_by_level=True,
+            overwrite=True,
+        )
+
+    assert {path: path.read_bytes() for path in old_files} == old_files
+    assert set(tmp_path.iterdir()) == set(old_files)

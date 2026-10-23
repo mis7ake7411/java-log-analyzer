@@ -59,6 +59,130 @@
     margin-left: 1;
 }
 
+#export-conflict {
+    align: center middle;
+    background: rgba(15, 23, 42, 0.78);
+}
+
+#export-conflict-card {
+    width: 96%;
+    height: 90%;
+    border: round #38bdf8;
+    background: #0b1220;
+    padding: 1 1;
+}
+
+#export-conflict-title {
+    height: auto;
+    text-style: bold;
+    color: #f8fafc;
+}
+
+#export-conflict-message {
+    height: auto;
+    color: #94a3b8;
+    margin-bottom: 1;
+}
+
+#export-conflict-scroll {
+    height: 1fr;
+    min-height: 3;
+    border: round #334155;
+    background: #111827;
+    padding: 0 1;
+}
+
+#export-conflict-paths {
+    height: auto;
+    color: #7dd3fc;
+    overflow: auto;
+}
+
+#export-conflict-actions {
+    height: auto;
+    layout: horizontal;
+    margin-top: 1;
+}
+
+#export-conflict-actions Button {
+    width: 1fr;
+    min-width: 0;
+    margin-right: 1;
+}
+
+#export-conflict-actions #export-conflict-cancel {
+    margin-right: 0;
+}
+
+#pattern-confirmation {
+    align: center middle;
+    background: rgba(15, 23, 42, 0.78);
+}
+
+#pattern-confirmation-card {
+    width: 96%;
+    height: 92%;
+    border: round #38bdf8;
+    background: #0b1220;
+    padding: 0 1;
+}
+
+#pattern-confirmation-title {
+    height: auto;
+    text-style: bold;
+    color: #f8fafc;
+}
+
+#pattern-confirmation-message {
+    height: auto;
+    max-height: 4;
+    color: #fbbf24;
+    margin-bottom: 1;
+    overflow: auto;
+}
+
+#pattern-candidates {
+    height: 1fr;
+    min-height: 3;
+    border: round #334155;
+    background: #111827;
+    padding: 0 1;
+}
+
+.pattern-candidate {
+    height: auto;
+    padding: 0 0 1 0;
+    margin-bottom: 1;
+    border-bottom: solid #334155;
+}
+
+.pattern-candidate-title {
+    height: auto;
+    color: #7dd3fc;
+}
+
+.pattern-candidate-pattern,
+.pattern-candidate-preview {
+    height: auto;
+    color: #cbd5e1;
+    overflow: auto;
+}
+
+.pattern-candidate-error {
+    height: auto;
+    color: #fca5a5;
+}
+
+#pattern-confirmation-actions {
+    height: auto;
+    margin-top: 1;
+}
+
+#pattern-confirmation-actions Button {
+    width: 1fr;
+    min-width: 0;
+}
+
 #output-actions #browse-events,
 #output-actions #clear {
     width: 1fr;
