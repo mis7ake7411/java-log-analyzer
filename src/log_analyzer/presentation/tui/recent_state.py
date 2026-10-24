@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from collections.abc import Mapping
+
+from ...infrastructure.recipe_store import get_recipe_store_path
 
 _STATE_FILENAME = ".java-log-analyzer.tui-state.json"
 _ALLOWED_KEYS = {
@@ -24,6 +27,8 @@ _ALLOWED_KEYS = {
 
 
 def get_recent_tui_state_path() -> Path:
+    if getattr(sys, "frozen", False):
+        return get_recipe_store_path().with_name("recent-state.json")
     return Path.cwd() / _STATE_FILENAME
 
 
@@ -52,6 +57,7 @@ def save_recent_tui_state(state: Mapping[str, object]) -> None:
     path = get_recent_tui_state_path()
 
     try:
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     except OSError:
         return

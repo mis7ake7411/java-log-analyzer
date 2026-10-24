@@ -2,6 +2,8 @@
 .worktrees/
 .idea/
 .venv/
+.venv-portable/
+.portable-work/
 
 *.py[cod]
 *.json
