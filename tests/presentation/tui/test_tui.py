@@ -2278,6 +2278,17 @@ def test_time_range_inputs_are_not_collapsed_in_wide_layout():
             await pilot.pause()
 
             time_section = app.query_one(".time-section")
+            await _wait_for_ui_state(
+                pilot,
+                lambda: time_section.region.width > 0,
+                "time range section did not enter the layout",
+            )
+            await _wait_for_layout_to_settle(
+                pilot,
+                (time_section, *(app.query_one(selector) for selector in (
+                    "#start_date", "#start_time", "#end_date", "#end_time"
+                ))),
+            )
             assert time_section.region.width > 20
 
             for selector in ("#start-date-group", "#start-time-group", "#end-date-group", "#end-time-group"):
