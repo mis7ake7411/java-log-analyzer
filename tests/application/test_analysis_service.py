@@ -8,13 +8,18 @@ from rich.console import Console
 
 import log_analyzer.application.analysis_service as analysis_service
 from log_analyzer.application.analysis_service import (
+    AnalysisRequest,
     AnalysisOptions,
     AnalysisResult,
     NoMatchingLogsError,
+    ResultExportOptions,
+    analyze_logs,
+    export_analysis_result,
     run_analysis,
     run_analysis_with_options,
 )
 from log_analyzer.domain.log_types import MatchedLogs, ScanDiagnostics
+from log_analyzer.infrastructure.exporting import ExportConflictError
 from log_analyzer.presentation.tui.views import build_dashboard_view
 
 
@@ -42,6 +47,75 @@ def test_analysis_result_defaults_scan_diagnostics():
 
     assert getattr(result, "diagnostics", None) == ScanDiagnostics()
     assert result.analysis_request is None
+
+
+def test_export_preserves_replacement_for_invalid_utf8_source_bytes(tmp_path):
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / "app.log").write_bytes(
+        b"2026-06-07 12:00:00.000 [main] ERROR com.test - damaged \x80 text\n"
+    )
+    result = analyze_logs(AnalysisRequest(path=str(logs), levels=None))
+
+    try:
+        assert result.diagnostics.encoding_error_files == 1
+        assert result.diagnostics.encoding_error_lines == 1
+        assert result.matched_logs[0]["message"] == "damaged \ufffd text"
+
+        report_files = export_analysis_result(
+            result,
+            ResultExportOptions(
+                output_path=str(tmp_path / "replacement.csv"),
+                fields=("message",),
+            ),
+        )
+
+        exported = Path(report_files[0]).read_text(encoding="utf-8-sig")
+        assert "damaged \ufffd text" in exported
+        assert "\x80" not in exported
+    finally:
+        result.matched_logs.release()
+
+
+def test_analysis_options_pass_frozen_file_selection_to_analysis(tmp_path):
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir()
+    (logs_dir / "chosen.txt").write_text(
+        "2026-06-07 12:00:00.000 INFO  [main] com.test.App: selected\n",
+        encoding="utf-8",
+    )
+    (logs_dir / "sibling.out").write_text(
+        "2026-06-07 12:00:01.000 ERROR [main] com.test.App: sibling\n",
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "selected.csv"
+    output_path.write_text("previous report", encoding="utf-8")
+    options = AnalysisOptions(
+        path=str(logs_dir),
+        output_path=str(output_path),
+        start_dt=None,
+        end_dt=None,
+        keyword=None,
+        ignore_case=False,
+        sort_by="time",
+        fmt="csv",
+        log_pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{0}: %msg%n",
+        selected_files=("chosen.txt",),
+        overwrite=True,
+    )
+
+    try:
+        result = run_analysis_with_options(options)
+    except TypeError as error:
+        pytest.fail(f"analysis options should preserve selected files: {error}")
+
+    try:
+        assert result.counts == {"INFO": 1}
+        assert result.analysis_request.selected_files == ("chosen.txt",)
+        assert set(result.source_states) == {"chosen.txt"}
+        assert output_path.read_text(encoding="utf-8-sig") != "previous report"
+    finally:
+        result.matched_logs.release()
 
 
 def test_no_matches_carry_scan_diagnostics_and_real_scan_can_succeed_after_retry(tmp_path):
@@ -258,3 +332,51 @@ def test_run_analysis_with_options_matches_legacy_counts(tmp_path):
     assert options_result.total_logs == legacy_result.total_logs
     assert options_result.matched_groups == legacy_result.matched_groups
     assert options_result.matched_occurrences == legacy_result.matched_occurrences
+
+
+def test_legacy_run_analysis_accepts_keyword_only_overwrite(tmp_path):
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / "app.log").write_text(
+        "2026-06-07 12:00:00.000 [main] INFO  com.test.App - Started\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "report.csv"
+    output.write_text("previous report", encoding="utf-8")
+
+    with pytest.raises(ExportConflictError):
+        run_analysis(
+            str(logs), str(output), None, None, None, False, "time", "csv"
+        )
+
+    result = run_analysis(
+        str(logs), str(output), None, None, None, False, "time", "csv", overwrite=True
+    )
+
+    assert output.read_text(encoding="utf-8-sig") != "previous report"
+    assert result.exported_files == [str(output.resolve())]
+
+
+def test_export_analysis_result_never_overwrites_a_source_log_even_with_overwrite(tmp_path):
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    source = logs / "app.log"
+    source.write_text(
+        "2026-06-07 12:00:00.000 [main] INFO  com.test.App - Started\n",
+        encoding="utf-8",
+    )
+    result = analyze_logs(AnalysisRequest(path=str(logs)))
+    original = source.read_bytes()
+    result.output_path = "prior.csv"
+    result.format_name = "md"
+    result.exported_files = ["prior.md"]
+    before = (result.output_path, result.format_name, list(result.exported_files))
+
+    with pytest.raises(ValueError, match="來源"):
+        export_analysis_result(
+            result,
+            ResultExportOptions(output_path=str(source), fmt="csv", overwrite=True),
+        )
+
+    assert source.read_bytes() == original
+    assert (result.output_path, result.format_name, result.exported_files) == before

@@ -12,6 +12,7 @@ from textual.containers import VerticalScroll
 from textual.widgets import Static
 
 from log_analyzer.application.analysis_service import AnalysisResult
+from log_analyzer.application.source_preview import read_source_context
 from log_analyzer.domain.parser import MatchedLogsStore
 from log_analyzer.presentation.tui import LogAnalyzerApp
 from log_analyzer.presentation.tui.event_browser import EventBrowserScreen
@@ -596,6 +597,42 @@ def test_event_browser_shows_stale_warning_without_copy(tmp_path: Path) -> None:
     asyncio.run(run_check())
 
 
+def test_event_browser_shows_nonfatal_encoding_notice_and_keeps_copy_enabled(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    source_path = tmp_path / "invalid-utf8.log"
+    source_path.write_bytes(b"matched \x80 line\n")
+    result = _result(
+        tmp_path,
+        [_group(1, [_occurrence("invalid-utf8.log", 1)])],
+        {"invalid-utf8.log": _snapshot(source_path)},
+    )
+    copied: list[str] = []
+
+    async def run_check() -> None:
+        app = EventBrowserHarness(result)
+        monkeypatch.setattr(app, "copy_to_clipboard", copied.append)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.press("enter")
+
+            browser = app.screen
+            notice = browser.query_one("#source-encoding-notice", Static)
+            assert notice.display
+            assert "UTF-8" in str(notice.render())
+            assert not browser.query_one("#source-warning", Static).display
+            context = browser.query_one("#source-context", Static)
+            assert "matched � line" in str(context.render())
+            assert browser.query_one("#copy-coordinate").disabled is False
+
+            await pilot.click("#copy-coordinate")
+            assert copied == [f"{source_path.resolve()}:1"]
+
+    asyncio.run(run_check())
+
+
 def test_event_browser_keeps_full_path_visible_when_clipboard_fails(tmp_path: Path, monkeypatch) -> None:
     source_path = tmp_path / "manual-copy.log"
     source_path.write_text("line-1\n", encoding="utf-8")
@@ -626,3 +663,33 @@ def test_event_browser_keeps_full_path_visible_when_clipboard_fails(tmp_path: Pa
             assert expected in feedback
 
     asyncio.run(run_check())
+
+
+def test_event_browser_owns_and_clears_private_source_indexes(tmp_path: Path) -> None:
+    source_path = tmp_path / "lifecycle.log"
+    source_path.write_text(
+        "".join(f"來源行 {line_number}\n" for line_number in range(1, 401)),
+        encoding="utf-8",
+    )
+    result = SimpleNamespace(input_path=str(tmp_path), matched_logs=[], source_states={})
+    first_browser = EventBrowserScreen(result)
+    second_browser = EventBrowserScreen(result)
+    first_reader = first_browser._source_context_reader
+    second_reader = second_browser._source_context_reader
+
+    preview = read_source_context(
+        str(tmp_path),
+        _occurrence("lifecycle.log", 300),
+        _snapshot(source_path),
+        reader=first_reader,
+    )
+
+    assert preview.warning is None
+    assert first_reader is not second_reader
+    assert source_path.resolve() in first_reader._entries
+    assert second_reader._entries == {}
+
+    first_browser.on_unmount()
+
+    assert first_reader._entries == {}
+    assert second_reader._entries == {}

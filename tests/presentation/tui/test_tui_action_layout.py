@@ -48,7 +48,33 @@ def _assert_form_actions_fit(app: tui.LogAnalyzerApp) -> None:
     _assert_inside(manage_button, form_actions)
     _assert_inside(run_button, form_actions)
     assert manage_button.region.y == run_button.region.y
+    assert run_button.region.x - manage_button.region.right >= 1
     assert run_button.region.width > 0
+
+
+async def _wait_for_layout_to_settle(pilot, widgets, ready) -> None:
+    previous_layout = None
+    for _ in range(10):
+        await pilot.pause()
+        if not ready():
+            previous_layout = None
+            continue
+        layout = tuple(
+            (
+                widget.region.x,
+                widget.region.y,
+                widget.region.width,
+                widget.region.height,
+                widget.display,
+                tuple(sorted(widget.classes)),
+                getattr(widget, "content_size", None),
+            )
+            for widget in widgets
+        )
+        if layout == previous_layout:
+            return
+        previous_layout = layout
+    raise AssertionError("form action layout did not settle")
 
 
 def _dashboard_result() -> SimpleNamespace:
@@ -94,7 +120,17 @@ def test_form_actions_align_with_form_panel_and_stay_visible(size) -> None:
                     + "」的條件；尚未執行分析。"
                 )
                 feedback.display = True
-                await pilot.pause()
+                await _wait_for_layout_to_settle(
+                    pilot,
+                    (
+                        app.query_one("#form-panel"),
+                        app.query_one("#form-actions"),
+                        app.query_one("#manage-recipes"),
+                        app.query_one("#run"),
+                        feedback,
+                    ),
+                    lambda: feedback.region.width > 0 and feedback.region.height > 0,
+                )
 
                 _assert_form_actions_fit(app)
                 actions = app.query_one("#form-actions")
@@ -117,10 +153,10 @@ def test_compact_run_and_recipe_buttons_remain_clickable(tmp_path, monkeypatch) 
             app = tui.LogAnalyzerApp()
             run_calls: list[str] = []
 
-            async def capture_run() -> None:
+            def capture_run() -> None:
                 run_calls.append("run")
 
-            app.action_run_analysis = capture_run
+            app._schedule_analysis_start = capture_run
             async with app.run_test(size=(80, 32)) as pilot:
                 await pilot.pause()
                 await pilot.click("#run")

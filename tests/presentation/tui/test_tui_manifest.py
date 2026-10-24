@@ -57,9 +57,9 @@ def test_manifest_is_opt_in_and_default_export_creates_reports_only(tmp_path, mo
 
     def fail_if_called(*args, **kwargs):
         manifest_calls.append((args, kwargs))
-        raise AssertionError("default export must not write a manifest")
+        raise AssertionError("default export must not create a bundle")
 
-    monkeypatch.setattr(tui_module, "export_evidence_manifest", fail_if_called)
+    monkeypatch.setattr(tui_module, "export_analysis_bundle", fail_if_called)
 
     async def run_check() -> None:
         app = LogAnalyzerApp()
@@ -90,24 +90,17 @@ def test_export_click_freezes_report_options_and_manifest_choice(tmp_path, monke
     monkeypatch.chdir(tmp_path)
     export_started = threading.Event()
     continue_export = threading.Event()
-    real_export = tui_module.export_analysis_result
-    real_manifest = tui_module.export_evidence_manifest
-    report_calls = []
-    manifest_calls = []
+    real_bundle = tui_module.export_analysis_bundle
+    bundle_calls = []
 
-    def blocking_export(result, options):
-        report_calls.append((result, options))
+    def blocking_bundle(result, options):
+        bundle_calls.append((result, options))
         export_started.set()
         if not continue_export.wait(timeout=5):
-            raise TimeoutError("test did not release the report export")
-        return real_export(result, options)
+            raise TimeoutError("test did not release the export bundle")
+        return real_bundle(result, options)
 
-    def capture_manifest(result, options, report_files):
-        manifest_calls.append((result, options, tuple(report_files)))
-        return real_manifest(result, options, report_files)
-
-    monkeypatch.setattr(tui_module, "export_analysis_result", blocking_export)
-    monkeypatch.setattr(tui_module, "export_evidence_manifest", capture_manifest)
+    monkeypatch.setattr(tui_module, "export_analysis_bundle", blocking_bundle)
 
     async def run_check() -> None:
         app = LogAnalyzerApp()
@@ -131,14 +124,11 @@ def test_export_click_freezes_report_options_and_manifest_choice(tmp_path, monke
             assert report_path.exists()
             assert manifest_path.exists()
             assert not list(edited_export_dir.iterdir())
-            assert report_calls[0][0] is result
-            assert manifest_calls[0][0] is result
-            assert report_calls[0][1] is manifest_calls[0][1]
+            assert bundle_calls[0][0] is result
             assert (
-                report_calls[0][1].output_path == str(report_path.resolve())
-                and report_calls[0][1].fmt == "json"
+                bundle_calls[0][1].output_path == str(report_path.resolve())
+                and bundle_calls[0][1].fmt == "json"
             )
-            assert manifest_calls[0][2] == (str(report_path.resolve()),)
 
     asyncio.run(run_check())
 
@@ -148,21 +138,14 @@ def test_manifest_uses_frozen_analysis_and_matches_exported_report_hash(tmp_path
     export_dir = tmp_path / "exports"
     export_dir.mkdir()
     monkeypatch.chdir(tmp_path)
-    real_export = tui_module.export_analysis_result
-    real_manifest = tui_module.export_evidence_manifest
-    report_calls = []
-    manifest_calls = []
+    real_bundle = tui_module.export_analysis_bundle
+    bundle_calls = []
 
-    def capture_export(result, options):
-        report_calls.append((result, options))
-        return real_export(result, options)
+    def capture_bundle(result, options):
+        bundle_calls.append((result, options))
+        return real_bundle(result, options)
 
-    def capture_manifest(result, options, report_files):
-        manifest_calls.append((result, options, tuple(report_files)))
-        return real_manifest(result, options, report_files)
-
-    monkeypatch.setattr(tui_module, "export_analysis_result", capture_export)
-    monkeypatch.setattr(tui_module, "export_evidence_manifest", capture_manifest)
+    monkeypatch.setattr(tui_module, "export_analysis_bundle", capture_bundle)
 
     async def run_check() -> None:
         app = LogAnalyzerApp()
@@ -198,9 +181,9 @@ def test_manifest_uses_frozen_analysis_and_matches_exported_report_hash(tmp_path
             )
             assert result.exported_files == [str(report_path.resolve())] and app._last_result is result
             assert result.matched_logs is result_store and len(result_store) == 1
-            assert report_calls[0][0] is manifest_calls[0][0] is result
-            assert report_calls[0][1] is manifest_calls[0][1]
-            assert manifest_calls[0][2] == (str(report_path.resolve()),)
+            assert bundle_calls[0][0] is result
+            assert bundle_calls[0][1].output_path == str(report_path.resolve())
+            assert result.exported_files == [str(report_path.resolve())]
 
             status = app.query_one("#export-status").render().plain
             assert str(report_path.resolve()) in status and str(manifest_path.resolve()) in status
@@ -214,30 +197,28 @@ def test_manifest_uses_frozen_analysis_and_matches_exported_report_hash(tmp_path
     asyncio.run(run_check())
 
 
-def test_manifest_failure_is_partial_success_and_retry_uses_same_result(tmp_path, monkeypatch):
+def test_bundle_failure_is_atomic_and_retry_uses_same_result(tmp_path, monkeypatch):
     logs, _ = _write_log(tmp_path, "retryable captured report")
     export_dir = tmp_path / "exports"
     export_dir.mkdir()
     monkeypatch.chdir(tmp_path)
     real_analyze = tui_module.analyze_logs
-    real_manifest = tui_module.export_evidence_manifest
+    real_bundle = tui_module.export_analysis_bundle
     analysis_calls = []
-    manifest_calls = []
+    bundle_calls = []
 
-    def capture_analysis(request):
+    def capture_analysis(request, *, control=None):
         analysis_calls.append(request)
-        return real_analyze(request)
+        return real_analyze(request, control=control)
 
-    def fail_once(result, options, report_files):
-        manifest_calls.append((result, options, tuple(report_files)))
-        if len(manifest_calls) == 1:
-            assert report_files
-            assert all(Path(path).exists() for path in report_files)
-            raise OSError("[red]manifest write blocked[/red]")
-        return real_manifest(result, options, report_files)
+    def fail_once(result, options):
+        bundle_calls.append((result, options))
+        if len(bundle_calls) == 1:
+            raise OSError("[red]bundle write blocked[/red]")
+        return real_bundle(result, options)
 
     monkeypatch.setattr(tui_module, "analyze_logs", capture_analysis)
-    monkeypatch.setattr(tui_module, "export_evidence_manifest", fail_once)
+    monkeypatch.setattr(tui_module, "export_analysis_bundle", fail_once)
 
     async def run_check() -> None:
         app = LogAnalyzerApp()
@@ -252,10 +233,10 @@ def test_manifest_failure_is_partial_success_and_retry_uses_same_result(tmp_path
 
             report_path = export_dir / "captured.json"
             manifest_path = export_dir / "captured_manifest.json"
-            partial_status = app.query_one("#export-status").render().plain
-            assert "報表已匯出，證據清單失敗" in partial_status
-            assert str(report_path.resolve()) in partial_status and "[red]manifest write blocked[/red]" in partial_status
-            assert report_path.exists() and not manifest_path.exists()
+            failure_status = app.query_one("#export-status").render().plain
+            assert "匯出失敗" in failure_status
+            assert "匯出完成" not in failure_status
+            assert not report_path.exists() and not manifest_path.exists()
             assert app.query_one("#browse-events").disabled is False
             assert app.query_one("#export-result").disabled is False
             assert app._last_result is result
@@ -267,8 +248,9 @@ def test_manifest_failure_is_partial_success_and_retry_uses_same_result(tmp_path
 
             assert manifest_path.exists()
             assert len(analysis_calls) == 1
-            assert len(manifest_calls) == 2
-            assert all(call[0] is result for call in manifest_calls)
+            assert len(bundle_calls) == 2
+            assert all(call[0] is result for call in bundle_calls)
+            assert bundle_calls[0][1] == bundle_calls[1][1]
             assert app._last_result is result
             assert result.matched_logs is result_store
             assert len(result_store) == 1
@@ -277,30 +259,28 @@ def test_manifest_failure_is_partial_success_and_retry_uses_same_result(tmp_path
     asyncio.run(run_check())
 
 
-def test_partial_manifest_retry_keeps_auto_generated_report_name(tmp_path, monkeypatch):
+def test_bundle_retry_keeps_auto_generated_report_name(tmp_path, monkeypatch):
     logs, _ = _write_log(tmp_path, "retry keeps the first report name")
     export_dir = tmp_path / "exports"
     export_dir.mkdir()
     monkeypatch.chdir(tmp_path)
-    real_manifest = tui_module.export_evidence_manifest
+    real_bundle = tui_module.export_analysis_bundle
     generated_names = []
-    manifest_output_paths = []
+    bundle_output_paths = []
 
     def next_default_name():
         name = f"analysis_retry_{len(generated_names) + 1}"
         generated_names.append(name)
         return name
 
-    def fail_manifest_once(result, options, report_files):
-        manifest_output_paths.append(Path(options.output_path))
-        if len(manifest_output_paths) == 1:
-            assert report_files
-            assert all(Path(path).exists() for path in report_files)
-            raise OSError("manifest write blocked")
-        return real_manifest(result, options, report_files)
+    def fail_bundle_once(result, options):
+        bundle_output_paths.append(Path(options.output_path))
+        if len(bundle_output_paths) == 1:
+            raise OSError("bundle write blocked")
+        return real_bundle(result, options)
 
     monkeypatch.setattr(tui_module, "get_default_output_name_text", next_default_name)
-    monkeypatch.setattr(tui_module, "export_evidence_manifest", fail_manifest_once)
+    monkeypatch.setattr(tui_module, "export_analysis_bundle", fail_bundle_once)
 
     async def run_check() -> None:
         app = LogAnalyzerApp()
@@ -315,7 +295,7 @@ def test_partial_manifest_retry_keeps_auto_generated_report_name(tmp_path, monke
             await pilot.pause()
 
             report_path = export_dir / f"{initial_name}.json"
-            assert report_path.exists()
+            assert not report_path.exists()
             assert app.query_one("#output_name").value == initial_name
             assert generated_names == [initial_name]
 
@@ -324,7 +304,7 @@ def test_partial_manifest_retry_keeps_auto_generated_report_name(tmp_path, monke
 
             assert report_path.exists()
             assert (export_dir / f"{initial_name}_manifest.json").exists()
-            assert manifest_output_paths == [report_path, report_path]
+            assert bundle_output_paths == [report_path, report_path]
             assert generated_names == [initial_name, "analysis_retry_2"]
             assert app.query_one("#output_name").value == "analysis_retry_2"
 
@@ -336,17 +316,17 @@ def test_report_export_failure_does_not_attempt_manifest_and_keeps_result(tmp_pa
     export_dir = tmp_path / "exports"
     export_dir.mkdir()
     monkeypatch.chdir(tmp_path)
-    manifest_calls = []
+    bundle_calls = []
 
     def fail_report(*_args, **_kwargs):
         raise OSError("[red]report write blocked[/red]")
 
-    def fail_manifest(*args, **kwargs):
-        manifest_calls.append((args, kwargs))
-        raise AssertionError("manifest must not run after report failure")
+    def fail_bundle(*args, **kwargs):
+        bundle_calls.append((args, kwargs))
+        raise AssertionError("bundle must not run when manifest is not requested")
 
     monkeypatch.setattr(tui_module, "export_analysis_result", fail_report)
-    monkeypatch.setattr(tui_module, "export_evidence_manifest", fail_manifest)
+    monkeypatch.setattr(tui_module, "export_analysis_bundle", fail_bundle)
 
     async def run_check() -> None:
         app = LogAnalyzerApp()
@@ -354,12 +334,11 @@ def test_report_export_failure_does_not_attempt_manifest_and_keeps_result(tmp_pa
             await pilot.pause()
             result = await _analyze_and_open_export(app, pilot, logs, export_dir, "report")
             result_store = result.matched_logs
-            app.query_one("#include_manifest").value = True
 
             await app.action_confirm_export()
             await pilot.pause()
 
-            assert manifest_calls == []
+            assert bundle_calls == []
             assert "[red]report write blocked[/red]" in app.query_one("#export-status").render().plain
             assert app._last_result is result
             assert result.matched_logs is result_store

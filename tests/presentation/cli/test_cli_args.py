@@ -17,9 +17,25 @@ def test_cli_accepts_split_by_level_option():
     assert args.split_by_level is True
 
 
+def test_cli_overwrite_defaults_to_false_and_can_be_enabled():
+    parser = build_argument_parser(lambda: "1.0.0")
+
+    assert parser.parse_args([]).overwrite is False
+    assert parser.parse_args(["--overwrite"]).overwrite is True
+
+
 def test_cli_accepts_all_level_shortcut():
     parser = build_argument_parser(lambda: "1.0.0")
 
     args = parser.parse_args(["--level", "ALL"])
 
     assert args.level == ["ALL"]
+
+
+def test_cli_positional_source_accepts_file_and_folder_help():
+    parser = build_argument_parser(lambda: "1.0.0")
+
+    args = parser.parse_args(["application.LOG"])
+
+    assert args.dir == "application.LOG"
+    assert "Log 檔案或資料夾路徑" in parser.format_help()

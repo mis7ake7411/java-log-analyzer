@@ -97,9 +97,13 @@
 }
 
 #result-status {
-    height: 1;
+    height: auto;
+    min-height: 1;
+    max-height: 2;
     margin-bottom: 1;
     color: #94a3b8;
+    overflow-x: hidden;
+    text-wrap: wrap;
 }
 
 #result-box {
@@ -121,6 +125,10 @@
 
 #form-actions Button {
     width: 1fr;
+}
+
+#form-actions #manage-recipes {
+    margin-right: 1;
 }
 
 #recipe-feedback {
@@ -158,4 +166,19 @@
 
 #zero-result-actions Button {
     width: 1fr;
+}
+
+#pattern-details {
+    width: 1fr;
+    min-width: 0;
+    max-width: 100%;
+}
+
+#pattern-preview {
+    width: 1fr;
+    height: auto;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+    text-wrap: wrap;
 }

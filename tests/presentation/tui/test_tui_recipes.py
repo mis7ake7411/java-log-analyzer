@@ -1,5 +1,5 @@
 import asyncio
-from types import SimpleNamespace
+from pathlib import Path
 
 from log_analyzer.application.analysis_service import AnalysisRequest, analyze_logs
 from log_analyzer.infrastructure.recipe_store import RECIPE_FIELDS, RecipeStore
@@ -316,7 +316,10 @@ def test_legacy_default_recipe_clears_inactive_pattern_fields_without_rewriting_
         app = LogAnalyzerApp()
         async with app.run_test(size=(140, 60)) as pilot:
             await pilot.pause()
-            existing_result = SimpleNamespace(matched_logs=SimpleNamespace(release=lambda: None))
+            existing_result = analyze_logs(AnalysisRequest(path=str(logs)))
+            existing_store = existing_result.matched_logs
+            existing_store_path = Path(existing_store.path)
+            existing_store_bytes = existing_store_path.read_bytes()
             app._last_result = existing_result
             app._result_state = "complete"
             await pilot.click("#manage-recipes")
@@ -331,11 +334,15 @@ def test_legacy_default_recipe_clears_inactive_pattern_fields_without_rewriting_
             assert "預設" in app.query_one("#recipe-feedback").render().plain
             assert app._recipe_autofill_source == tui_module.LogAnalyzerApp._normalize_recipe_source(str(logs))
             assert app._last_result is existing_result
+            assert existing_store_path.exists()
+            assert existing_store_path.read_bytes() == existing_store_bytes
             assert store_path.read_bytes() == original_recipe_bytes
 
             await app.action_run_analysis()
             assert app._last_result is not None
+            assert app._last_result is not existing_result
             assert app._last_result.analysis_request.log_pattern is None
+            assert not existing_store_path.exists()
 
     asyncio.run(run_check())
 

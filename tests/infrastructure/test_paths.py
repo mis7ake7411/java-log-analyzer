@@ -13,14 +13,14 @@ def test_normalize_pasted_path_rejects_multiline_text():
     assert normalize_pasted_path("/tmp/one\n/tmp/two") is None
 
 
-def test_validate_pasted_log_file_uses_its_parent_directory(tmp_path):
+def test_validate_pasted_log_file_preserves_its_file_path(tmp_path):
     log_file = tmp_path / "application.out"
     log_file.touch()
 
     is_valid, normalized_path, _ = validate_pasted_path(str(log_file), "path")
 
     assert is_valid is True
-    assert normalized_path == str(tmp_path)
+    assert normalized_path == str(log_file)
 
 
 def test_validate_pasted_log_path_rejects_unsupported_file_extension(tmp_path):

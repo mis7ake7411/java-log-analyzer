@@ -8,6 +8,7 @@ from textual.widgets import Input
 from log_analyzer.application.analysis_service import AnalysisRequest, analyze_logs
 from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui import LogAnalyzerApp
+from log_analyzer.presentation.tui.dialogs import ExportConflictScreen
 
 
 async def _wait_until(predicate) -> None:
@@ -70,13 +71,50 @@ def test_shutdown_defers_store_release_until_export_finishes(tmp_path, monkeypat
     asyncio.run(run_check())
 
 
+def test_shutdown_dismisses_pending_export_conflict_and_releases_result(tmp_path, monkeypatch):
+    result = _result_fixture(tmp_path)
+    store_path = Path(result.matched_logs.path)
+    export_dir = tmp_path / "exports"
+    export_dir.mkdir()
+    existing_report = export_dir / "shutdown.csv"
+    existing_report.write_bytes(b"preserve existing report")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
+    monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
+
+    async def run_check():
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._last_result = result
+            app._set_result_status("complete", result)
+            app.query_one("#output_path").value = str(export_dir)
+            app.query_one("#output_name").value = "shutdown"
+
+            await app.action_confirm_export()
+            await pilot.pause()
+
+            assert isinstance(app.screen, ExportConflictScreen)
+            assert app._pending_export_conflict is not None
+            assert app._operation_in_progress
+
+        assert existing_report.read_bytes() == b"preserve existing report"
+        assert not store_path.exists()
+        assert app._last_result is None
+        assert app._pending_export_conflict is None
+
+    asyncio.run(run_check())
+
+
 def test_shutdown_releases_analysis_that_finishes_after_unmount(tmp_path, monkeypatch):
     result = _result_fixture(tmp_path)
     store_path = Path(result.matched_logs.path)
     entered = threading.Event()
     finish = threading.Event()
+    controls = []
 
-    def delayed_analysis(_request):
+    def delayed_analysis(_request, *, control=None):
+        controls.append(control)
         entered.set()
         if not finish.wait(10):
             raise TimeoutError("test did not release analysis")
@@ -103,6 +141,7 @@ def test_shutdown_releases_analysis_that_finishes_after_unmount(tmp_path, monkey
                 await asyncio.wait_for(operation, timeout=5)
         assert not store_path.exists()
         assert app._last_result is None
+        assert controls and controls[0].is_cancelled
 
     asyncio.run(run_check())
 
@@ -112,7 +151,7 @@ def test_shutdown_does_not_render_late_analysis_errors(tmp_path, monkeypatch, er
     entered = threading.Event()
     finish = threading.Event()
 
-    def failing_analysis(_request):
+    def failing_analysis(_request, *, control=None):
         entered.set()
         if not finish.wait(10):
             raise TimeoutError("test did not release analysis")

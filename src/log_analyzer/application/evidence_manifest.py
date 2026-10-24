@@ -3,13 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import tempfile
 from collections.abc import Sequence
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from ..infrastructure.exporting.fields import normalize_export_fields
+from ..infrastructure.exporting.transaction import ExportTransaction
 from ..version import get_package_version
 from .analysis_service import AnalysisResult, ResultExportOptions
 
@@ -27,16 +27,63 @@ def export_evidence_manifest(
     options: ResultExportOptions,
     report_files: Sequence[str],
 ) -> str:
+    manifest = _build_evidence_manifest(result, options, report_files)
+    manifest_path = _manifest_path(options)
+    transaction = ExportTransaction(
+        manifest_path,
+        overwrite=options.overwrite,
+        protected_paths=_source_paths(result),
+    )
+    try:
+        staged_path = transaction.stage_path(manifest_path.name)
+        _write_manifest_file(staged_path, manifest)
+        published = transaction.publish([staged_path])
+        return os.path.abspath(published[0])
+    finally:
+        transaction.cleanup()
+
+
+def _stage_evidence_manifest(
+    result: AnalysisResult,
+    options: ResultExportOptions,
+    report_files: Sequence[str],
+    transaction: ExportTransaction,
+) -> str:
+    manifest = _build_evidence_manifest(result, options, report_files)
+    staged_path = transaction.stage_path(_manifest_path(options).name)
+    _write_manifest_file(staged_path, manifest)
+    return str(staged_path)
+
+
+def _manifest_path(options: ResultExportOptions) -> Path:
+    output_path = Path(options.output_path)
+    return output_path.with_name(f"{output_path.stem}_manifest.json")
+
+
+def _source_paths(result: AnalysisResult) -> tuple[Path, ...]:
+    root = Path(result.input_path)
+    sources: list[Path] = []
+    if root.is_file():
+        sources.append(root)
+    for filename in result.source_states:
+        candidate = Path(filename)
+        sources.append(candidate if candidate.is_absolute() else root / candidate)
+    return tuple(sources)
+
+
+def _build_evidence_manifest(
+    result: AnalysisResult,
+    options: ResultExportOptions,
+    report_files: Sequence[str],
+) -> dict:
     """將凍結的分析條件、來源核對結果與報表摘要原子寫成 JSON。"""
     request = result.analysis_request
     if request is None:
         raise ValueError("evidence manifest requires a frozen analysis request")
 
-    output_path = Path(options.output_path)
-    manifest_path = output_path.with_name(f"{output_path.stem}_manifest.json")
     outputs = [_describe_report(path) for path in report_files]
     try:
-        root = Path(request.path).resolve()
+        root = Path(result.input_path).resolve()
     except (OSError, RuntimeError, ValueError):
         root = None
     sources = [
@@ -74,8 +121,7 @@ def export_evidence_manifest(
         "outputs": outputs,
         "limitations": _VERIFICATION_LIMITATION,
     }
-    _write_manifest_atomically(manifest_path, manifest)
-    return os.path.abspath(manifest_path)
+    return manifest
 
 
 def _datetime_string(value: datetime | None) -> str | None:
@@ -205,26 +251,7 @@ def _matches_scan_metadata(current, snapshot: dict) -> bool:
     )
 
 
-def _write_manifest_atomically(path: Path, manifest: dict) -> None:
-    temporary_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            newline="\n",
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as file_handle:
-            temporary_path = Path(file_handle.name)
-            json.dump(manifest, file_handle, ensure_ascii=False, indent=2)
-            file_handle.write("\n")
-        os.replace(temporary_path, path)
-        temporary_path = None
-    finally:
-        if temporary_path is not None:
-            try:
-                temporary_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+def _write_manifest_file(path: Path, manifest: dict) -> None:
+    with path.open("w", encoding="utf-8", newline="\n") as file_handle:
+        json.dump(manifest, file_handle, ensure_ascii=False, indent=2)
+        file_handle.write("\n")

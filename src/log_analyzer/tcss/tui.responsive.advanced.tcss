@@ -135,3 +135,227 @@
 #form-actions.compact #run {
     width: 1fr;
 }
+
+/* Advanced settings reflow from their own content width, not viewport width. */
+#shell.compact {
+    padding: 0 2;
+}
+
+#form-panel.compact {
+    padding: 0 0 0 1;
+}
+
+#form-actions.compact {
+    margin-top: 0;
+    margin-bottom: 1;
+}
+
+#content.compact.short #form-column {
+    margin-bottom: 0;
+}
+
+#content.compact.short #form-actions {
+    margin-bottom: 0;
+}
+
+#advanced-settings.advanced-compact,
+#advanced-settings.advanced-wide {
+    min-width: 0;
+    width: 1fr;
+}
+
+#advanced-settings.advanced-compact .field {
+    layout: vertical;
+    width: 1fr;
+    min-width: 0;
+    margin-right: 0;
+}
+
+#advanced-settings.advanced-compact .field > Label,
+#advanced-settings.advanced-compact .field > Input,
+#advanced-settings.advanced-compact .field > Select,
+#advanced-settings.advanced-compact .field-body {
+    width: 1fr;
+    min-width: 0;
+}
+
+#advanced-settings.advanced-compact .field > Label {
+    margin-right: 0;
+    margin-bottom: 0;
+}
+
+#advanced-settings.advanced-compact .path-row {
+    width: 1fr;
+    min-width: 0;
+    layout: horizontal;
+}
+
+#advanced-settings.advanced-compact .path-row Input {
+    width: 1fr;
+    min-width: 0;
+}
+
+#advanced-settings.advanced-compact .path-row Button {
+    width: 8;
+    min-width: 0;
+    margin: 0 0 0 1;
+}
+
+#advanced-settings.advanced-compact .time-section {
+    width: 1fr;
+    min-width: 0;
+    layout: vertical;
+    margin-right: 0;
+    margin-bottom: 0;
+}
+
+#advanced-settings.advanced-compact .time-section > Label {
+    width: 1fr;
+    margin: 0;
+}
+
+#advanced-settings.advanced-compact .time-stack,
+#advanced-settings.advanced-compact .time-row {
+    width: 1fr;
+    min-width: 0;
+}
+
+#advanced-settings.advanced-compact .time-row {
+    layout: horizontal;
+}
+
+#advanced-settings.advanced-compact .time-group {
+    layout: vertical;
+    width: 1fr;
+    min-width: 0;
+    margin-right: 1;
+    margin-bottom: 0;
+}
+
+#advanced-settings.advanced-compact .time-group > Label,
+#advanced-settings.advanced-compact .time-group > Input {
+    width: 1fr;
+    min-width: 0;
+    margin: 0;
+}
+
+#advanced-settings.advanced-compact .field-row {
+    layout: grid;
+    grid-size: 2;
+    grid-columns: 1fr 1fr;
+    width: 1fr;
+    min-width: 0;
+    margin-right: 0;
+}
+
+#advanced-settings.advanced-compact .field-row .field {
+    width: 1fr;
+}
+
+#advanced-settings.advanced-compact .level-filter-row {
+    grid-size: 2;
+    grid-columns: 1fr 1fr;
+}
+
+#advanced-settings.advanced-wide .field {
+    layout: horizontal;
+    width: 1fr;
+    min-width: 0;
+    margin-right: 0;
+}
+
+#advanced-settings.advanced-wide .field > Label {
+    width: 12;
+    min-width: 0;
+    margin: 0 1 0 0;
+}
+
+#advanced-settings.advanced-wide .field > Input,
+#advanced-settings.advanced-wide .field > Select,
+#advanced-settings.advanced-wide .field-body {
+    width: 1fr;
+    min-width: 0;
+}
+
+#advanced-settings.advanced-wide .path-row {
+    width: 1fr;
+    min-width: 0;
+}
+
+#advanced-settings.advanced-wide .path-row Input {
+    width: 1fr;
+    min-width: 0;
+}
+
+#advanced-settings.advanced-wide .path-row Button {
+    min-width: 0;
+    margin-right: 0;
+}
+
+#advanced-settings.advanced-wide .time-section {
+    width: 1fr;
+    min-width: 0;
+    layout: horizontal;
+    margin-right: 0;
+    margin-bottom: 0;
+}
+
+#advanced-settings.advanced-wide .time-section > Label {
+    width: 12;
+    min-width: 0;
+    margin: 0 1 0 0;
+}
+
+#advanced-settings.advanced-wide .time-stack,
+#advanced-settings.advanced-wide .time-row {
+    width: 1fr;
+    min-width: 0;
+}
+
+#advanced-settings.advanced-wide .time-row,
+#advanced-settings.advanced-wide .time-group {
+    layout: horizontal;
+}
+
+#advanced-settings.advanced-wide .time-group {
+    width: 1fr;
+    min-width: 0;
+    margin-right: 1;
+}
+
+#advanced-settings.advanced-wide .time-group > Label {
+    width: 10;
+    min-width: 0;
+    margin: 0 1 0 0;
+}
+
+#advanced-settings.advanced-wide .time-group > Input {
+    width: 1fr;
+    min-width: 0;
+}
+
+#advanced-settings.advanced-wide .field-row {
+    layout: horizontal;
+    width: 1fr;
+    min-width: 0;
+    margin-right: 0;
+}
+
+#advanced-settings.advanced-wide .field-row .field {
+    width: 1fr;
+    min-width: 0;
+}
+
+#advanced-settings.advanced-wide .level-filter-row {
+    grid-size: 3;
+    grid-columns: 1fr 1fr 1fr;
+}
+
+#advanced-settings.advanced-wide .level-filter-actions {
+    layout: horizontal;
+}
+
+#advanced-settings.advanced-wide .level-filter-actions Button {
+    width: 1fr;
+    min-width: 0;
+}

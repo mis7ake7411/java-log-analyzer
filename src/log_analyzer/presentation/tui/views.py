@@ -6,6 +6,7 @@ from rich.text import Text
 from ...application.analysis_service import AnalysisResult
 from ...application.dashboard_summary import DashboardAnalysis, aggregate_dashboard_summary
 from ...domain.log_types import ScanDiagnostics
+from ..encoding_warnings import format_encoding_warning
 from ..error_messages import get_error_hint
 
 
@@ -56,9 +57,9 @@ def build_error_view(title: str, message: str) -> Panel:
 
 def build_zero_result_view(diagnostics: ScanDiagnostics) -> Panel:
     if diagnostics.files_scanned == 0:
-        reason = "找不到 .log 檔案，請確認輸入目錄。"
+        reason = "找不到支援的 Log 檔案，請確認輸入目錄。"
     elif diagnostics.parsed_entries == 0:
-        reason = "找到 .log 檔案，但沒有內容符合目前的 Logback Pattern。"
+        reason = "找到支援的 Log 檔案，但沒有內容符合目前的 Logback Pattern。"
     elif diagnostics.after_time == 0:
         reason = "沒有事件通過時間解析或時間範圍，請確認日誌時間與條件。"
     elif diagnostics.after_level == 0:
@@ -68,19 +69,23 @@ def build_zero_result_view(diagnostics: ScanDiagnostics) -> Panel:
     else:
         reason = "目前沒有可顯示的分析結果。"
 
-    return _build_status_panel(
+    panel = _build_status_panel(
         "沒有符合資料",
         "yellow",
         (
             Text("沒有符合資料", style="bold yellow"),
             Text(reason, style="white"),
-            Text(f"掃描 .log 檔案：{diagnostics.files_scanned}", style="cyan"),
+            Text(f"掃描 Log 檔案：{diagnostics.files_scanned}", style="cyan"),
             Text(f"符合 Pattern 的事件：{diagnostics.parsed_entries}", style="cyan"),
             Text(f"時間範圍後：{diagnostics.after_time}", style="cyan"),
             Text(f"Level 後：{diagnostics.after_level}", style="cyan"),
             Text(f"關鍵字後：{diagnostics.after_keyword}", style="cyan"),
         ),
     )
+    encoding_warning = format_encoding_warning(diagnostics)
+    if encoding_warning:
+        panel.renderable = Group(panel.renderable, Text(encoding_warning, style="yellow"))
+    return panel
 
 
 def format_path_status(message: str, color: str, require_writable: bool) -> Text:
@@ -124,7 +129,12 @@ def build_dashboard_view(result: AnalysisResult, compact: bool) -> Group:
     metadata = Table.grid(padding=(0, 1), expand=True)
     metadata.add_column(style="bold cyan", width=12)
     metadata.add_column(ratio=1, no_wrap=False, overflow="fold")
-    metadata.add_row("輸入目錄", Text(result.input_path))
+    encoding_warning = format_encoding_warning(getattr(result, "diagnostics", None))
+    if encoding_warning:
+        metadata.add_row("讀取提醒", Text(encoding_warning, style="yellow"))
+    analysis_request = getattr(result, "analysis_request", None)
+    selected_path = getattr(analysis_request, "path", None)
+    metadata.add_row("Log 來源", Text(selected_path or result.input_path))
     metadata.add_row(
         "輸出檔案",
         Text("\n".join(result.exported_files) if has_export else "尚未匯出"),

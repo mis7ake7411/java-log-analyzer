@@ -4,14 +4,18 @@ import asyncio
 import logging
 import os
 from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
 from xml.etree.ElementTree import ParseError
 
+from rich.console import Group
+from rich.panel import Panel
+from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Container, ScrollableContainer
 from textual.events import Paste, Resize
-from textual.widgets import Button, Checkbox, Footer, Header, Input, Label, RichLog, Select, Static
+from textual.widgets import Button, Checkbox, Collapsible, Footer, Header, Input, Label, RichLog, Select, Static
 
 from ...application.analysis_service import (
     DEFAULT_SELECTED_LEVELS,
@@ -21,17 +25,33 @@ from ...application.analysis_service import (
     ResultExportOptions,
     analyze_logs,
     build_output_path,
+    export_analysis_bundle,
     export_analysis_result,
 )
-from ...application.evidence_manifest import export_evidence_manifest
+from ...domain.analysis_control import AnalysisCancelled, AnalysisControl, AnalysisProgress
+from ...domain.log_sources import LogSourceSelection, select_log_source
 from ...domain.logback_pattern import DEFAULT_LOGBACK_PATTERN
-from ...domain.logback_xml import LogbackPatternCandidate, find_best_logback_pattern
+from ...domain.logback_xml import (
+    LogbackPatternAssessment,
+    LogbackPatternCandidate,
+    assess_logback_patterns,
+    find_best_logback_pattern,
+)
 from ...infrastructure.exporting.fields import EXPORT_FIELDS, EXPORT_FIELD_LABELS
+from ...infrastructure.exporting import ExportConflictError
 from ...infrastructure.recipe_store import RECIPE_FIELDS, RecipeStore
-from .dialogs import DirectoryPickerScreen, FilePickerScreen, ShortcutInput
+from .dialogs import (
+    DirectoryPickerScreen,
+    ExportConflictScreen,
+    FilePickerScreen,
+    LogbackPatternConfirmationScreen,
+    ShortcutInput,
+    SourcePickerScreen,
+)
 from .event_browser import EventBrowserScreen
 from .recipes import RecipeManagerScreen
 from .recent_state import load_recent_tui_state, save_recent_tui_state
+from .source_scope import SourceScopePreview
 from .inputs import (
     get_default_end_date_text,
     get_default_end_time_text,
@@ -48,12 +68,34 @@ from .views import (
     build_zero_result_view,
     format_path_status,
 )
-from ...infrastructure.paths import get_system_root_path, inspect_directory_path, validate_pasted_path
+from ...infrastructure.paths import (
+    get_system_root_path,
+    inspect_directory_path,
+    inspect_file_path,
+    validate_pasted_path,
+)
 from ...version import get_package_version
+from ..encoding_warnings import format_encoding_warning
 
 __all__ = ["get_system_root_path"]
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingPatternAnalysis:
+    assessment: LogbackPatternAssessment
+    request: AnalysisRequest
+    display_mode: str
+    result_box: RichLog
+    original_focused: object | None
+
+
+class _ResponsiveAdvancedSettings(Container):
+    def on_resize(self, event: Resize) -> None:
+        app = self.app
+        if getattr(app, "_advanced_settings_visible", False):
+            app.call_after_refresh(app._sync_advanced_layout)
 
 
 class _DashboardResultLog(RichLog):
@@ -70,15 +112,10 @@ def _export_reports_and_manifest(
     result: AnalysisResult,
     options: ResultExportOptions,
     include_manifest: bool,
-) -> tuple[list[str], str | None, Exception | None]:
-    report_files = export_analysis_result(result, options)
-    if not include_manifest:
-        return report_files, None, None
-    try:
-        manifest_path = export_evidence_manifest(result, options, report_files)
-    except Exception as exc:  # noqa: BLE001 - reports succeeded and remain a retryable partial success
-        return report_files, None, exc
-    return report_files, manifest_path, None
+) -> tuple[list[str], str | None]:
+    if include_manifest:
+        return export_analysis_bundle(result, options)
+    return export_analysis_result(result, options), None
 
 
 class LogAnalyzerApp(App):
@@ -96,10 +133,13 @@ class LogAnalyzerApp(App):
     _result_state = "idle"
     _advanced_settings_visible: bool = False
     _auto_logback_xml_path: str = ""
+    _auto_logback_xml_paths: tuple[str, ...] = ()
     _last_logback_autofill_source: str = ""
+    _pending_pattern_analysis: _PendingPatternAnalysis | None = None
     BINDINGS = [
         ("q", "quit", "離開"),
-        ("enter", "run_analysis", "開始分析"),
+        ("enter", "schedule_analysis", "開始分析"),
+        ("ctrl+x", "cancel_analysis", "取消分析"),
         ("c", "clear_result", "清除結果"),
         ("a", "toggle_advanced_settings", "進階設定"),
     ]
@@ -133,11 +173,12 @@ class LogAnalyzerApp(App):
         yield Static("輸入設定", classes="section-title")
 
         with Container(classes="field"):
-            yield Label("Log 目錄")
+            yield Label("Log 來源（檔案或資料夾）")
             with Container(classes="path-row"):
                 yield ShortcutInput(placeholder="例如：./logs", value=".", id="path")
                 yield Button("瀏覽", id="browse_path")
         yield Static("", classes="path-status", id="path-status")
+        yield SourceScopePreview()
 
         with Container(classes="field"):
             yield Label("關鍵字")
@@ -150,7 +191,7 @@ class LogAnalyzerApp(App):
         yield Static("", classes="field-hint")
 
     def _compose_advanced_settings(self) -> ComposeResult:
-        with Container(id="advanced-settings", classes="advanced-settings"):
+        with _ResponsiveAdvancedSettings(id="advanced-settings", classes="advanced-settings"):
             with Container(id="advanced-settings-title-row"):
                 yield Static("進階設定", classes="section-title section-title--sub")
 
@@ -174,14 +215,15 @@ class LogAnalyzerApp(App):
             yield Label("Pattern")
             with Container(classes="field-body"):
                 yield ShortcutInput(placeholder=DEFAULT_LOGBACK_PATTERN, id="log_pattern")
-                yield Static("僅在啟用手動覆寫時套用；僅支援常見 Logback token", classes="field-hint")
+                yield Static("僅支援常見 Logback token", classes="field-hint")
         yield Static("格式來源：預設 Logback", classes="field-hint", id="pattern-source", markup=False)
-        yield Static(
-            f"有效 Pattern：{DEFAULT_LOGBACK_PATTERN}",
-            classes="field-hint",
-            id="pattern-preview",
-            markup=False,
-        )
+        with Collapsible(title="檢視套用的 Pattern", collapsed=True, id="pattern-details"):
+            yield Static(
+                f"有效 Pattern：{DEFAULT_LOGBACK_PATTERN}",
+                classes="field-hint",
+                id="pattern-preview",
+                markup=False,
+            )
 
     def _compose_time_settings(self) -> ComposeResult:
         with Container(classes="time-section"):
@@ -302,6 +344,7 @@ class LogAnalyzerApp(App):
         with Container(id="form-actions"):
             yield Button("管理分析配方", id="manage-recipes")
             yield Button("開始分析", variant="primary", id="run")
+            yield Button("取消分析", id="cancel-analysis", disabled=True)
         yield Static("", id="recipe-feedback", classes="recipe-feedback", markup=False)
 
     def _compose_result_panel(self) -> ComposeResult:
@@ -326,6 +369,9 @@ class LogAnalyzerApp(App):
                 yield Button("清除結果", id="clear")
 
     def on_mount(self) -> None:
+        self._auto_logback_xml_paths = ()
+        self._pending_pattern_analysis = None
+        self._restored_encoding_warning = None
         path_input = self.query_one("#path", Input)
         output_path_input = self.query_one("#output_path", Input)
         self.query_one("#result-box", RichLog).can_focus = False
@@ -338,10 +384,23 @@ class LogAnalyzerApp(App):
         self._set_export_settings_visible(False)
         self._sync_layout(self.size.width, self.size.height)
         self._set_result_status("idle")
+        self._set_analysis_cancel_button(False)
         self.update_path_preview(path_input.value)
         self.update_path_preview(output_path_input.value, "#output-path-status", require_writable=True)
 
     def on_unmount(self) -> None:
+        control = getattr(self, "_analysis_control", None)
+        if control is not None:
+            control.cancel()
+        self._active_analysis_operation_id = None
+        self._analysis_control = None
+        if getattr(self, "_pending_pattern_analysis", None) is not None:
+            self._pending_pattern_analysis = None
+            self._operation_in_progress = False
+            self._release_last_result(close_browser=False)
+        if getattr(self, "_pending_export_conflict", None) is not None:
+            self._pending_export_conflict = None
+            self._operation_in_progress = False
         if getattr(self, "_operation_in_progress", False):
             self._release_result_when_operation_finishes = True
         else:
@@ -360,7 +419,22 @@ class LogAnalyzerApp(App):
 
         result_box = self.query_one("#result-box", RichLog)
         compact = self._should_compact_dashboard(self.size.width, self.size.height)
-        self._set_result(result_box, build_dashboard_view(result, compact))
+        self._set_result(result_box, self._build_dashboard_with_restore_warning(result, compact))
+
+    def _build_dashboard_with_restore_warning(self, result: AnalysisResult, compact: bool) -> Group:
+        dashboard = build_dashboard_view(result, compact)
+        if not self._restored_encoding_warning:
+            return dashboard
+        return Group(
+            Panel(
+                Text(self._restored_encoding_warning, style="yellow"),
+                title="本次掃描編碼提醒",
+                border_style="yellow",
+                padding=(0, 1),
+                expand=True,
+            ),
+            dashboard,
+        )
 
     def _sync_layout(self, width: int, height: int) -> None:
         if height <= 0:
@@ -370,9 +444,15 @@ class LogAnalyzerApp(App):
         form_panel = self.query_one("#form-panel", ScrollableContainer)
         form_actions = self.query_one("#form-actions", Container)
         content = self.query_one("#content", ScrollableContainer)
+        shell = self.query_one("#shell", Container)
+        hero = self.query_one("#hero", Container)
         hero_title_row = self.query_one("#hero-title-row", Container)
 
         if compact:
+            shell.remove_class("wide")
+            shell.add_class("compact")
+            hero.remove_class("wide")
+            hero.add_class("compact")
             content.remove_class("wide")
             content.add_class("compact")
             form_panel.remove_class("wide")
@@ -382,6 +462,10 @@ class LogAnalyzerApp(App):
             hero_title_row.remove_class("wide")
             hero_title_row.add_class("compact")
         else:
+            shell.remove_class("compact")
+            shell.add_class("wide")
+            hero.remove_class("compact")
+            hero.add_class("wide")
             content.remove_class("compact")
             content.add_class("wide")
             form_panel.remove_class("compact")
@@ -390,6 +474,35 @@ class LogAnalyzerApp(App):
             form_actions.add_class("wide")
             hero_title_row.remove_class("compact")
             hero_title_row.add_class("wide")
+
+        if height <= 32:
+            content.add_class("short")
+        else:
+            content.remove_class("short")
+
+        self.call_after_refresh(self._sync_advanced_layout)
+        self.call_after_refresh(self._sync_advanced_layout_after_refresh)
+
+    def _sync_advanced_layout(self) -> None:
+        if not self.is_mounted:
+            return
+
+        advanced_settings = self.query_one("#advanced-settings", Container)
+        is_wide = advanced_settings.content_size.width >= 72
+        was_wide = advanced_settings.has_class("advanced-wide")
+        was_compact = advanced_settings.has_class("advanced-compact")
+        if is_wide and not was_wide:
+            advanced_settings.remove_class("advanced-compact")
+            advanced_settings.add_class("advanced-wide")
+        elif not is_wide and not was_compact:
+            advanced_settings.remove_class("advanced-wide")
+            advanced_settings.add_class("advanced-compact")
+        if is_wide != was_wide or (not is_wide) != was_compact:
+            self.call_after_refresh(self._sync_advanced_layout)
+
+    def _sync_advanced_layout_after_refresh(self) -> None:
+        if self.is_mounted:
+            self.call_after_refresh(self._sync_advanced_layout)
 
     def _is_compact(self, width: int, height: int) -> bool:
         return width < 112 or height < 18
@@ -409,6 +522,7 @@ class LogAnalyzerApp(App):
             ):
                 self.query_one("#logback_xml_path", Input).value = ""
                 self._auto_logback_xml_path = ""
+                self._auto_logback_xml_paths = ()
                 self._last_logback_autofill_source = ""
             self._sync_pattern_preview_for_current_selection()
             self.update_path_preview(event.value)
@@ -418,6 +532,8 @@ class LogAnalyzerApp(App):
             current_xml_path = self.query_one("#logback_xml_path", Input).value.strip()
             if current_xml_path and current_xml_path != getattr(self, "_auto_logback_xml_path", ""):
                 self._recipe_autofill_source = ""
+            if current_xml_path != getattr(self, "_auto_logback_xml_path", ""):
+                self._auto_logback_xml_paths = ()
             if current_xml_path != getattr(self, "_auto_logback_xml_path", ""):
                 self._sync_pattern_preview_for_current_selection()
         elif event.input.id == "log_pattern":
@@ -451,13 +567,19 @@ class LogAnalyzerApp(App):
         is_valid, normalized_path, message = validate_pasted_path(pasted_text, path_input.id)
         if not is_valid:
             self._update_pasted_path_status(path_input.id, message, "red")
+            if path_input.id == "path":
+                self._clear_source_scope_preview(message)
             return True
 
         path_input.value = normalized_path
         self._update_pasted_path_status(path_input.id, message, "green")
         if path_input.id == "path":
+            self.update_path_preview(normalized_path)
             self._autofill_logback_settings(normalized_path)
         elif path_input.id == "logback_xml_path":
+            self._auto_logback_xml_path = ""
+            self._auto_logback_xml_paths = ()
+            self._last_logback_autofill_source = ""
             self._recipe_autofill_source = ""
             self._sync_pattern_preview_for_current_selection()
         return True
@@ -489,20 +611,19 @@ class LogAnalyzerApp(App):
             "end_date",
             "end_time",
         }:
-            await self.action_run_analysis()
+            self._schedule_analysis_start()
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
-        async_actions = {
-            "run": self.action_run_analysis,
-            "confirm-export": self.action_confirm_export,
-        }
-        async_action = async_actions.get(button_id)
-        if async_action is not None:
-            await async_action()
+        if button_id == "run":
+            self._schedule_analysis_start()
+            return
+        if button_id == "confirm-export":
+            await self.action_confirm_export()
             return
 
         actions = {
+            "cancel-analysis": self.action_cancel_analysis,
             "browse-events": self.action_browse_events,
             "export-result": self.action_show_export_settings,
             "clear": self.action_clear_result,
@@ -532,15 +653,44 @@ class LogAnalyzerApp(App):
             await retry_action()
 
     def update_path_preview(self, path: str, status_id: str = "#path-status", require_writable: bool = False) -> None:
+        if status_id == "#path-status":
+            self._refresh_source_scope_preview(path)
+            return
         preview = self.query_one(status_id, Static)
         # 狀態列即時反映路徑可用性，避免要按執行才發現權限或拼字錯誤
         color, message, _, _ = inspect_directory_path(path, require_writable=require_writable)
         preview.update(format_path_status(message, color, require_writable=require_writable))
 
+    def _refresh_source_scope_preview(self, path: str) -> LogSourceSelection | None:
+        try:
+            source = select_log_source(path.strip() or ".")
+        except (OSError, ValueError) as exc:
+            self._clear_source_scope_preview(str(exc))
+            return None
+        self._show_source_scope(source)
+        return source
+
+    def _show_source_scope(self, source: LogSourceSelection) -> None:
+        if source.is_file:
+            color, message, is_valid, _ = inspect_file_path(source.path)
+        else:
+            color, message, is_valid, _ = inspect_directory_path(source.path)
+
+        if not is_valid:
+            self._clear_source_scope_preview(message)
+            return
+
+        self.query_one("#path-status", Static).update(format_path_status(message, color, False))
+        self.query_one("#source-scope-preview", SourceScopePreview).show_source(source)
+
+    def _clear_source_scope_preview(self, message: str) -> None:
+        self.query_one("#path-status", Static).update(format_path_status(message, "red", False))
+        self.query_one("#source-scope-preview", SourceScopePreview).show_invalid(message)
+
     def action_browse_path(self) -> None:
         self._open_directory_picker(
             target_id="path",
-            title="選擇 Log 目錄",
+            title="\u9078\u64c7 Log \u4f86\u6e90",
             hint="可用樹狀瀏覽，或直接手動輸入路徑",
             confirm_label="使用此路徑",
             require_writable=False,
@@ -577,8 +727,18 @@ class LogAnalyzerApp(App):
     ) -> None:
         current_path = self.query_one(f"#{target_id}", Input).value.strip() or "."
         # 瀏覽成功後直接回填到對應欄位，手動輸入仍保留為 fallback
+        if target_id == "path":
+            picker = SourcePickerScreen(current_path, title, hint, confirm_label)
+        else:
+            picker = DirectoryPickerScreen(
+                current_path,
+                title,
+                hint,
+                confirm_label,
+                require_writable=require_writable,
+            )
         self.push_screen(
-            DirectoryPickerScreen(current_path, title, hint, confirm_label, require_writable=require_writable),
+            picker,
             callback=lambda selected_path: self._apply_selected_directory(target_id, selected_path),
         )
 
@@ -601,6 +761,9 @@ class LogAnalyzerApp(App):
         if not selected_path:
             return
 
+        self._auto_logback_xml_path = ""
+        self._auto_logback_xml_paths = ()
+        self._last_logback_autofill_source = ""
         xml_input = self.query_one("#logback_xml_path", Input)
         xml_input.value = selected_path
         self._recipe_autofill_source = ""
@@ -614,15 +777,45 @@ class LogAnalyzerApp(App):
 
     def _handle_unexpected_error(self, result_box: RichLog, exc: Exception) -> None:
         logger.exception("TUI 分析發生未預期錯誤", exc_info=exc)
-        self._release_last_result()
         if not self.is_running:
+            return
+        if self._last_result is not None:
+            self._restore_previous_result(
+                result_box,
+                "本次分析失敗，已保留上次成功結果",
+                str(exc),
+            )
             return
         self._set_result(result_box, build_error_view("執行失敗", str(exc)))
         self._set_result_status("failed")
 
     def _handle_analysis_error(self, result_box: RichLog, exc: Exception) -> None:
-        self._release_last_result()
         if not self.is_running:
+            return
+
+        if self._last_result is not None:
+            if isinstance(exc, NoMatchingLogsError):
+                notice = "本次分析沒有符合條件的日誌，已保留上次成功結果"
+                detail = None
+                encoding_warning = format_encoding_warning(exc.diagnostics)
+            elif isinstance(exc, PermissionError):
+                notice = "本次分析權限不足，已保留上次成功結果"
+                detail = str(exc)
+                encoding_warning = None
+            elif isinstance(exc, FileNotFoundError):
+                notice = "本次分析找不到來源，已保留上次成功結果"
+                detail = str(exc)
+                encoding_warning = None
+            else:
+                notice = "本次分析失敗，已保留上次成功結果"
+                detail = str(exc)
+                encoding_warning = None
+            self._restore_previous_result(
+                result_box,
+                notice,
+                detail,
+                encoding_warning=encoding_warning,
+            )
             return
 
         if isinstance(exc, NoMatchingLogsError):
@@ -641,6 +834,17 @@ class LogAnalyzerApp(App):
 
         self._set_result(result_box, view)
         self._set_result_status(status)
+
+    def _handle_analysis_cancelled(self, result_box: RichLog) -> None:
+        if not self.is_running:
+            return
+        if self._restore_previous_result(
+            result_box,
+            "分析已取消，已保留上次成功結果",
+        ):
+            return
+        self._set_result(result_box, build_error_view("分析已取消", "目前分析已停止。"))
+        self._set_result_status("cancelled")
 
     def _save_recent_analysis_state(self, request: AnalysisRequest, display_mode: str) -> None:
         recent_state = load_recent_tui_state() or {}
@@ -664,12 +868,18 @@ class LogAnalyzerApp(App):
 
     async def _analyze_request(self, request: AnalysisRequest) -> AnalysisResult:
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, partial(analyze_logs, request))
+        control = getattr(self, "_analysis_control", None)
+        return await loop.run_in_executor(None, partial(analyze_logs, request, control=control))
 
     def _display_analysis_result(self, result_box: RichLog, result: AnalysisResult) -> None:
-        self._last_result = result
         if not self.is_running:
+            self._release_result(result, close_browser=False)
             return
+        self._restored_encoding_warning = None
+        previous_result = self._last_result
+        self._last_result = result
+        if previous_result is not None and previous_result is not result:
+            self._release_result(previous_result)
         self._set_result(
             result_box,
             build_dashboard_view(result, self._should_compact_dashboard(self.size.width, self.size.height)),
@@ -684,44 +894,279 @@ class LogAnalyzerApp(App):
                 await self.action_confirm_export()
             return
 
+        self._operation_in_progress = True
+        await self._run_analysis_lifecycle()
+
+    def action_schedule_analysis(self) -> None:
+        self._schedule_analysis_start()
+
+    def _schedule_analysis_start(self) -> None:
+        if getattr(self, "_operation_in_progress", False):
+            return
+        if self._focused_inside_export_settings():
+            if getattr(self.focused, "id", None) != "browse_output_path":
+                asyncio.create_task(self.action_confirm_export())
+            return
+
+        self._operation_in_progress = True
+        self._scheduled_analysis_task = asyncio.create_task(self._run_analysis_lifecycle())
+
+    async def _run_analysis_lifecycle(self) -> None:
+        self._restored_encoding_warning = None
         run_button = self.query_one("#run", Button)
         result_box = self.query_one("#result-box", RichLog)
-        self._operation_in_progress = True
-        self._set_export_settings_visible(False)
-        self.query_one("#export-status", Static).update("")
-        self._release_last_result()
-
-        # 記錄當下聚焦的元件，並暫時清除焦點，避免焦點自動轉移至「清除結果」按鈕造成反白
         original_focused = self.focused
-        self.set_focus(None)
-
-        # 停用按鈕以防二次點擊
-        run_button.disabled = True
-        self._set_result_status("running")
-        self._set_result(result_box, build_loading_view())
+        confirmation_pending = False
 
         try:
             log_dir = self.query_one("#path", Input).value.strip() or "."
-            self._autofill_logback_settings(log_dir)
-            self._load_selected_logback_pattern_for_analysis(log_dir)
+            try:
+                source = select_log_source(log_dir)
+            except (OSError, ValueError) as exc:
+                self._clear_source_scope_preview(str(exc))
+                raise
+            self._show_source_scope(source)
+            self._autofill_logback_settings(source.path, selected_files=source.filenames)
+
+            manual_override = self.query_one("#manual_pattern_override", Checkbox).value
+            if manual_override:
+                self._load_selected_logback_pattern_for_analysis(
+                    source.path,
+                    selected_files=source.filenames,
+                )
+            else:
+                self._analysis_log_pattern = None
+
             request, display_mode = self._collect_form_values()
-            self._save_recent_analysis_state(request, display_mode)
-            result = await self._analyze_request(request)
-            self._display_analysis_result(result_box, result)
+            request = replace(request, path=source.path, selected_files=source.filenames)
+
+            assessment = None if manual_override else self._assess_logback_pattern_for_analysis(source)
+            if assessment is not None and assessment.status == "uncertain":
+                self._pending_pattern_analysis = _PendingPatternAnalysis(
+                    assessment=assessment,
+                    request=request,
+                    display_mode=display_mode,
+                    result_box=result_box,
+                    original_focused=original_focused,
+                )
+                self.push_screen(
+                    LogbackPatternConfirmationScreen(assessment),
+                    callback=self._on_pattern_confirmation,
+                )
+                confirmation_pending = True
+                return
+
+            if not manual_override:
+                request = replace(request, log_pattern=self._analysis_log_pattern)
+            await self._execute_frozen_analysis(request, display_mode, result_box, original_focused)
         except (NoMatchingLogsError, PermissionError, FileNotFoundError, ValueError) as exc:
             self._handle_analysis_error(result_box, exc)
         except Exception as exc:  # noqa: BLE001
             self._handle_unexpected_error(result_box, exc)
         finally:
-            self._operation_in_progress = False
-            if self.is_running:
+            if not confirmation_pending:
+                self._finish_analysis_operation(original_focused, run_button)
+
+    def _assess_logback_pattern_for_analysis(
+        self,
+        source: LogSourceSelection,
+    ) -> LogbackPatternAssessment | None:
+        status = self.query_one("#logback-xml-status", Static)
+        xml_path = self.query_one("#logback_xml_path", Input).value.strip()
+        if not xml_path:
+            self._analysis_log_pattern = None
+            status.update("")
+            self._set_pattern_preview(
+                "預設 Logback",
+                DEFAULT_LOGBACK_PATTERN,
+                seed_pattern=DEFAULT_LOGBACK_PATTERN,
+            )
+            return None
+
+        auto_xml_path = getattr(self, "_auto_logback_xml_path", "")
+        if xml_path == auto_xml_path and auto_xml_path:
+            discovered_paths = self._find_logback_xml_candidates(source.root)
+            self._auto_logback_xml_paths = tuple(discovered_paths)
+            if not discovered_paths:
+                self._auto_logback_xml_path = ""
+                self.query_one("#logback_xml_path", Input).value = ""
+                self._analysis_log_pattern = None
+                status.update("")
+                self._set_pattern_preview(
+                    "預設 Logback",
+                    DEFAULT_LOGBACK_PATTERN,
+                    seed_pattern=DEFAULT_LOGBACK_PATTERN,
+                )
+                return None
+            if auto_xml_path not in discovered_paths:
+                auto_xml_path = discovered_paths[0]
+                self._auto_logback_xml_path = auto_xml_path
+                self.query_one("#logback_xml_path", Input).value = auto_xml_path
+            xml_paths = tuple(discovered_paths)
+        else:
+            xml_paths = (xml_path,)
+        try:
+            assessment = assess_logback_patterns(
+                xml_paths,
+                source.root,
+                selected_files=source.filenames,
+            )
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"無法評估 Logback XML：{exc}") from exc
+
+        if assessment.status == "ready" and assessment.selected is not None:
+            candidate = assessment.selected
+            self._analysis_log_pattern = candidate.pattern
+            self._set_pattern_preview(
+                f"XML（{Path(candidate.xml_path).name}）",
+                candidate.pattern,
+                seed_pattern=candidate.pattern,
+            )
+            status.update(
+                f"已自動選用 {candidate.name}，命中 {candidate.matches}/{candidate.checked}"
+            )
+            return assessment
+
+        self._analysis_log_pattern = None
+        status.update(assessment.reason)
+        self._set_pattern_preview(
+            f"XML（{len(xml_paths)} 份）" if len(xml_paths) > 1 else f"XML（{Path(xml_path).name}）",
+            assessment.reason,
+            seed_pattern=None,
+        )
+        if assessment.status == "unsupported":
+            raise ValueError(f"{assessment.reason}請檢查 XML，或啟用手動覆寫指定 Pattern。")
+        return assessment
+
+    def _on_pattern_confirmation(self, candidate: LogbackPatternCandidate | None) -> None:
+        pending = self._pending_pattern_analysis
+        self._pending_pattern_analysis = None
+        if pending is None:
+            return
+
+        self._operation_in_progress = False
+        if candidate is None or not self.is_running:
+            return
+        if not any(item is candidate for item in pending.assessment.candidates) or candidate.error is not None:
+            return
+
+        self._analysis_log_pattern = candidate.pattern
+        self._set_pattern_preview(
+            f"已確認 XML（{Path(candidate.xml_path).name}）",
+            candidate.pattern,
+            seed_pattern=candidate.pattern,
+        )
+        self.query_one("#logback-xml-status", Static).update(
+            f"已確認使用 {candidate.name}，命中 {candidate.matches}/{candidate.checked}"
+        )
+        request = replace(pending.request, log_pattern=candidate.pattern)
+        self._operation_in_progress = True
+        asyncio.create_task(
+            self._resume_confirmed_pattern_analysis(
+                request,
+                pending.display_mode,
+                pending.result_box,
+                pending.original_focused,
+            )
+        )
+
+    async def _resume_confirmed_pattern_analysis(
+        self,
+        request: AnalysisRequest,
+        display_mode: str,
+        result_box: RichLog,
+        original_focused: object | None,
+    ) -> None:
+        run_button: Button | None = None
+        try:
+            if not self.is_running:
+                return
+            run_button = self.query_one("#run", Button)
+            await self._execute_frozen_analysis(request, display_mode, result_box, original_focused)
+        finally:
+            self._finish_analysis_operation(original_focused, run_button)
+
+    async def _execute_frozen_analysis(
+        self,
+        request: AnalysisRequest,
+        display_mode: str,
+        result_box: RichLog,
+        original_focused: object | None,
+    ) -> None:
+        run_button = self.query_one("#run", Button)
+        self._set_export_settings_visible(False)
+        self.query_one("#export-status", Static).update("")
+        previous_result = self._last_result
+        if previous_result is not None:
+            self._dismiss_event_browser_for_result(previous_result)
+
+        # 確認 Pattern 後才進入執行狀態並停用按鈕。
+        self.set_focus(None)
+        run_button.disabled = True
+        self._set_result_status("running")
+        self._set_analysis_cancel_button(True)
+        if previous_result is None:
+            self._set_result(result_box, build_loading_view())
+        else:
+            self._set_result(
+                result_box,
+                build_dashboard_view(
+                    previous_result,
+                    self._should_compact_dashboard(self.size.width, self.size.height),
+                ),
+            )
+
+        loop = asyncio.get_running_loop()
+        operation_id = object()
+
+        def queue_progress(progress: AnalysisProgress) -> None:
+            try:
+                loop.call_soon_threadsafe(self._apply_analysis_progress, operation_id, progress)
+            except RuntimeError:
+                # The event loop may already be closed while a worker finishes its last callback.
+                return
+
+        control = AnalysisControl(progress_callback=queue_progress)
+        self._active_analysis_operation_id = operation_id
+        self._analysis_control = control
+        self._set_analysis_progress(AnalysisProgress("starting", None, 0, 0, 0))
+
+        try:
+            self._save_recent_analysis_state(request, display_mode)
+            result = await self._analyze_request(request)
+            control.raise_if_cancelled()
+            self._display_analysis_result(result_box, result)
+        except AnalysisCancelled:
+            if "result" in locals() and result is not self._last_result:
+                self._release_result(result, close_browser=False)
+            self._handle_analysis_cancelled(result_box)
+        except (NoMatchingLogsError, PermissionError, FileNotFoundError, ValueError) as exc:
+            self._handle_analysis_error(result_box, exc)
+        except Exception as exc:  # noqa: BLE001
+            self._handle_unexpected_error(result_box, exc)
+
+    def _finish_analysis_operation(
+        self,
+        original_focused: object | None,
+        run_button: Button | None,
+    ) -> None:
+        self._operation_in_progress = False
+        if getattr(self, "_active_analysis_operation_id", None) is not None:
+            self._active_analysis_operation_id = None
+            self._analysis_control = None
+        if self.is_running:
+            self._set_analysis_cancel_button(False)
+            if run_button is not None:
                 run_button.disabled = False
-                # 恢復原本的焦點元件
-                if original_focused and original_focused.is_mounted and not original_focused.disabled:
-                    self.set_focus(original_focused)
-            if getattr(self, "_release_result_when_operation_finishes", False):
-                self._release_result_when_operation_finishes = False
-                self._release_last_result(close_browser=False)
+            if (
+                original_focused
+                and getattr(original_focused, "is_mounted", False)
+                and not getattr(original_focused, "disabled", False)
+            ):
+                self.set_focus(original_focused)
+        if getattr(self, "_release_result_when_operation_finishes", False):
+            self._release_result_when_operation_finishes = False
+            self._release_last_result(close_browser=False)
 
     def action_show_export_settings(self) -> None:
         if getattr(self, "_operation_in_progress", False):
@@ -775,11 +1220,11 @@ class LogAnalyzerApp(App):
     def _display_export_success(
         self,
         result: AnalysisResult,
-        export_outcome: tuple[list[str], str | None, Exception | None],
+        export_outcome: tuple[list[str], str | None],
         output_name: str,
         export_status: Static,
     ) -> None:
-        exported_files, manifest_path, manifest_error = export_outcome
+        exported_files, manifest_path = export_outcome
         result_box = self.query_one("#result-box", RichLog)
         self._set_result(
             result_box,
@@ -789,16 +1234,11 @@ class LogAnalyzerApp(App):
             ),
         )
         report_paths = ", ".join(exported_files) if exported_files else "完成"
-        if manifest_error is not None:
-            export_status.update(
-                f"報表已匯出，證據清單失敗\n報表：{report_paths}\n錯誤：{manifest_error}"
-            )
-        elif manifest_path is not None:
+        if manifest_path is not None:
             export_status.update(f"報表：{report_paths}\n證據清單：{manifest_path}")
         else:
             export_status.update(f"匯出完成：{report_paths}")
-        if manifest_error is None:
-            self._refresh_output_name_default(output_name)
+        self._refresh_output_name_default(output_name)
 
     async def action_confirm_export(self) -> None:
         result = self._last_result
@@ -816,30 +1256,87 @@ class LogAnalyzerApp(App):
 
         try:
             options, include_manifest, output_name = self._capture_export_request()
-
-            loop = asyncio.get_running_loop()
-            exported_files, manifest_path, manifest_error = await loop.run_in_executor(
-                None,
-                partial(_export_reports_and_manifest, result, options, include_manifest),
-            )
-            if self.is_running:
-                self._display_export_success(
-                    result,
-                    (exported_files, manifest_path, manifest_error),
-                    output_name,
-                    export_status,
-                )
         except Exception as exc:  # noqa: BLE001 - export failures must preserve the analyzed result
             logger.warning("TUI export failed: %s", exc)
             if self.is_running:
                 export_status.update(f"匯出失敗：{exc}")
+            self._finish_export_operation()
+            return
+
+        await self._run_frozen_export(result, options, include_manifest, output_name)
+
+    async def _run_frozen_export(
+        self,
+        result: AnalysisResult,
+        options: ResultExportOptions,
+        include_manifest: bool,
+        output_name: str,
+    ) -> None:
+        keep_operation_open = False
+        try:
+            loop = asyncio.get_running_loop()
+            export_outcome = await loop.run_in_executor(
+                None,
+                partial(_export_reports_and_manifest, result, options, include_manifest),
+            )
+            if self.is_running and self._last_result is result:
+                self._display_export_success(result, export_outcome, output_name, self.query_one("#export-status", Static))
+        except ExportConflictError as exc:
+            logger.info("TUI export conflicts with existing paths: %s", exc.paths)
+            if self.is_running and self._last_result is result and self._result_state == "complete":
+                self._pending_export_conflict = (result, options, include_manifest, output_name)
+                self.push_screen(ExportConflictScreen(exc.paths), self._on_export_conflict_choice)
+                keep_operation_open = True
+        except Exception as exc:  # noqa: BLE001 - export failures must preserve the analyzed result
+            logger.warning("TUI export failed: %s", exc)
+            if self.is_running and self._last_result is result:
+                self.query_one("#export-status", Static).update(f"匯出失敗：{exc}")
         finally:
-            self._operation_in_progress = False
-            if self.is_running:
-                self._set_export_controls_disabled(False)
-            if getattr(self, "_release_result_when_operation_finishes", False):
-                self._release_result_when_operation_finishes = False
-                self._release_last_result(close_browser=False)
+            if not keep_operation_open:
+                self._finish_export_operation()
+
+    def _on_export_conflict_choice(self, choice: str | None) -> None:
+        pending = getattr(self, "_pending_export_conflict", None)
+        self._pending_export_conflict = None
+        if pending is None:
+            self._finish_export_operation()
+            return
+
+        result, options, include_manifest, output_name = pending
+        if (
+            choice == "overwrite"
+            and self.is_running
+            and self._last_result is result
+            and self._result_state == "complete"
+        ):
+            asyncio.create_task(
+                self._run_frozen_export(
+                    result,
+                    replace(options, overwrite=True),
+                    include_manifest,
+                    output_name,
+                )
+            )
+            return
+
+        if self.is_running:
+            status = self.query_one("#export-status", Static)
+            if choice == "rename":
+                status.update("請修改輸出檔名後重新匯出")
+                output_name_input = self.query_one("#output_name", Input)
+                output_name_input.focus()
+                output_name_input.select_all()
+            else:
+                status.update("匯出已取消")
+        self._finish_export_operation()
+
+    def _finish_export_operation(self) -> None:
+        self._operation_in_progress = False
+        if self.is_running:
+            self._set_export_controls_disabled(False)
+        if getattr(self, "_release_result_when_operation_finishes", False):
+            self._release_result_when_operation_finishes = False
+            self._release_last_result(close_browser=False)
 
     async def action_retry_without_time(self) -> None:
         for field_id in ("start_date", "start_time", "end_date", "end_time"):
@@ -861,6 +1358,7 @@ class LogAnalyzerApp(App):
         if self._last_result is None and self._result_state != "no_results":
             return
         result_box = self.query_one("#result-box", RichLog)
+        self._restored_encoding_warning = None
         self._release_last_result()
         self._set_export_settings_visible(False)
         self.query_one("#export-status", Static).update("")
@@ -879,6 +1377,25 @@ class LogAnalyzerApp(App):
         if result is None:
             return
 
+        self._release_result(result, close_browser=close_browser)
+
+    def _release_result(self, result: AnalysisResult, close_browser: bool = True) -> None:
+        self._dismiss_event_browser_for_result(result, close_browser=close_browser)
+        matched_logs = getattr(result, "matched_logs", None)
+        release = getattr(matched_logs, "release", None)
+        if callable(release):
+            try:
+                release()
+            except Exception:
+                logger.exception("釋放分析結果暫存資料失敗")
+
+
+    def _dismiss_event_browser_for_result(
+        self,
+        result: AnalysisResult,
+        *,
+        close_browser: bool = True,
+    ) -> None:
         try:
             active_screen = self.screen
         except Exception:  # noqa: BLE001 - app may be shutting down without an active screen
@@ -888,13 +1405,84 @@ class LogAnalyzerApp(App):
             if close_browser and active_screen.is_mounted:
                 active_screen.dismiss()
 
-        matched_logs = getattr(result, "matched_logs", None)
-        release = getattr(matched_logs, "release", None)
-        if callable(release):
-            try:
-                release()
-            except Exception:
-                logger.exception("釋放分析結果暫存資料失敗")
+    def _restore_previous_result(
+        self,
+        result_box: RichLog,
+        notice: str,
+        detail: str | None = None,
+        *,
+        encoding_warning: str | None = None,
+    ) -> bool:
+        previous_result = self._last_result
+        if previous_result is None or not self.is_running:
+            return False
+
+        self._restored_encoding_warning = encoding_warning
+        self._set_result(
+            result_box,
+            self._build_dashboard_with_restore_warning(
+                previous_result,
+                self._should_compact_dashboard(self.size.width, self.size.height),
+            ),
+        )
+        self._set_result_status("complete", previous_result)
+        status_text = notice if not detail else f"{notice}：{detail}"
+        self.query_one("#result-status", Static).update(Text(status_text))
+        return True
+
+    def _set_analysis_cancel_button(self, visible: bool) -> None:
+        if not self.is_running:
+            return
+        button = self.query_one("#cancel-analysis", Button)
+        button.display = visible
+        button.disabled = not visible
+        button.label = "取消分析"
+
+    def action_cancel_analysis(self) -> None:
+        control = getattr(self, "_analysis_control", None)
+        if control is None or not getattr(self, "_operation_in_progress", False):
+            return
+        if control.is_cancelled:
+            return
+        control.cancel()
+        if self.is_running:
+            button = self.query_one("#cancel-analysis", Button)
+            button.disabled = True
+            button.label = "取消中…"
+            self.query_one("#result-status", Static).update("狀態：取消中，等待目前工作停止")
+
+    def _apply_analysis_progress(
+        self,
+        operation_id: object,
+        progress: AnalysisProgress,
+    ) -> None:
+        control = getattr(self, "_analysis_control", None)
+        if (
+            not self.is_running
+            or not getattr(self, "_operation_in_progress", False)
+            or getattr(self, "_active_analysis_operation_id", None) is not operation_id
+            or (control is not None and control.is_cancelled)
+        ):
+            return
+        self._set_analysis_progress(progress)
+
+    def _set_analysis_progress(self, progress: AnalysisProgress) -> None:
+        phase_names = {
+            "starting": "準備",
+            "scanning": "掃描",
+            "grouping": "整理",
+            "sorting": "排序",
+            "persisting": "儲存",
+            "summarizing": "摘要",
+        }
+        phase_name = phase_names.get(progress.phase, progress.phase)
+        parts = [f"狀態：分析中｜{phase_name}"]
+        if progress.filename:
+            parts.append(progress.filename)
+        if progress.files_total:
+            parts.append(f"檔案 {progress.files_completed}/{progress.files_total}")
+        parts.append(f"{progress.lines_processed:,} 行")
+        self.query_one("#result-status", Static).update(Text("｜".join(parts)))
 
     def action_clear_keyword(self) -> None:
         keyword_input = self.query_one("#keyword", Input)
@@ -932,6 +1520,7 @@ class LogAnalyzerApp(App):
 
     def _apply_recipe_state(self, name: str, recipe: Mapping[str, object]) -> str:
         self._auto_logback_xml_path = ""
+        self._auto_logback_xml_paths = ()
         self._last_logback_autofill_source = ""
         self._recipe_autofill_source = ""
 
@@ -970,6 +1559,7 @@ class LogAnalyzerApp(App):
                 pattern_input.value = ""
                 xml_input.value = ""
                 override.value = False
+                self._auto_logback_xml_paths = ()
                 default_source = str(recipe.get("path") or self.query_one("#path", Input).value or ".")
                 self._recipe_autofill_source = self._normalize_recipe_source(default_source)
             else:
@@ -1025,6 +1615,10 @@ class LogAnalyzerApp(App):
 
         toggle_button = self.query_one("#toggle_advanced_settings", Button)
         toggle_button.label = "收合進階設定" if visible else "展開進階設定"
+        if self.is_mounted:
+            self._sync_advanced_layout()
+            self.call_after_refresh(self._sync_advanced_layout)
+            self.call_after_refresh(self._sync_advanced_layout_after_refresh)
 
     def _set_export_settings_visible(self, visible: bool) -> None:
         self.query_one("#export-settings", Container).display = visible
@@ -1066,22 +1660,34 @@ class LogAnalyzerApp(App):
             f"已載入 {best_pattern.name}，命中 {best_pattern.matches}/{best_pattern.checked}"
         )
 
-    def _read_selected_logback_pattern(self, xml_path: str, log_dir: str) -> LogbackPatternCandidate:
+    def _read_selected_logback_pattern(
+        self,
+        xml_path: str,
+        log_dir: str,
+        selected_files: tuple[str, ...] | None = None,
+    ) -> LogbackPatternCandidate:
         if not os.path.isfile(xml_path):
             raise ValueError(f"找不到檔案：{os.path.abspath(xml_path)}")
 
         try:
-            best_pattern = find_best_logback_pattern(xml_path, log_dir)
-        except ParseError as exc:
-            raise ValueError(f"無法解析 Logback XML：{exc}") from exc
+            source = select_log_source(log_dir, selected_files=selected_files)
+            assessment = assess_logback_patterns(
+                (xml_path,),
+                source.root,
+                selected_files=source.filenames,
+            )
         except OSError as exc:
             raise ValueError(f"無法讀取 Logback XML：{exc}") from exc
 
-        if best_pattern is None:
-            raise ValueError("找不到可用的 Logback pattern")
-        return best_pattern
+        if assessment.status == "ready" and assessment.selected is not None:
+            return assessment.selected
+        raise ValueError(assessment.reason)
 
-    def _load_selected_logback_pattern_for_analysis(self, log_dir: str) -> str | None:
+    def _load_selected_logback_pattern_for_analysis(
+        self,
+        log_dir: str,
+        selected_files: tuple[str, ...] | None = None,
+    ) -> str | None:
         self._analysis_log_pattern = None
         manual_override = self.query_one("#manual_pattern_override", Checkbox).value
         pattern_input = self.query_one("#log_pattern", Input)
@@ -1109,7 +1715,11 @@ class LogAnalyzerApp(App):
             return None
 
         try:
-            best_pattern = self._read_selected_logback_pattern(xml_path, log_dir)
+            best_pattern = self._read_selected_logback_pattern(
+                xml_path,
+                log_dir,
+                selected_files=selected_files,
+            )
         except ValueError as exc:
             message = str(exc)
             status.update(message)
@@ -1126,69 +1736,114 @@ class LogAnalyzerApp(App):
         status.update(f"已載入 {best_pattern.name}，命中 {best_pattern.matches}/{best_pattern.checked}")
         return best_pattern.pattern
 
-    def _autofill_logback_settings(self, log_dir: str) -> None:
+    def _autofill_logback_settings(
+        self,
+        log_dir: str,
+        selected_files: tuple[str, ...] | None = None,
+    ) -> None:
         if self.query_one("#manual_pattern_override", Checkbox).value:
             return
 
-        normalized_dir = self._normalize_recipe_source(log_dir)
-        if normalized_dir == getattr(self, "_recipe_autofill_source", ""):
+        try:
+            source = select_log_source(log_dir, selected_files=selected_files)
+        except (OSError, ValueError):
+            return
+
+        normalized_source = self._normalize_recipe_source(source.path)
+        if normalized_source == getattr(self, "_recipe_autofill_source", ""):
             return
 
         xml_input = self.query_one("#logback_xml_path", Input)
         current_xml = xml_input.value.strip()
         previous_auto_xml = self._auto_logback_xml_path
         can_update_xml = not current_xml or current_xml == previous_auto_xml
-        if not os.path.isdir(normalized_dir):
+        if not os.path.isdir(source.root):
             if current_xml and current_xml == previous_auto_xml:
                 xml_input.value = ""
                 self._auto_logback_xml_path = ""
+                self._auto_logback_xml_paths = ()
                 self._last_logback_autofill_source = ""
                 self._sync_pattern_preview_for_current_selection()
             return
 
         if (
-            normalized_dir == self._last_logback_autofill_source
+            normalized_source == self._last_logback_autofill_source
             and current_xml == previous_auto_xml
-        ):
+        ) or not can_update_xml:
             return
 
-        if not can_update_xml:
-            return
-
-        best_xml_path = ""
-        best_pattern = None
-        for xml_path in self._find_logback_xml_candidates(normalized_dir):
-            try:
-                candidate = find_best_logback_pattern(xml_path, normalized_dir)
-            except (OSError, ParseError, ValueError):
-                continue
-            if candidate is None:
-                continue
-            if best_pattern is None or (candidate.matches, candidate.score) > (best_pattern.matches, best_pattern.score):
-                best_xml_path = xml_path
-                best_pattern = candidate
-
-        if best_pattern is None:
+        xml_paths = self._find_logback_xml_candidates(source.root)
+        if not xml_paths:
             if current_xml and current_xml == previous_auto_xml:
                 xml_input.value = ""
                 self._auto_logback_xml_path = ""
+            self._auto_logback_xml_paths = ()
             self._last_logback_autofill_source = ""
             self.query_one("#logback-xml-status", Static).update("")
             self._sync_pattern_preview_for_current_selection()
             return
 
+        best_xml_path, best_pattern = self._find_best_logback_xml_candidate(source)
+        best_xml_path = best_xml_path or xml_paths[0]
+
         xml_input.value = best_xml_path
         self._auto_logback_xml_path = best_xml_path
-        self._set_pattern_preview(
-            f"XML（{Path(best_xml_path).name}）",
-            best_pattern.pattern,
-            seed_pattern=best_pattern.pattern,
-        )
+        self._auto_logback_xml_paths = tuple(xml_paths)
+        status = self.query_one("#logback-xml-status", Static)
+        if best_pattern is not None:
+            candidate_xml_path = getattr(best_pattern, "xml_path", "") or best_xml_path
+            self._set_pattern_preview(
+                f"XML（{Path(candidate_xml_path).name}）",
+                best_pattern.pattern,
+                seed_pattern=best_pattern.pattern,
+            )
+            status.update(
+                f"已自動載入 {best_pattern.name[:80]}（{Path(candidate_xml_path).name[:120]}），"
+                f"命中 {best_pattern.matches}/{best_pattern.checked}"
+            )
+        else:
+            assessment = assess_logback_patterns(
+                xml_paths,
+                source.root,
+                selected_files=source.filenames,
+            )
+            reason = assessment.reason
+            self._set_pattern_preview(
+                f"XML（{len(xml_paths)} 份）" if len(xml_paths) > 1 else f"XML（{Path(best_xml_path).name}）",
+                reason,
+                seed_pattern=None,
+            )
+            status.update(reason)
+        self._last_logback_autofill_source = normalized_source
 
-        self.query_one("#logback-xml-status", Static).update(
-            f"已自動載入 {Path(best_xml_path).name}，命中 {best_pattern.matches}/{best_pattern.checked}"
+    def _find_best_logback_xml_candidate(
+        self,
+        source: LogSourceSelection,
+    ) -> tuple[str, LogbackPatternCandidate | None]:
+        xml_paths = self._find_logback_xml_candidates(source.root)
+        if not xml_paths:
+            return "", None
+        if len(xml_paths) == 1:
+            xml_path = xml_paths[0]
+            try:
+                candidate = find_best_logback_pattern(
+                    xml_path,
+                    source.root,
+                    selected_files=source.filenames,
+                )
+            except (OSError, ParseError, ValueError):
+                candidate = None
+            candidate_xml_path = getattr(candidate, "xml_path", "") if candidate else ""
+            return candidate_xml_path or xml_path, candidate
+
+        assessment = assess_logback_patterns(
+            xml_paths,
+            source.root,
+            selected_files=source.filenames,
         )
-        self._last_logback_autofill_source = normalized_dir
+        if assessment.status == "ready" and assessment.selected is not None:
+            return assessment.selected.xml_path, assessment.selected
+        return xml_paths[0], None
 
     def _find_logback_xml_candidates(self, log_dir: str) -> list[str]:
         candidates: list[str] = []
@@ -1331,6 +1986,7 @@ class LogAnalyzerApp(App):
             "idle": "狀態：尚未分析",
             "running": "狀態：分析中",
             "failed": "狀態：失敗",
+            "cancelled": "狀態：已取消",
         }
         status.update(messages[state])
         clear_button.disabled = True
@@ -1340,12 +1996,19 @@ class LogAnalyzerApp(App):
 
     def _sync_pattern_field_visibility(self) -> None:
         pattern_field = self.query_one("#pattern-field", Container)
-        pattern_field.display = self.query_one("#manual_pattern_override", Checkbox).value
+        manual_override = self.query_one("#manual_pattern_override", Checkbox).value
+        pattern_field.display = manual_override
+        if getattr(self, "is_mounted", False):
+            self.query_one("#pattern-source", Static).display = not manual_override
+            details = self.query_one("#pattern-details", Collapsible)
+            details.display = not manual_override
+            if not manual_override:
+                details.collapsed = True
 
     def _set_pattern_preview(self, source: str, pattern: str, seed_pattern: str | None = None) -> None:
         self._preview_seed_pattern = seed_pattern
         self.query_one("#pattern-source", Static).update(f"格式來源：{source}")
-        self.query_one("#pattern-preview", Static).update(f"有效 Pattern：{pattern}")
+        self.query_one("#pattern-preview", Static).update(f"Pattern 資訊：{pattern}")
 
     def _sync_pattern_preview_for_current_selection(self) -> None:
         if self.query_one("#manual_pattern_override", Checkbox).value:

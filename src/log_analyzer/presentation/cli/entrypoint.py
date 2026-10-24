@@ -1,8 +1,13 @@
 import logging
-import os
 import sys
-from ...application.analysis_service import AnalysisOptions, run_analysis_with_options
+from ...application.analysis_service import (
+    AnalysisOptions,
+    NoMatchingLogsError,
+    run_analysis_with_options,
+)
 from ...domain.logback_pattern import UnsupportedLogbackPatternError
+from ...domain.log_sources import LogSourceSelection, select_log_source
+from ...infrastructure.exporting import ExportConflictError
 from .args import build_argument_parser
 from .runtime import (
     parse_datetime_value,
@@ -12,6 +17,7 @@ from .runtime import (
     resolve_target_dir,
 )
 from ..error_messages import get_error_hint
+from ..encoding_warnings import format_encoding_warning
 from ...version import get_package_version
 
 logger = logging.getLogger(__name__)
@@ -45,13 +51,19 @@ def _try_run_tui(args) -> bool:
     return False
 
 
-def _resolve_logback_pattern(args, target_dir: str) -> str | None:
+def _resolve_logback_pattern(
+    args,
+    target_dir: str,
+    *,
+    selected_files: tuple[str, ...] | None = None,
+) -> str | None:
     """解析指定或自動推斷的 Logback pattern。"""
     try:
         selected_pattern, logback_notice = resolve_logback_pattern(
             args.logback_xml,
             target_dir,
             args.pattern,
+            selected_files=selected_files,
         )
     except ValueError as exc:
         title = "輸入錯誤" if not str(exc).startswith("找不到符合條件的 log") else "無可分析資料"
@@ -78,14 +90,37 @@ def _print_analysis_result(result, args) -> None:
     for level, count in sorted(result.counts.items()):
         if count > 0:
             print(f"  {level}: {count}")
+    encoding_warning = format_encoding_warning(getattr(result, "diagnostics", None))
+    if encoding_warning:
+        print(encoding_warning)
+
+
+def _print_source_scope(source: LogSourceSelection) -> None:
+    """在分析前列出本次實際選取的日誌來源範圍。"""
+    if source.is_file:
+        print("來源模式：單一檔案")
+    else:
+        print("來源模式：資料夾（不含子目錄）")
+    print(f"來源路徑：{source.path}")
+    print(f"來源檔數：{len(source.filenames)}")
+    print("完整檔名清單：")
+    if source.filenames:
+        for filename in source.filenames:
+            print(f"  - {filename}")
+    else:
+        print("  （無）")
 
 
 def _run_cli_analysis(args, target_dir: str) -> None:
     """建立分析設定、執行 CLI 分析並輸出結果。"""
+    source = select_log_source(target_dir)
+    _print_source_scope(source)
+    if not source.filenames:
+        raise ValueError("找不到支援的 Log 檔案")
+
     start_dt = parse_datetime_value(args.start, "開始時間")
     end_dt = parse_datetime_value(args.end, "結束時間")
     selected_levels = resolve_levels(args.level)
-    print(f"正在分析目錄：{os.path.abspath(target_dir)}")
     print(f"分析 Level：{', '.join(selected_levels)}")
     if args.keyword:
         message = f"正在搜尋關鍵字：'{args.keyword}'"
@@ -93,9 +128,13 @@ def _run_cli_analysis(args, target_dir: str) -> None:
             message += " (忽略大小寫)"
         print(message)
 
-    selected_pattern = _resolve_logback_pattern(args, target_dir)
+    selected_pattern = _resolve_logback_pattern(
+        args,
+        source.path,
+        selected_files=source.filenames,
+    )
     options = AnalysisOptions(
-        path=target_dir,
+        path=source.path,
         output_path=args.output,
         start_dt=start_dt,
         end_dt=end_dt,
@@ -108,18 +147,30 @@ def _run_cli_analysis(args, target_dir: str) -> None:
         include_details=False,
         levels=selected_levels,
         split_by_level=args.split_by_level,
+        selected_files=source.filenames,
+        overwrite=args.overwrite,
     )
     _print_analysis_result(run_analysis_with_options(options), args)
 
 
 def _handle_cli_error(exc: Exception) -> None:
     """輸出已知 CLI 錯誤並結束程式。"""
-    if isinstance(exc, UnsupportedLogbackPatternError):
+    if isinstance(exc, NoMatchingLogsError):
+        encoding_warning = format_encoding_warning(exc.diagnostics)
+        if encoding_warning:
+            print(encoding_warning)
+    if isinstance(exc, ExportConflictError):
+        paths = "\n".join(f"  - {path}" for path in exc.paths)
+        _print_error(
+            "匯出衝突",
+            f"以下輸出檔案已存在：\n{paths}\n請更改 -o 輸出路徑，或明確指定 --overwrite 覆蓋。",
+        )
+    elif isinstance(exc, UnsupportedLogbackPatternError):
         _print_error("輸入錯誤", str(exc))
     elif isinstance(exc, PermissionError):
         _print_error("權限不足", str(exc))
     elif isinstance(exc, FileNotFoundError):
-        _print_error("找不到資料夾", str(exc))
+        _print_error("找不到來源", str(exc))
     elif isinstance(exc, ValueError):
         _print_error("輸入錯誤", str(exc))
     else:

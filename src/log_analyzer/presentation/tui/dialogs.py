@@ -9,12 +9,143 @@ from textual.containers import Container
 from textual.events import Key, Paste
 from textual.screen import ModalScreen
 from textual.widgets import Button, DirectoryTree, Input, Label, Static
+from textual.containers import VerticalScroll
 
+from ...domain.log_sources import select_log_source
+from ...domain.logback_xml import LogbackPatternAssessment, LogbackPatternCandidate
 from ...infrastructure.paths import (
     get_system_root_path,
     inspect_directory_path,
     inspect_file_path,
 )
+
+
+class ExportConflictScreen(ModalScreen[str | None]):
+    """列出匯出衝突路徑，讓使用者選擇改名、覆蓋或取消。"""
+
+    BINDINGS = [("escape", "cancel", "取消")]
+
+    def __init__(self, paths: Iterable[str]) -> None:
+        self.paths = tuple(paths)
+        super().__init__()
+
+    def compose(self):
+        with Container(id="export-conflict"), Container(id="export-conflict-card"):
+            yield Static("輸出檔案已存在", id="export-conflict-title")
+            yield Static(
+                "請改名、確認覆蓋，或取消本次匯出。",
+                id="export-conflict-message",
+                markup=False,
+            )
+            with VerticalScroll(id="export-conflict-scroll"):
+                yield Static(
+                    "\n".join(self.paths),
+                    id="export-conflict-paths",
+                    markup=False,
+                )
+            with Container(id="export-conflict-actions"):
+                yield Button("改名", id="export-conflict-rename")
+                yield Button("覆蓋", variant="warning", id="export-conflict-overwrite")
+                yield Button("取消", id="export-conflict-cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#export-conflict-cancel", Button).focus()
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        actions = {
+            "export-conflict-rename": "rename",
+            "export-conflict-overwrite": "overwrite",
+            "export-conflict-cancel": None,
+        }
+        if event.button.id in actions:
+            self.dismiss(actions[event.button.id])
+
+
+class LogbackPatternConfirmationScreen(ModalScreen[LogbackPatternCandidate | None]):
+    """展示不確定的 Logback Pattern 與樣本，等待使用者明確選擇。"""
+
+    BINDINGS = [("escape", "cancel", "取消")]
+
+    def __init__(self, assessment: LogbackPatternAssessment) -> None:
+        self.assessment = assessment
+        super().__init__()
+
+    def compose(self):
+        message = (
+            f"{self.assessment.reason} 抽樣 {self.assessment.checked} 個非空行；"
+            "最多取前 50 行，堆疊續行可能影響比例。請選擇可用的 Pattern。"
+        )
+        with Container(id="pattern-confirmation"), Container(id="pattern-confirmation-card"):
+            yield Static("確認 Logback Pattern", id="pattern-confirmation-title")
+            yield Static(message, id="pattern-confirmation-message", markup=False)
+            with VerticalScroll(id="pattern-candidates"):
+                for index, candidate in enumerate(self.assessment.candidates):
+                    with Container(classes="pattern-candidate"):
+                        yield Static(
+                            f"{candidate.name[:80]} · {candidate.xml_path[:300]} · 命中 {candidate.matches}/{candidate.checked}",
+                            classes="pattern-candidate-title",
+                            markup=False,
+                        )
+                        yield Static(
+                            f"Pattern：{candidate.pattern[:500]}",
+                            classes="pattern-candidate-pattern",
+                            markup=False,
+                        )
+                        if candidate.error:
+                            yield Static(
+                                f"不可選：{candidate.error[:200]}",
+                                classes="pattern-candidate-error",
+                                markup=False,
+                            )
+                        else:
+                            yield Button(
+                                f"使用此 Pattern（命中 {candidate.matches}/{candidate.checked}）",
+                                id=f"pattern-select-{index}",
+                                variant="primary",
+                            )
+                        for preview in candidate.previews:
+                            label = "命中樣本" if preview.fields is not None else "未命中樣本"
+                            yield Static(
+                                f"{label}：{preview.raw}",
+                                classes="pattern-candidate-preview",
+                                markup=False,
+                            )
+                            if preview.fields is not None:
+                                parsed = " | ".join(
+                                    f"{name}={value}"
+                                    for name, value in preview.fields.items()
+                                )
+                                yield Static(
+                                    f"解析：{parsed}",
+                                    classes="pattern-candidate-preview",
+                                    markup=False,
+                                )
+            with Container(id="pattern-confirmation-actions"):
+                yield Button("取消分析", id="pattern-cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#pattern-cancel", Button).focus()
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id or ""
+        if button_id == "pattern-cancel":
+            self.dismiss(None)
+            return
+        if not button_id.startswith("pattern-select-"):
+            return
+        try:
+            index = int(button_id.removeprefix("pattern-select-"))
+            candidate = self.assessment.candidates[index]
+        except (ValueError, IndexError):
+            return
+        if candidate.error is None:
+            self.dismiss(candidate)
 
 
 class FolderOnlyDirectoryTree(DirectoryTree):
@@ -123,11 +254,13 @@ class FilePickerScreen(ModalScreen[str | None]):
         title: str,
         hint: str,
         confirm_label: str,
+        allow_directory: bool = False,
     ) -> None:
         self.initial_path = initial_path
         self.title_text = title
         self.hint_text = hint
         self.confirm_label = confirm_label
+        self.allow_directory = allow_directory
         self._selected_path: str | None = None
         super().__init__()
 
@@ -153,15 +286,24 @@ class FilePickerScreen(ModalScreen[str | None]):
         self._selected_path = selected_path
         picker_path = self.query_one("#picker-path", Input)
         picker_path.value = selected_path
-        color, message, _, _ = inspect_file_path(selected_path)
+        if self.allow_directory:
+            color, message = self._source_status(selected_path)
+        else:
+            color, message, _, _ = inspect_file_path(selected_path)
         self.query_one("#picker-status", Static).update(self._status_text(message, color))
 
     def on_directory_tree_directory_selected(self, event: DirectoryTree.DirectorySelected) -> None:
         picker_path = self.query_one("#picker-path", Input)
-        picker_path.value = str(event.path)
-        self.query_one("#picker-status", Static).update(
-            self._status_text("請選擇檔案，或手動輸入完整檔案路徑", "yellow")
-        )
+        selected_path = str(event.path)
+        picker_path.value = selected_path
+        if self.allow_directory:
+            self._selected_path = selected_path
+            color, message = self._source_status(selected_path)
+            self.query_one("#picker-status", Static).update(self._status_text(message, color))
+        else:
+            self.query_one("#picker-status", Static).update(
+                self._status_text("請選擇檔案，或手動輸入完整檔案路徑", "yellow")
+            )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "picker-cancel":
@@ -173,11 +315,30 @@ class FilePickerScreen(ModalScreen[str | None]):
     def _confirm_selection(self) -> None:
         picker_path = self.query_one("#picker-path", Input)
         selected_path = picker_path.value.strip() or self._selected_path or ""
+        if self.allow_directory:
+            try:
+                source = select_log_source(selected_path)
+            except (OSError, ValueError) as exc:
+                self.query_one("#picker-status", Static).update(self._status_text(str(exc), "red"))
+                return
+            self.dismiss(source.path)
+            return
+
         color, message, is_valid, _ = inspect_file_path(selected_path)
         if not is_valid:
             self.query_one("#picker-status", Static).update(self._status_text(message, color))
             return
         self.dismiss(os.path.abspath(selected_path))
+
+    @staticmethod
+    def _source_status(selected_path: str) -> tuple[str, str]:
+        try:
+            source = select_log_source(selected_path)
+        except (OSError, ValueError) as exc:
+            return "red", str(exc)
+        if source.is_file:
+            return "green", "可使用的 Log 檔案"
+        return "green", f"可使用的資料夾（不含子目錄，{len(source.filenames)} 個支援檔案）"
 
     def _pick_tree_root(self) -> tuple[Path, str]:
         root_path = get_system_root_path()
@@ -187,3 +348,10 @@ class FilePickerScreen(ModalScreen[str | None]):
         text = Text()
         text.append(message, style=color)
         return text
+
+
+class SourcePickerScreen(FilePickerScreen):
+    """可選擇單一 Log 檔案或資料夾的來源選擇器。"""
+
+    def __init__(self, initial_path: str, title: str, hint: str, confirm_label: str) -> None:
+        super().__init__(initial_path, title, hint, confirm_label, allow_directory=True)

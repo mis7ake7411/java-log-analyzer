@@ -4,7 +4,7 @@ import os
 
 from ..datetime_text import parse_datetime_value
 from ...application.analysis_service import DEFAULT_SELECTED_LEVELS
-from ...domain.logback_xml import find_best_logback_pattern
+from ...domain.logback_xml import assess_logback_patterns
 from ...infrastructure.naming import build_timestamped_name
 
 __all__ = ["parse_datetime_value"]
@@ -33,15 +33,24 @@ def resolve_logback_pattern(
     logback_xml: str | None,
     target_dir: str,
     selected_pattern: str | None,
+    *,
+    selected_files: tuple[str, ...] | None = None,
 ):
     """必要時從 logback.xml 選出最合適的 pattern"""
     if not logback_xml or selected_pattern:
         return selected_pattern, None
 
-    best_pattern = find_best_logback_pattern(logback_xml, target_dir)
-    if best_pattern is None:
-        raise ValueError("logback XML 中找不到可用的 pattern")
+    assessment = assess_logback_patterns(
+        (logback_xml,),
+        target_dir,
+        selected_files=selected_files,
+    )
+    if assessment.status != "ready" or assessment.selected is None:
+        if assessment.status == "uncertain":
+            raise ValueError(f"Pattern 判斷不確定：{assessment.reason}請使用 --pattern 手動指定。")
+        raise ValueError(f"{assessment.reason}請使用 --pattern 手動指定。")
 
+    best_pattern = assessment.selected
     message = (
         "已從 logback XML 選用 pattern："
         f"{best_pattern.name}，命中 {best_pattern.matches}/{best_pattern.checked}"

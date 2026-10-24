@@ -3,6 +3,7 @@ import hashlib
 import importlib
 import importlib.util
 import json
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -59,6 +60,8 @@ def _analyzed_export(tmp_path):
 def test_manifest_captures_frozen_analysis_reports_and_source_hashes(tmp_path):
     export_evidence_manifest = _export_evidence_manifest()
     result, report_options, report_files, source, logs = _analyzed_export(tmp_path)
+    result.diagnostics.encoding_error_files = 1
+    result.diagnostics.encoding_error_lines = 2
 
     manifest_path = export_evidence_manifest(result, report_options, report_files)
     manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
@@ -87,6 +90,8 @@ def test_manifest_captures_frozen_analysis_reports_and_source_hashes(tmp_path):
         "after_time": 2,
         "after_level": 2,
         "after_keyword": 2,
+        "encoding_error_files": 1,
+        "encoding_error_lines": 2,
     }
     assert manifest["export"] == {
         "fields": ["level", "message"],
@@ -125,6 +130,56 @@ def test_manifest_captures_frozen_analysis_reports_and_source_hashes(tmp_path):
     assert str(tmp_path.resolve()) not in serialized
     assert "First FAILURE" not in serialized
     assert "Second failure" not in serialized
+
+
+def test_manifest_uses_file_source_root_and_reports_verified_changed_and_missing(tmp_path):
+    export_evidence_manifest = _export_evidence_manifest()
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    source = logs / "chosen.txt"
+    source.write_text(
+        "2026-06-07 12:00:00.000 INFO  [main] com.test.App: selected\n",
+        encoding="utf-8",
+    )
+    (logs / "sibling.log").write_text(
+        "2026-06-07 12:00:01.000 ERROR [main] com.test.App: sibling\n",
+        encoding="utf-8",
+    )
+    try:
+        result = analyze_logs(
+            AnalysisRequest(
+                path=str(source),
+                log_pattern="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{0}: %msg%n",
+            )
+        )
+    except (FileNotFoundError, ValueError) as error:
+        pytest.fail(f"a supported single log file should be analyzable: {error}")
+    options = ResultExportOptions(output_path=str(tmp_path / "selected.csv"), fmt="csv")
+
+    try:
+        assert result.input_path == str(logs.resolve())
+        assert result.analysis_request.path == str(source.resolve())
+        assert set(result.source_states) == {"chosen.txt"}
+
+        manifest_path = export_evidence_manifest(result, options, ())
+        verified = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+        assert [entry["filename"] for entry in verified["sources"]] == ["chosen.txt"]
+        assert verified["sources"][0]["verification_status"] == "verified"
+
+        source.write_text(
+            "2026-06-07 12:00:00.000 INFO  [main] com.test.App: changed after analysis\n",
+            encoding="utf-8",
+        )
+        manifest_path = export_evidence_manifest(result, replace(options, overwrite=True), ())
+        changed = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+        assert changed["sources"][0]["verification_status"] == "changed"
+
+        source.unlink()
+        manifest_path = export_evidence_manifest(result, replace(options, overwrite=True), ())
+        missing = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+        assert missing["sources"][0]["verification_status"] == "missing"
+    finally:
+        result.matched_logs.release()
 
 
 def test_source_changes_and_scan_failures_are_recorded_without_hashes(tmp_path):
@@ -288,19 +343,23 @@ def test_manifest_replace_failure_preserves_previous_manifest_and_reports(tmp_pa
     manifest_path.write_text("previous manifest", encoding="utf-8")
     report_bytes = {path: Path(path).read_bytes() for path in report_files}
 
-    import log_analyzer.application.evidence_manifest as evidence_manifest
+    import log_analyzer.infrastructure.exporting.transaction as export_transaction
 
-    def fail_replace(_source, _target):
-        raise OSError("simulated replace failure")
+    def fail_publish(_source, _target):
+        raise OSError("simulated publish failure")
 
-    monkeypatch.setattr(evidence_manifest.os, "replace", fail_replace)
+    monkeypatch.setattr(export_transaction, "_publish_no_clobber", fail_publish)
 
-    with pytest.raises(OSError, match="simulated replace failure"):
-        export_evidence_manifest(result, report_options, report_files)
+    with pytest.raises(OSError, match="simulated publish failure"):
+        export_evidence_manifest(
+            result,
+            replace(report_options, overwrite=True),
+            report_files,
+        )
 
     assert manifest_path.read_text(encoding="utf-8") == "previous manifest"
     assert {path: Path(path).read_bytes() for path in report_files} == report_bytes
-    assert list(tmp_path.glob(".selected-report_manifest.json.*.tmp")) == []
+    assert list(tmp_path.glob(".selected-report_manifest.json.export-*")) == []
 
 
 def test_missing_report_fails_without_replacing_existing_manifest(tmp_path):
@@ -312,4 +371,19 @@ def test_missing_report_fails_without_replacing_existing_manifest(tmp_path):
     with pytest.raises(FileNotFoundError):
         export_evidence_manifest(result, report_options, [str(tmp_path / "missing.csv")])
 
+    assert manifest_path.read_text(encoding="utf-8") == "previous manifest"
+
+
+def test_manifest_refuses_to_overwrite_existing_target_by_default(tmp_path):
+    export_evidence_manifest = _export_evidence_manifest()
+    result, report_options, report_files, _source, _logs = _analyzed_export(tmp_path)
+    manifest_path = tmp_path / "selected-report_manifest.json"
+    manifest_path.write_text("previous manifest", encoding="utf-8")
+
+    from log_analyzer.infrastructure.exporting import ExportConflictError
+
+    with pytest.raises(ExportConflictError) as error:
+        export_evidence_manifest(result, report_options, report_files)
+
+    assert error.value.paths == (str(manifest_path.resolve()),)
     assert manifest_path.read_text(encoding="utf-8") == "previous manifest"

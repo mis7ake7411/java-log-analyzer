@@ -11,6 +11,7 @@ from log_analyzer.domain.parser import (
     parse_logs,
 )
 import log_analyzer.domain.parser as parser_module
+from log_analyzer.domain.log_types import ScanDiagnostics
 
 
 FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "logback"
@@ -54,6 +55,93 @@ def test_parse_logs_matches_standard_logback_fixtures(tmp_path):
         "Started application",
         "Failed to process request",
     ]
+
+
+def test_iter_logs_discovers_supported_extensions_case_insensitively(tmp_path):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    for filename, message in (
+        ("a.LOG", "uppercase extension"),
+        ("b.txt", "text extension"),
+        ("c.OUT", "output extension"),
+    ):
+        (log_dir / filename).write_text(
+            f"2026-06-06 10:00:00.001 INFO  [main] com.test.App: {message}\n",
+            encoding="utf-8",
+        )
+    (log_dir / "ignored.json").write_text("unsupported\n", encoding="utf-8")
+    (log_dir / "directory.log").mkdir()
+    nested = log_dir / "nested"
+    nested.mkdir()
+    (nested / "inside.log").write_text(
+        "2026-06-06 10:00:00.001 INFO  [main] com.test.App: nested\n",
+        encoding="utf-8",
+    )
+
+    try:
+        entries = list(iter_logs(str(log_dir), log_pattern=STANDARD_LOG_PATTERN))
+    except OSError as error:
+        pytest.fail(f"directory discovery should skip non-file entries: {error}")
+
+    assert [entry["message"] for entry in entries] == [
+        "uppercase extension",
+        "text extension",
+        "output extension",
+    ]
+    assert {entry["filename"] for entry in entries} == {"a.LOG", "b.txt", "c.OUT"}
+
+
+def test_iter_logs_uses_explicit_selection_without_expanding_it(tmp_path):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "chosen.txt").write_text(
+        "2026-06-06 10:00:00.001 INFO  [main] com.test.App: chosen\n",
+        encoding="utf-8",
+    )
+    (log_dir / "sibling.log").write_text(
+        "2026-06-06 10:00:00.001 ERROR [main] com.test.App: sibling\n",
+        encoding="utf-8",
+    )
+
+    try:
+        selected = list(
+            iter_logs(
+                str(log_dir),
+                log_pattern=STANDARD_LOG_PATTERN,
+                selected_files=("chosen.txt",),
+            )
+        )
+        empty = list(
+            iter_logs(
+                str(log_dir),
+                log_pattern=STANDARD_LOG_PATTERN,
+                selected_files=(),
+            )
+        )
+    except TypeError as error:
+        pytest.fail(f"iter_logs should accept a frozen file selection: {error}")
+
+    assert [entry["message"] for entry in selected] == ["chosen"]
+    assert empty == []
+
+
+def test_iter_logs_accepts_a_single_file_without_reading_its_sibling(tmp_path):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    selected_file = log_dir / "chosen.txt"
+    selected_file.write_text(
+        "2026-06-06 10:00:00.001 INFO  [main] com.test.App: chosen\n",
+        encoding="utf-8",
+    )
+    (log_dir / "sibling.log").write_text(
+        "2026-06-06 10:00:00.001 ERROR [main] com.test.App: sibling\n",
+        encoding="utf-8",
+    )
+
+    entries = list(iter_logs(str(selected_file), log_pattern=STANDARD_LOG_PATTERN))
+
+    assert [entry["message"] for entry in entries] == ["chosen"]
+    assert {entry["filename"] for entry in entries} == {"chosen.txt"}
 
 
 def test_parse_logs_filters_selected_levels(temp_log_dir):
@@ -165,11 +253,52 @@ def test_parse_log_directory_reports_zero_result_scan_diagnostics(tmp_path):
     assert matched_logs.diagnostics.after_keyword == 0
 
 
+def test_scan_diagnostics_appends_encoding_counts_without_reordering_existing_fields():
+    diagnostics = ScanDiagnostics(1, 2, 3, 4, 5, 6, 7)
+
+    assert (
+        diagnostics.files_scanned,
+        diagnostics.parsed_entries,
+        diagnostics.after_time,
+        diagnostics.after_level,
+        diagnostics.after_keyword,
+    ) == (1, 2, 3, 4, 5)
+    assert diagnostics.encoding_error_files == 6
+    assert diagnostics.encoding_error_lines == 7
+
+
+def test_parser_replaces_invalid_utf8_in_matched_unmatched_and_stack_lines(tmp_path):
+    log_dir = tmp_path / "lossy-utf8"
+    log_dir.mkdir()
+    source = log_dir / "mixed.log"
+    source.write_bytes(
+        b"\xef\xbb\xbf"
+        b"2026-06-06 10:00:00.000 [main] INFO  com.test - valid \xef\xbf\xbd bad \x80\n"
+        b"unmatched \x81\n"
+        b"java.lang.RuntimeException: failure \x82\n"
+        b"    at com.test.App.main \x83\n"
+    )
+
+    counts, matched_logs = parse_log_directory(str(log_dir), ParseOptions())
+    try:
+        assert counts == {"INFO": 1}
+        assert len(matched_logs) == 1
+        entry = matched_logs[0]
+        assert entry["message"] == "valid \ufffd bad \ufffd"
+        assert "unmatched \ufffd" in entry["message_body"]
+        assert "java.lang.RuntimeException: failure \ufffd" in entry["stacktrace"]
+        assert "at com.test.App.main \ufffd" in entry["stacktrace"]
+        assert matched_logs.diagnostics.encoding_error_files == 1
+        assert matched_logs.diagnostics.encoding_error_lines == 4
+    finally:
+        matched_logs.release()
+
+
 def test_parse_log_directory_counts_unparseable_log_files(tmp_path):
     log_dir = tmp_path / "unparseable-logs"
     log_dir.mkdir()
     (log_dir / "broken.log").write_text("not a log entry\n", encoding="utf-8")
-    (log_dir / "ignored.txt").write_text(
+    (log_dir / "ignored.json").write_text(
         "2026-06-06 10:00:00.000 [main] INFO  com.test - Ignored\n",
         encoding="utf-8",
     )

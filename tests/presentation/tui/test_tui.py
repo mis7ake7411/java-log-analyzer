@@ -40,6 +40,58 @@ from log_analyzer.presentation.tui.views import analyze_dashboard
 from log_analyzer.version import get_package_version
 
 
+async def _wait_for_ui_state(pilot, predicate, message: str) -> None:
+    async def wait_until_ready() -> None:
+        while not predicate():
+            await asyncio.sleep(0.01)
+
+    try:
+        await asyncio.wait_for(wait_until_ready(), timeout=5)
+    except asyncio.TimeoutError as exc:
+        raise AssertionError(message) from exc
+
+
+async def _wait_for_scheduled_analysis(app) -> None:
+    async def wait_until_scheduled() -> asyncio.Task:
+        while (task := getattr(app, "_scheduled_analysis_task", None)) is None:
+            await asyncio.sleep(0.01)
+        return task
+
+    task = await asyncio.wait_for(wait_until_scheduled(), timeout=5)
+    await asyncio.wait_for(task, timeout=10)
+
+
+async def _wait_for_layout_to_settle(pilot, widgets) -> None:
+    previous_layout = None
+    for _ in range(10):
+        await pilot.pause()
+        layout = tuple(
+            (
+                widget.region.x,
+                widget.region.y,
+                widget.region.width,
+                widget.region.height,
+                widget.display,
+                tuple(sorted(widget.classes)),
+                getattr(widget, "content_size", None),
+                getattr(widget, "max_scroll_y", None),
+            )
+            for widget in widgets
+        )
+        if layout == previous_layout:
+            return
+        previous_layout = layout
+    raise AssertionError("advanced layout did not settle")
+
+
+class _FakeSourceScopePreview:
+    def show_source(self, _source: object) -> None:
+        pass
+
+    def show_invalid(self, _message: str) -> None:
+        pass
+
+
 def test_tui_loads_structured_responsive_stylesheets():
     css_paths = [Path(path).name for path in LogAnalyzerApp.CSS_PATH]
 
@@ -57,11 +109,10 @@ def test_tui_loads_structured_responsive_stylesheets():
 def test_handle_unexpected_error_logs_and_displays_error(caplog):
     status_states = []
     app = SimpleNamespace(
-        _last_result=object(),
+        _last_result=None,
         _set_result_status=status_states.append,
         is_running=True,
     )
-    app._release_last_result = lambda: LogAnalyzerApp._release_last_result(app)
     result_box = object()
     displayed = {}
     app._set_result = lambda box, view: displayed.update(box=box, view=view)
@@ -629,11 +680,23 @@ def test_advanced_settings_logback_browse_button_keeps_right_edge_aligned():
         async with app.run_test(size=(1606, 979)) as pilot:
             await pilot.pause()
             app.action_toggle_advanced_settings()
-            await pilot.pause()
 
             logback_xml_path = app.query_one("#logback_xml_path")
             browse_button = app.query_one("#browse_logback_xml")
             path_row = logback_xml_path.parent
+            await _wait_for_ui_state(
+                pilot,
+                lambda: (
+                    logback_xml_path.region.width > 0
+                    and browse_button.region.width > 0
+                    and browse_button.region.height > 0
+                ),
+                "Logback browse control did not enter the layout",
+            )
+            await _wait_for_layout_to_settle(
+                pilot,
+                (logback_xml_path, browse_button, path_row, app.query_one("#advanced-settings")),
+            )
 
             assert browse_button.region.width <= 10
             assert browse_button.region.x + browse_button.region.width <= path_row.region.x + path_row.region.width
@@ -717,6 +780,10 @@ def test_level_filter_controls_use_full_field_body_width_in_wide_layout():
             trace_checkbox = app.query_one("#level_TRACE")
             select_all = app.query_one("#select_all_levels")
             clear_levels = app.query_one("#clear_levels")
+            await _wait_for_layout_to_settle(
+                pilot,
+                (level_row, actions, error_checkbox, info_checkbox, debug_checkbox, trace_checkbox, select_all, clear_levels),
+            )
 
             assert level_row.region.width >= 40
             assert actions.region.width == level_row.region.width
@@ -765,51 +832,35 @@ def test_logback_xml_controls_exist():
 
 def test_load_logback_xml_action_updates_preview_without_enabling_override(monkeypatch, tmp_path):
     xml_file = tmp_path / "logback.xml"
-    xml_file.write_text("<configuration />", encoding="utf-8")
+    xml_file.write_text(
+        '<configuration><property name="FILE_LOG_PATTERN" value="%d %-5level [%thread] %logger{0}: %msg%n"/></configuration>',
+        encoding="utf-8",
+    )
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "app.log").write_text(
+        "2026-05-25 15:50:33,198 INFO  [main] YtMamApp: Starting YtMamApp\n"
+        "2026-05-25 15:50:34,198 WARN  [main] YtMamApp: Starting YtMamApp\n",
+        encoding="utf-8",
+    )
 
-    class FakeInput:
-        def __init__(self, value: str = "") -> None:
-            self.value = value
-            self.focused = False
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.query_one("#logback_xml_path").value = str(xml_file)
+            app.query_one("#path").value = str(log_dir)
+            app.query_one("#log_pattern").value = "keep this manual draft"
 
-        def focus(self) -> None:
-            self.focused = True
+            app.action_load_logback_xml()
 
-    class FakeStatic:
-        def __init__(self) -> None:
-            self.value = ""
+            assert app.query_one("#manual_pattern_override").value is False
+            assert app.query_one("#log_pattern").value == "keep this manual draft"
+            assert "%d %-5level [%thread] %logger{0}: %msg%n" in app.query_one("#pattern-preview").render().plain
+            assert xml_file.name in app.query_one("#pattern-source").render().plain
+            assert "命中 2/2" in app.query_one("#logback-xml-status").render().plain
 
-        def update(self, value: str) -> None:
-            self.value = value
-
-    class FakePattern:
-        name = "FILE Pattern"
-        pattern = "%d %-5level [%thread] %logger{0}: %msg%n"
-        matches = 2
-        checked = 2
-
-    mapping = {
-        "#logback-xml-status": FakeStatic(),
-        "#logback_xml_path": FakeInput(str(xml_file)),
-        "#path": FakeInput("./logs"),
-        "#manual_pattern_override": SimpleNamespace(value=False),
-        "#log_pattern": FakeInput("keep this manual draft"),
-        "#pattern-source": FakeStatic(),
-        "#pattern-preview": FakeStatic(),
-    }
-
-    monkeypatch.setattr("log_analyzer.presentation.tui.app.find_best_logback_pattern", lambda *_args: FakePattern())
-
-    app = LogAnalyzerApp()
-    app.query_one = lambda selector, *_args, **_kwargs: mapping[selector]  # type: ignore[assignment]
-
-    app.action_load_logback_xml()
-
-    assert mapping["#manual_pattern_override"].value is False
-    assert mapping["#log_pattern"].value == "keep this manual draft"
-    assert "%d %-5level [%thread] %logger{0}: %msg%n" in mapping["#pattern-preview"].value
-    assert xml_file.name in mapping["#pattern-source"].value
-    assert "命中 2/2" in mapping["#logback-xml-status"].value
+    asyncio.run(run_check())
 
 
 def test_apply_selected_logback_xml_updates_input():
@@ -857,8 +908,14 @@ def test_paste_invalid_path_keeps_focused_input_value(tmp_path):
             path_input.focus()
             await pilot.pause()
 
-            path_input.post_message(Paste("/tmp/not-a-real-log-directory"))
-            await pilot.pause()
+            invalid_path = tmp_path / "not-a-real-log-directory"
+            assert not invalid_path.exists()
+            path_input.post_message(Paste(str(invalid_path)))
+            await _wait_for_ui_state(
+                pilot,
+                lambda: "路徑不存在" in str(app.query_one("#path-status").render()),
+                "invalid source path status did not refresh",
+            )
 
             assert path_input.value == str(tmp_path)
             assert "路徑不存在" in str(app.query_one("#path-status").render())
@@ -881,8 +938,14 @@ def test_paste_invalid_output_path_keeps_value_and_displays_error(tmp_path):
             output_input.focus()
             await pilot.pause()
 
-            output_input.post_message(Paste("/tmp/not-a-real-output-directory"))
-            await pilot.pause()
+            invalid_path = tmp_path / "not-a-real-output-directory"
+            assert not invalid_path.exists()
+            output_input.post_message(Paste(str(invalid_path)))
+            await _wait_for_ui_state(
+                pilot,
+                lambda: "路徑不存在" in str(app.query_one("#output-path-status").render()),
+                "invalid output path status did not refresh",
+            )
 
             assert output_input.value == str(tmp_path)
             assert "路徑不存在" in str(app.query_one("#output-path-status").render())
@@ -890,7 +953,7 @@ def test_paste_invalid_output_path_keeps_value_and_displays_error(tmp_path):
     asyncio.run(run_check())
 
 
-def test_paste_log_file_updates_focused_log_directory(tmp_path):
+def test_paste_log_file_preserves_focused_log_file(tmp_path):
     log_file = tmp_path / "application.log"
     log_file.touch()
 
@@ -905,7 +968,7 @@ def test_paste_log_file_updates_focused_log_directory(tmp_path):
             path_input.post_message(Paste(log_file.as_uri()))
             await pilot.pause()
 
-            assert path_input.value == str(tmp_path)
+            assert path_input.value == str(log_file)
 
             await pilot.press("x")
             await pilot.pause()
@@ -915,53 +978,36 @@ def test_paste_log_file_updates_focused_log_directory(tmp_path):
     asyncio.run(run_check())
 
 
-def test_apply_and_load_logback_xml_updates_preview_without_changing_manual_pattern(monkeypatch, tmp_path):
+def test_apply_and_load_logback_xml_updates_preview_without_changing_manual_pattern(tmp_path):
     xml_file = tmp_path / "logback.xml"
-    xml_file.write_text("<configuration />", encoding="utf-8")
+    xml_file.write_text(
+        '<configuration><property name="FILE_LOG_PATTERN" value="%d %-5level [%thread] %logger{0}: %msg%n"/></configuration>',
+        encoding="utf-8",
+    )
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "app.log").write_text(
+        "2026-05-25 15:50:33,198 INFO  [main] YtMamApp: Starting YtMamApp\n"
+        "2026-05-25 15:50:34,198 WARN  [main] YtMamApp: Starting YtMamApp\n",
+        encoding="utf-8",
+    )
 
-    class FakeInput:
-        def __init__(self, value: str = "") -> None:
-            self.value = value
-            self.focused = False
+    async def run_check() -> None:
+        app = LogAnalyzerApp()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.query_one("#path").value = str(log_dir)
+            app.query_one("#log_pattern").value = "retained manual text"
 
-        def focus(self) -> None:
-            self.focused = True
+            app._apply_and_load_logback_xml(str(xml_file))
 
-    class FakeStatic:
-        def __init__(self) -> None:
-            self.value = ""
+            assert app.query_one("#logback_xml_path").value == str(xml_file)
+            assert app.query_one("#manual_pattern_override").value is False
+            assert app.query_one("#log_pattern").value == "retained manual text"
+            assert xml_file.name in app.query_one("#pattern-source").render().plain
+            assert "命中 2/2" in app.query_one("#logback-xml-status").render().plain
 
-        def update(self, value: str) -> None:
-            self.value = value
-
-    class FakePattern:
-        name = "FILE Pattern"
-        pattern = "%d %-5level [%thread] %logger{0}: %msg%n"
-        matches = 2
-        checked = 2
-
-    mapping = {
-        "#logback-xml-status": FakeStatic(),
-        "#logback_xml_path": FakeInput(),
-        "#path": FakeInput("./logs"),
-        "#manual_pattern_override": SimpleNamespace(value=False),
-        "#log_pattern": FakeInput("retained manual text"),
-        "#pattern-source": FakeStatic(),
-        "#pattern-preview": FakeStatic(),
-    }
-
-    monkeypatch.setattr("log_analyzer.presentation.tui.app.find_best_logback_pattern", lambda *_args: FakePattern())
-
-    app = LogAnalyzerApp()
-    app.query_one = lambda selector, *_args, **_kwargs: mapping[selector]  # type: ignore[assignment]
-
-    app._apply_and_load_logback_xml(str(xml_file))
-
-    assert mapping["#logback_xml_path"].value == str(xml_file)
-    assert mapping["#manual_pattern_override"].value is False
-    assert mapping["#log_pattern"].value == "retained manual text"
-    assert xml_file.name in mapping["#pattern-source"].value
-    assert "命中 2/2" in mapping["#logback-xml-status"].value
+    asyncio.run(run_check())
 
 
 @pytest.mark.parametrize("submit_via", ["run_button", "xml_input"])
@@ -991,9 +1037,9 @@ def test_pasted_logback_xml_path_loads_pattern_before_analysis(
     analyzed_requests = []
     original_analyze_logs = tui_module.analyze_logs
 
-    def capture_request(request):
+    def capture_request(request, *, control=None):
         analyzed_requests.append(request)
-        return original_analyze_logs(request)
+        return original_analyze_logs(request, control=control)
 
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
@@ -1018,11 +1064,12 @@ def test_pasted_logback_xml_path_loads_pattern_before_analysis(
             if submit_via == "run_button":
                 app.query_one("#run").scroll_visible(animate=False)
                 await pilot.pause()
-                await pilot.click("#run")
+                clicked = await pilot.click("#run")
+                assert clicked, "#run click did not hit its button"
             else:
                 xml_input.focus()
                 await pilot.press("enter")
-            await pilot.pause()
+            await _wait_for_scheduled_analysis(app)
 
             assert len(analyzed_requests) == 1
             assert analyzed_requests[0].path == str(log_dir)
@@ -1053,9 +1100,9 @@ def test_analysis_preserves_nonempty_manual_logback_pattern(monkeypatch, tmp_pat
     analyzed_requests = []
     original_analyze_logs = tui_module.analyze_logs
 
-    def capture_request(request):
+    def capture_request(request, *, control=None):
         analyzed_requests.append(request)
-        return original_analyze_logs(request)
+        return original_analyze_logs(request, control=control)
 
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
@@ -1070,6 +1117,7 @@ def test_analysis_preserves_nonempty_manual_logback_pattern(monkeypatch, tmp_pat
             app.query_one("#logback_xml_path").value = str(xml_file)
             app.query_one("#manual_pattern_override").value = True
             app.query_one("#log_pattern").value = manual_pattern
+            await pilot.pause()
 
             await app.action_run_analysis()
 
@@ -1095,9 +1143,9 @@ def test_manual_pattern_override_ignores_invalid_xml_and_uses_manual_pattern(mon
     analyzed_requests = []
     original_analyze_logs = tui_module.analyze_logs
 
-    def capture_request(request):
+    def capture_request(request, *, control=None):
         analyzed_requests.append(request)
-        return original_analyze_logs(request)
+        return original_analyze_logs(request, control=control)
 
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
@@ -1177,7 +1225,11 @@ def test_empty_manual_pattern_fails_before_analysis(monkeypatch, tmp_path):
     analysis_calls = []
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
-    monkeypatch.setattr(tui_module, "analyze_logs", lambda request: analysis_calls.append(request))
+    monkeypatch.setattr(
+        tui_module,
+        "analyze_logs",
+        lambda request, *, control=None: analysis_calls.append(request),
+    )
 
     async def run_check() -> None:
         app = LogAnalyzerApp()
@@ -1206,9 +1258,9 @@ def test_manual_text_is_ignored_when_override_is_off(monkeypatch, tmp_path):
     analyzed_requests = []
     original_analyze_logs = tui_module.analyze_logs
 
-    def capture_request(request):
+    def capture_request(request, *, control=None):
         analyzed_requests.append(request)
-        return original_analyze_logs(request)
+        return original_analyze_logs(request, control=control)
 
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
@@ -1242,7 +1294,7 @@ def test_clearing_selected_xml_uses_default_on_next_analysis(monkeypatch, tmp_pa
     )
     xml_file = tmp_path / "config" / "logback.xml"
     xml_file.parent.mkdir()
-    xml_pattern = "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{0}: %msg%n"
+    xml_pattern = "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
     xml_file.write_text(
         f'<configuration><property name="FILE_LOG_PATTERN" value="{xml_pattern}"/></configuration>',
         encoding="utf-8",
@@ -1250,9 +1302,9 @@ def test_clearing_selected_xml_uses_default_on_next_analysis(monkeypatch, tmp_pa
     requests = []
     original_analyze_logs = tui_module.analyze_logs
 
-    def capture_request(request):
+    def capture_request(request, *, control=None):
         requests.append(request)
-        return original_analyze_logs(request)
+        return original_analyze_logs(request, control=control)
 
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
@@ -1302,9 +1354,9 @@ def test_pasted_logback_xml_replaces_previous_autofilled_pattern(monkeypatch, tm
     analyzed_requests = []
     original_analyze_logs = tui_module.analyze_logs
 
-    def capture_request(request):
+    def capture_request(request, *, control=None):
         analyzed_requests.append(request)
-        return original_analyze_logs(request)
+        return original_analyze_logs(request, control=control)
 
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
@@ -1353,9 +1405,9 @@ def test_default_recipe_guard_suppresses_directory_xml_discovery(monkeypatch, tm
     analyzed_requests = []
     original_analyze_logs = tui_module.analyze_logs
 
-    def capture_request(request):
+    def capture_request(request, *, control=None):
         analyzed_requests.append(request)
-        return original_analyze_logs(request)
+        return original_analyze_logs(request, control=control)
 
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
@@ -1409,9 +1461,9 @@ def test_analysis_reports_invalid_selected_logback_xml(monkeypatch, tmp_path, xm
     analyzed_requests = []
     original_analyze_logs = tui_module.analyze_logs
 
-    def capture_request(request):
+    def capture_request(request, *, control=None):
         analyzed_requests.append(request)
-        return original_analyze_logs(request)
+        return original_analyze_logs(request, control=control)
 
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
@@ -1429,7 +1481,10 @@ def test_analysis_reports_invalid_selected_logback_xml(monkeypatch, tmp_path, xm
 
             assert analyzed_requests == []
             assert app._result_state == "failed"
-            assert status_message in str(app.query_one("#logback-xml-status").render())
+            xml_status = app.query_one("#logback-xml-status")
+            assert xml_status.display
+            assert status_message in str(xml_status.render())
+            assert app.query_one("#pattern-details").collapsed
 
     asyncio.run(run_check())
 
@@ -1855,6 +1910,7 @@ def test_apply_selected_directory_autofills_logback_settings(monkeypatch, tmp_pa
     mapping = {
         "#path": FakeInput(str(log_dir)),
         "#path-status": FakeStatic(),
+        "#source-scope-preview": _FakeSourceScopePreview(),
         "#logback_xml_path": FakeInput(),
         "#log_pattern": FakeInput(),
         "#manual_pattern_override": SimpleNamespace(value=False),
@@ -1863,7 +1919,7 @@ def test_apply_selected_directory_autofills_logback_settings(monkeypatch, tmp_pa
         "#pattern-preview": FakeStatic(),
     }
 
-    monkeypatch.setattr("log_analyzer.presentation.tui.app.find_best_logback_pattern", lambda *_args: FakePattern())
+    monkeypatch.setattr("log_analyzer.presentation.tui.app.find_best_logback_pattern", lambda *_args, **_kwargs: FakePattern())
 
     app = LogAnalyzerApp()
     app.query_one = lambda selector, *_args, **_kwargs: mapping[selector]  # type: ignore[assignment]
@@ -1908,6 +1964,7 @@ def test_apply_selected_directory_does_not_override_manual_logback_values(monkey
     mapping = {
         "#path": FakeInput(str(log_dir)),
         "#path-status": FakeStatic(),
+        "#source-scope-preview": _FakeSourceScopePreview(),
         "#logback_xml_path": FakeInput("/manual/logback.xml"),
         "#log_pattern": FakeInput("manual pattern"),
         "#manual_pattern_override": SimpleNamespace(value=False),
@@ -2157,7 +2214,7 @@ def test_result_replacement_clear_and_unmount_release_stores(tmp_path: Path, mon
     failed_result = _stored_result(failed_path, _event_group())
     analysis_calls = []
 
-    def fake_analyze_logs(request):
+    def fake_analyze_logs(request, *, control=None):
         analysis_calls.append((old_path.exists(), request))
         return new_result
 
@@ -2174,11 +2231,12 @@ def test_result_replacement_clear_and_unmount_release_stores(tmp_path: Path, mon
             await app.action_run_analysis()
 
             assert len(analysis_calls) == 1
-            assert analysis_calls[0][0] is False
+            assert analysis_calls[0][0] is True
             assert isinstance(analysis_calls[0][1], AnalysisRequest)
-            assert analysis_calls[0][1].path == "."
+            assert analysis_calls[0][1].path == str(tmp_path)
             assert app._last_result is new_result
             assert new_path.exists()
+            assert not old_path.exists()
 
             browser = EventBrowserScreen(new_result)
             app.push_screen(browser)
@@ -2194,9 +2252,12 @@ def test_result_replacement_clear_and_unmount_release_stores(tmp_path: Path, mon
             monkeypatch.setattr(
                 tui_module,
                 "analyze_logs",
-                lambda _request: (_ for _ in ()).throw(PermissionError("denied")),
+                lambda _request, *, control=None: (_ for _ in ()).throw(PermissionError("denied")),
             )
             await app.action_run_analysis()
+            assert failed_path.exists()
+            assert app._last_result is failed_result
+            app.action_clear_result()
             assert not failed_path.exists()
             assert app._last_result is None
 
@@ -2218,6 +2279,17 @@ def test_time_range_inputs_are_not_collapsed_in_wide_layout():
             await pilot.pause()
 
             time_section = app.query_one(".time-section")
+            await _wait_for_ui_state(
+                pilot,
+                lambda: time_section.region.width > 0,
+                "time range section did not enter the layout",
+            )
+            await _wait_for_layout_to_settle(
+                pilot,
+                (time_section, *(app.query_one(selector) for selector in (
+                    "#start_date", "#start_time", "#end_date", "#end_time"
+                ))),
+            )
             assert time_section.region.width > 20
 
             for selector in ("#start-date-group", "#start-time-group", "#end-date-group", "#end-time-group"):
@@ -2231,11 +2303,19 @@ def test_time_range_inputs_are_not_collapsed_in_wide_layout():
     asyncio.run(run_check())
 
 
-def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden():
+def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(monkeypatch):
+    monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
+    monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
+
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(1400, 980)) as pilot:
             await pilot.pause()
+            await _wait_for_ui_state(
+                pilot,
+                lambda: app.focused is None,
+                "initial focus reset did not complete",
+            )
 
             sequence = []
             for _ in range(8):

@@ -4,12 +4,17 @@ import os
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 
 from .dashboard_summary import DashboardAnalysis, aggregate_dashboard_summary
+from ..domain.analysis_control import AnalysisControl
 from ..domain.log_types import MatchedLogs, ScanDiagnostics, SourceSnapshot
+from ..domain.log_sources import select_log_source
 from ..domain.parser import ParseOptions, parse_log_directory
 from ..infrastructure.exporting import ExportOptions, export_with_options
-from ..infrastructure.paths import ensure_readable_directory, ensure_writable_directory
+from ..infrastructure.exporting.exporter import _stage_export_with_options
+from ..infrastructure.exporting.transaction import ExportTransaction
+from ..infrastructure.paths import ensure_writable_directory
 
 DEFAULT_SELECTED_LEVELS = ("ERROR", "WARN", "INFO")
 
@@ -26,6 +31,7 @@ class AnalysisRequest:
     sort_by: str = "time"
     log_pattern: str | None = None
     levels: tuple[str, ...] | None = DEFAULT_SELECTED_LEVELS
+    selected_files: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +43,7 @@ class ResultExportOptions:
     fields: tuple[str, ...] | None = None
     max_export_bytes: int | None = None
     split_by_level: bool = False
+    overwrite: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +63,8 @@ class AnalysisOptions:
     include_details: bool = True
     levels: tuple[str, ...] | None = DEFAULT_SELECTED_LEVELS
     split_by_level: bool = False
+    selected_files: tuple[str, ...] | None = None
+    overwrite: bool = False
 
 
 @dataclass(slots=True)
@@ -118,6 +127,8 @@ def run_analysis(  # noqa: PLR0913 - public legacy API retained for backward com
     include_details: bool = True,
     levels: tuple[str, ...] | None = DEFAULT_SELECTED_LEVELS,
     split_by_level: bool = False,
+    *,
+    overwrite: bool = False,
 ) -> AnalysisResult:
     """公開相容性包裝器，保留既有呼叫介面。"""
     return run_analysis_with_options(
@@ -135,6 +146,7 @@ def run_analysis(  # noqa: PLR0913 - public legacy API retained for backward com
             include_details=include_details,
             levels=levels,
             split_by_level=split_by_level,
+            overwrite=overwrite,
         )
     )
 
@@ -151,6 +163,7 @@ def run_analysis_with_options(options: AnalysisOptions) -> AnalysisResult:
             sort_by=options.sort_by,
             log_pattern=options.log_pattern,
             levels=options.levels,
+            selected_files=options.selected_files,
         )
     )
     try:
@@ -161,6 +174,7 @@ def run_analysis_with_options(options: AnalysisOptions) -> AnalysisResult:
                 fmt=options.fmt,
                 max_export_bytes=options.max_export_bytes,
                 split_by_level=options.split_by_level,
+                overwrite=options.overwrite,
             ),
         )
     except Exception:
@@ -173,12 +187,18 @@ def run_analysis_with_options(options: AnalysisOptions) -> AnalysisResult:
     return result
 
 
-def analyze_logs(request: AnalysisRequest) -> AnalysisResult:
+def analyze_logs(
+    request: AnalysisRequest,
+    *,
+    control: AnalysisControl | None = None,
+) -> AnalysisResult:
     """掃描來源日誌並保留可供後續匯出的分析結果。"""
-    normalized_path = ensure_readable_directory(request.path)
+    if control is not None:
+        control.raise_if_cancelled()
+    source = select_log_source(request.path, selected_files=request.selected_files)
     normalized_levels = None if request.levels is None else tuple(request.levels)
     normalized_request = AnalysisRequest(
-        path=normalized_path,
+        path=source.path,
         start_dt=request.start_dt,
         end_dt=request.end_dt,
         keyword=request.keyword,
@@ -186,29 +206,40 @@ def analyze_logs(request: AnalysisRequest) -> AnalysisResult:
         sort_by=request.sort_by,
         log_pattern=request.log_pattern,
         levels=normalized_levels,
+        selected_files=source.filenames,
     )
-    counts, matched_logs = parse_log_directory(
-        normalized_path,
-        ParseOptions(
-            start_time=normalized_request.start_dt,
-            end_time=normalized_request.end_dt,
-            keyword=normalized_request.keyword,
-            ignore_case=normalized_request.ignore_case,
-            log_pattern=normalized_request.log_pattern,
-            sort_by=normalized_request.sort_by,
-            levels=normalized_request.levels,
-        ),
+    parse_options = ParseOptions(
+        start_time=normalized_request.start_dt,
+        end_time=normalized_request.end_dt,
+        keyword=normalized_request.keyword,
+        ignore_case=normalized_request.ignore_case,
+        log_pattern=normalized_request.log_pattern,
+        sort_by=normalized_request.sort_by,
+        levels=normalized_request.levels,
+        selected_files=source.filenames,
     )
+    if control is None:
+        counts, matched_logs = parse_log_directory(source.root, parse_options)
+    else:
+        counts, matched_logs = parse_log_directory(source.root, parse_options, control=control)
     diagnostics = getattr(matched_logs, "diagnostics", ScanDiagnostics())
 
     try:
+        if control is not None:
+            control.raise_if_cancelled()
         if not counts and not matched_logs:
             raise NoMatchingLogsError(diagnostics)
 
         source_states: dict[str, SourceSnapshot] = dict(getattr(matched_logs, "source_states", {}))
-        dashboard_summary, matched_occurrences = aggregate_dashboard_summary(matched_logs)
-        return AnalysisResult(
-            input_path=normalized_path,
+        if control is None:
+            dashboard_summary, matched_occurrences = aggregate_dashboard_summary(matched_logs)
+        else:
+            dashboard_summary, matched_occurrences = aggregate_dashboard_summary(
+                matched_logs,
+                control=control,
+            )
+        result = AnalysisResult(
+            input_path=source.root,
             output_path="",
             format_name="未匯出",
             keyword=normalized_request.keyword or "未設定",
@@ -227,6 +258,9 @@ def analyze_logs(request: AnalysisRequest) -> AnalysisResult:
             diagnostics=diagnostics,
             analysis_request=normalized_request,
         )
+        if control is not None:
+            control.raise_if_cancelled()
+        return result
     except Exception:
         _release_matched_logs(matched_logs)
         raise
@@ -251,7 +285,9 @@ def export_analysis_result(
                 max_export_bytes=options.max_export_bytes,
                 split_by_level=options.split_by_level,
                 fields=options.fields,
-            )
+                overwrite=options.overwrite,
+            ),
+            protected_paths=_source_paths(result),
         )
     ]
     if exported_files:
@@ -259,6 +295,64 @@ def export_analysis_result(
         result.format_name = options.fmt
         result.exported_files = exported_files
     return exported_files
+
+
+def export_analysis_bundle(
+    result: AnalysisResult,
+    options: ResultExportOptions,
+) -> tuple[list[str], str]:
+    """將報表與證據清單放在同一個匯出交易中準備並發布。"""
+    if result.matched_groups > 0 and len(result.matched_logs) == 0:
+        raise ValueError("匹配日誌明細已釋放，無法再次匯出；請重新分析後再試。")
+
+    transaction = ExportTransaction(
+        options.output_path,
+        overwrite=options.overwrite,
+        protected_paths=_source_paths(result),
+    )
+    try:
+        report_staged = _stage_export_with_options(
+            ExportOptions(
+                counts=result.counts,
+                matched_logs=result.matched_logs,
+                output_path=options.output_path,
+                format=options.fmt,
+                max_export_bytes=options.max_export_bytes,
+                split_by_level=options.split_by_level,
+                fields=options.fields,
+                overwrite=options.overwrite,
+            ),
+            transaction,
+        )
+        from .evidence_manifest import _stage_evidence_manifest
+
+        manifest_staged = _stage_evidence_manifest(
+            result,
+            options,
+            report_staged,
+            transaction,
+        )
+        published = transaction.publish([*report_staged, manifest_staged])
+        exported_files = [os.path.abspath(path) for path in published[: len(report_staged)]]
+        manifest_path = os.path.abspath(published[-1])
+        if exported_files:
+            result.output_path = exported_files[0]
+            result.format_name = options.fmt
+            result.exported_files = exported_files
+        return exported_files, manifest_path
+    finally:
+        transaction.cleanup()
+
+
+def _source_paths(result: AnalysisResult) -> tuple[Path, ...]:
+    root = Path(result.input_path)
+    sources: list[Path] = []
+    if root.is_file():
+        sources.append(root)
+    for filename in result.source_states:
+        candidate = Path(filename)
+        sources.append(candidate if candidate.is_absolute() else root / candidate)
+    return tuple(sources)
 
 
 def _release_matched_logs(matched_logs: MatchedLogs) -> None:
