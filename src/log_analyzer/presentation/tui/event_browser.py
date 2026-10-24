@@ -10,6 +10,7 @@ from textual.widgets import Button, OptionList, Static
 from textual.widgets.option_list import Option
 
 from ...application.analysis_service import AnalysisResult
+from ...application.source_context_index import SourceContextReader
 from ...application.source_preview import SourcePreview, read_source_context
 from ...domain.log_types import LogEntry, OccurrenceCoordinate
 
@@ -28,6 +29,7 @@ class EventBrowserScreen(ModalScreen[None]):
         self._occurrences: list[OccurrenceCoordinate] = []
         self._occurrence_order: list[int] = []
         self._occurrence_start = 0
+        self._source_context_reader = SourceContextReader()
         self._current_preview: SourcePreview | None = None
         self._copy_path_line: str | None = None
         super().__init__()
@@ -40,6 +42,7 @@ class EventBrowserScreen(ModalScreen[None]):
             yield OptionList(id="event-options")
             with VerticalScroll(id="browser-preview-content"):
                 yield Static("", id="source-warning")
+                yield Static("", id="source-encoding-notice")
                 yield Static("", id="source-path")
                 yield Static("", id="retained-details")
                 yield Static("", id="source-context")
@@ -108,6 +111,7 @@ class EventBrowserScreen(ModalScreen[None]):
         self._selected_group = None
         self._occurrences = []
         self._occurrence_order.clear()
+        self._source_context_reader.clear()
         self._current_preview = None
         self._copy_path_line = None
 
@@ -183,7 +187,12 @@ class EventBrowserScreen(ModalScreen[None]):
         filename = occurrence.get("filename", "")
         source_states = getattr(self.result, "source_states", {})
         snapshot = source_states.get(filename) if isinstance(filename, str) else None
-        preview = read_source_context(self.result.input_path, occurrence, snapshot)
+        preview = read_source_context(
+            self.result.input_path,
+            occurrence,
+            snapshot,
+            reader=self._source_context_reader,
+        )
         self._view = "preview"
         self._current_preview = preview
         self._copy_path_line = (
@@ -204,6 +213,9 @@ class EventBrowserScreen(ModalScreen[None]):
         warning_widget = self.query_one("#source-warning", Static)
         warning_widget.display = bool(preview.warning)
         warning_widget.update(preview.warning or "")
+        encoding_notice_widget = self.query_one("#source-encoding-notice", Static)
+        encoding_notice_widget.display = bool(preview.encoding_notice)
+        encoding_notice_widget.update(preview.encoding_notice or "")
         self.query_one("#source-path", Static).display = True
         self.query_one("#source-path", Static).update(Text(preview.path_line or "", no_wrap=False))
         retained_details = self.query_one("#retained-details", Static)
@@ -251,6 +263,8 @@ class EventBrowserScreen(ModalScreen[None]):
         back_button.label = "返回事件群組" if self._view == "occurrences" else "返回"
         self.query_one("#source-warning", Static).display = False
         self.query_one("#source-warning", Static).update("")
+        self.query_one("#source-encoding-notice", Static).display = False
+        self.query_one("#source-encoding-notice", Static).update("")
         self.query_one("#source-path", Static).display = False
         self.query_one("#source-path", Static).update("")
         self.query_one("#retained-details", Static).display = False

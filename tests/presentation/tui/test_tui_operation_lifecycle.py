@@ -111,8 +111,10 @@ def test_shutdown_releases_analysis_that_finishes_after_unmount(tmp_path, monkey
     store_path = Path(result.matched_logs.path)
     entered = threading.Event()
     finish = threading.Event()
+    controls = []
 
-    def delayed_analysis(_request):
+    def delayed_analysis(_request, *, control=None):
+        controls.append(control)
         entered.set()
         if not finish.wait(10):
             raise TimeoutError("test did not release analysis")
@@ -139,6 +141,7 @@ def test_shutdown_releases_analysis_that_finishes_after_unmount(tmp_path, monkey
                 await asyncio.wait_for(operation, timeout=5)
         assert not store_path.exists()
         assert app._last_result is None
+        assert controls and controls[0].is_cancelled
 
     asyncio.run(run_check())
 
@@ -148,7 +151,7 @@ def test_shutdown_does_not_render_late_analysis_errors(tmp_path, monkeypatch, er
     entered = threading.Event()
     finish = threading.Event()
 
-    def failing_analysis(_request):
+    def failing_analysis(_request, *, control=None):
         entered.set()
         if not finish.wait(10):
             raise TimeoutError("test did not release analysis")

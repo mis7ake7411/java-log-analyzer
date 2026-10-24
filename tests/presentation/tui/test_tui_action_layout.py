@@ -118,10 +118,10 @@ def test_compact_run_and_recipe_buttons_remain_clickable(tmp_path, monkeypatch) 
             app = tui.LogAnalyzerApp()
             run_calls: list[str] = []
 
-            async def capture_run() -> None:
+            def capture_run() -> None:
                 run_calls.append("run")
 
-            app.action_run_analysis = capture_run
+            app._schedule_analysis_start = capture_run
             async with app.run_test(size=(80, 32)) as pilot:
                 await pilot.pause()
                 await pilot.click("#run")

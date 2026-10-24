@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from os import stat_result
 from pathlib import Path, PureWindowsPath
 
+from .source_context_index import SourceContextReader
 from ..domain.log_types import OccurrenceCoordinate, SourceSnapshot
 
 _UNAVAILABLE_WARNING = "來源已變更、缺少或無法安全讀取，未顯示原始內容。"
 _MISSING_LINE_WARNING = "所選行已不存在，未顯示原始內容。"
+_ENCODING_NOTICE = "來源含無效 UTF-8 位元組；畫面以 � 取代顯示，無法還原原始字元。"
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,6 +18,7 @@ class SourcePreview:
     lines: tuple[tuple[int, str], ...]
     match_line: int
     warning: str | None = None
+    encoding_notice: str | None = None
 
 
 def _warning_preview(filename: str, match_line: int, warning: str) -> SourcePreview:
@@ -90,41 +94,92 @@ def _resolve_source_path(input_path: str, filename: str) -> Path | None:
     return resolved_source
 
 
+def _matches_snapshot(source_stat: stat_result, snapshot_values: tuple[int, int]) -> bool:
+    return (
+        source_stat.st_size == snapshot_values[0]
+        and source_stat.st_mtime_ns == snapshot_values[1]
+    )
+
+
+def _same_source_state(
+    before: stat_result,
+    after: stat_result,
+    snapshot_values: tuple[int, int],
+) -> bool:
+    return (
+        before.st_size == after.st_size
+        and before.st_mtime_ns == after.st_mtime_ns
+        and before.st_dev == after.st_dev
+        and before.st_ino == after.st_ino
+        and _matches_snapshot(after, snapshot_values)
+    )
+
+
+def _read_context_and_stat_after(
+    source: Path,
+    source_stat: stat_result,
+    first_line: int,
+    last_line: int,
+    reader: SourceContextReader,
+) -> tuple[tuple[tuple[int, str], ...], bool, stat_result | None]:
+    try:
+        lines, has_encoding_error = reader.read_context_with_encoding(
+            source,
+            source_stat,
+            first_line,
+            last_line,
+        )
+    except (OSError, RuntimeError, ValueError, TypeError):
+        reader.invalidate(source)
+        try:
+            source.stat()
+        except (OSError, RuntimeError, ValueError, TypeError):
+            pass
+        return (), False, None
+
+    try:
+        return lines, has_encoding_error, source.stat()
+    except (OSError, RuntimeError, ValueError, TypeError):
+        reader.invalidate(source)
+        return (), False, None
+
+
 def _read_verified_context(
     resolved_source: Path,
-    snapshot_size: int,
-    snapshot_mtime_ns: int,
+    snapshot_values: tuple[int, int],
     match_line: int,
     radius: int,
-) -> tuple[tuple[tuple[int, str], ...], str | None]:
+    reader: SourceContextReader | None = None,
+) -> tuple[tuple[tuple[int, str], ...], str | None, str | None]:
+    context_reader = reader if reader is not None else SourceContextReader()
     try:
         before = resolved_source.stat()
-        if before.st_size != snapshot_size or before.st_mtime_ns != snapshot_mtime_ns:
-            return (), _UNAVAILABLE_WARNING
+        if not _matches_snapshot(before, snapshot_values):
+            context_reader.invalidate(resolved_source)
+            return (), _UNAVAILABLE_WARNING, None
 
         first_line = max(1, match_line - radius)
         last_line = match_line + radius
-        lines: list[tuple[int, str]] = []
-        with resolved_source.open("r", encoding="utf-8", errors="ignore") as file_handle:
-            for line_number, text in enumerate(file_handle, start=1):
-                if line_number > last_line:
-                    break
-                if line_number >= first_line:
-                    lines.append((line_number, text.rstrip("\r\n")))
-
-        after = resolved_source.stat()
-        if (
-            before.st_size != after.st_size
-            or before.st_mtime_ns != after.st_mtime_ns
-            or after.st_size != snapshot_size
-            or after.st_mtime_ns != snapshot_mtime_ns
-        ):
-            return (), _UNAVAILABLE_WARNING
-        if not any(line_number == match_line for line_number, _ in lines):
-            return (), _MISSING_LINE_WARNING
+        lines, has_encoding_error, after = _read_context_and_stat_after(
+            resolved_source,
+            before,
+            first_line,
+            last_line,
+            context_reader,
+        )
     except (OSError, RuntimeError, ValueError, TypeError):
-        return (), _UNAVAILABLE_WARNING
-    return tuple(lines), None
+        context_reader.invalidate(resolved_source)
+        return (), _UNAVAILABLE_WARNING, None
+
+    if after is None:
+        return (), _UNAVAILABLE_WARNING, None
+    if not _same_source_state(before, after, snapshot_values):
+        context_reader.invalidate(resolved_source)
+        return (), _UNAVAILABLE_WARNING, None
+    if not any(line_number == match_line for line_number, _ in lines):
+        return (), _MISSING_LINE_WARNING, None
+    encoding_notice = _ENCODING_NOTICE if has_encoding_error else None
+    return tuple(lines), None, encoding_notice
 
 
 def read_source_context(
@@ -132,6 +187,8 @@ def read_source_context(
     occurrence: OccurrenceCoordinate,
     snapshot: SourceSnapshot | None,
     radius: int = 3,
+    *,
+    reader: SourceContextReader | None = None,
 ) -> SourcePreview:
     """只在來源仍符合掃描快照且位於分析根目錄內時讀取命中行附近內容。"""
     filename, match_line = _occurrence_position(occurrence)
@@ -150,13 +207,12 @@ def read_source_context(
     if resolved_source is None:
         return _warning_preview(filename, match_line, _UNAVAILABLE_WARNING)
 
-    snapshot_size, snapshot_mtime_ns = snapshot_values
-    lines, warning = _read_verified_context(
+    lines, warning, encoding_notice = _read_verified_context(
         resolved_source,
-        snapshot_size,
-        snapshot_mtime_ns,
+        snapshot_values,
         match_line,
         radius,
+        reader,
     )
     if warning is not None:
         return _warning_preview(filename, match_line, warning)
@@ -166,4 +222,5 @@ def read_source_context(
         lines=lines,
         match_line=match_line,
         warning=None,
+        encoding_notice=encoding_notice,
     )

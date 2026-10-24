@@ -51,6 +51,28 @@ def test_preview_reads_three_lines_each_side(tmp_path):
     assert preview.warning is None
 
 
+def test_preview_displays_replacement_and_nonfatal_encoding_notice(tmp_path):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    source_file = log_dir / "app.log"
+    source_file.write_bytes(b"before\nmatched \x80 line\nafter\n")
+
+    preview = read_source_context(
+        str(log_dir),
+        _occurrence("app.log", 2),
+        _snapshot(source_file),
+        radius=1,
+    )
+
+    assert preview.lines == (
+        (1, "before"),
+        (2, "matched \ufffd line"),
+        (3, "after"),
+    )
+    assert preview.warning is None
+    assert preview.encoding_notice is not None
+
+
 def test_warning_preview_has_no_copyable_context(tmp_path):
     log_dir = tmp_path / "logs"
     log_dir.mkdir()

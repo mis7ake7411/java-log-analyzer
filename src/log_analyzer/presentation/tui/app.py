@@ -9,8 +9,11 @@ from functools import partial
 from pathlib import Path
 from xml.etree.ElementTree import ParseError
 
+from rich.console import Group
+from rich.panel import Panel
+from rich.text import Text
 from textual.app import App, ComposeResult
-from textual.containers import Container, ScrollableContainer, VerticalScroll
+from textual.containers import Container, ScrollableContainer
 from textual.events import Paste, Resize
 from textual.widgets import Button, Checkbox, Collapsible, Footer, Header, Input, Label, RichLog, Select, Static
 
@@ -25,6 +28,7 @@ from ...application.analysis_service import (
     export_analysis_bundle,
     export_analysis_result,
 )
+from ...domain.analysis_control import AnalysisCancelled, AnalysisControl, AnalysisProgress
 from ...domain.log_sources import LogSourceSelection, select_log_source
 from ...domain.logback_pattern import DEFAULT_LOGBACK_PATTERN
 from ...domain.logback_xml import (
@@ -47,6 +51,7 @@ from .dialogs import (
 from .event_browser import EventBrowserScreen
 from .recipes import RecipeManagerScreen
 from .recent_state import load_recent_tui_state, save_recent_tui_state
+from .source_scope import SourceScopePreview
 from .inputs import (
     get_default_end_date_text,
     get_default_end_time_text,
@@ -70,6 +75,7 @@ from ...infrastructure.paths import (
     validate_pasted_path,
 )
 from ...version import get_package_version
+from ..encoding_warnings import format_encoding_warning
 
 __all__ = ["get_system_root_path"]
 
@@ -90,11 +96,6 @@ class _ResponsiveAdvancedSettings(Container):
         app = self.app
         if getattr(app, "_advanced_settings_visible", False):
             app.call_after_refresh(app._sync_advanced_layout)
-
-
-class _SourceScopeList(VerticalScroll):
-    def allow_focus(self) -> bool:
-        return self.display and self.max_scroll_y > 0
 
 
 class _DashboardResultLog(RichLog):
@@ -137,7 +138,8 @@ class LogAnalyzerApp(App):
     _pending_pattern_analysis: _PendingPatternAnalysis | None = None
     BINDINGS = [
         ("q", "quit", "離開"),
-        ("enter", "run_analysis", "開始分析"),
+        ("enter", "schedule_analysis", "開始分析"),
+        ("ctrl+x", "cancel_analysis", "取消分析"),
         ("c", "clear_result", "清除結果"),
         ("a", "toggle_advanced_settings", "進階設定"),
     ]
@@ -176,10 +178,7 @@ class LogAnalyzerApp(App):
                 yield ShortcutInput(placeholder="例如：./logs", value=".", id="path")
                 yield Button("瀏覽", id="browse_path")
         yield Static("", classes="path-status", id="path-status")
-        with Container(id="source-scope-preview"):
-            yield Static("尚未選擇 Log 來源", id="source-scope-summary", markup=False)
-            with _SourceScopeList(id="source-scope-list"):
-                yield Static("", markup=False, id="source-scope-filenames")
+        yield SourceScopePreview()
 
         with Container(classes="field"):
             yield Label("關鍵字")
@@ -345,6 +344,7 @@ class LogAnalyzerApp(App):
         with Container(id="form-actions"):
             yield Button("管理分析配方", id="manage-recipes")
             yield Button("開始分析", variant="primary", id="run")
+            yield Button("取消分析", id="cancel-analysis", disabled=True)
         yield Static("", id="recipe-feedback", classes="recipe-feedback", markup=False)
 
     def _compose_result_panel(self) -> ComposeResult:
@@ -371,6 +371,7 @@ class LogAnalyzerApp(App):
     def on_mount(self) -> None:
         self._auto_logback_xml_paths = ()
         self._pending_pattern_analysis = None
+        self._restored_encoding_warning = None
         path_input = self.query_one("#path", Input)
         output_path_input = self.query_one("#output_path", Input)
         self.query_one("#result-box", RichLog).can_focus = False
@@ -383,10 +384,16 @@ class LogAnalyzerApp(App):
         self._set_export_settings_visible(False)
         self._sync_layout(self.size.width, self.size.height)
         self._set_result_status("idle")
+        self._set_analysis_cancel_button(False)
         self.update_path_preview(path_input.value)
         self.update_path_preview(output_path_input.value, "#output-path-status", require_writable=True)
 
     def on_unmount(self) -> None:
+        control = getattr(self, "_analysis_control", None)
+        if control is not None:
+            control.cancel()
+        self._active_analysis_operation_id = None
+        self._analysis_control = None
         if getattr(self, "_pending_pattern_analysis", None) is not None:
             self._pending_pattern_analysis = None
             self._operation_in_progress = False
@@ -412,7 +419,22 @@ class LogAnalyzerApp(App):
 
         result_box = self.query_one("#result-box", RichLog)
         compact = self._should_compact_dashboard(self.size.width, self.size.height)
-        self._set_result(result_box, build_dashboard_view(result, compact))
+        self._set_result(result_box, self._build_dashboard_with_restore_warning(result, compact))
+
+    def _build_dashboard_with_restore_warning(self, result: AnalysisResult, compact: bool) -> Group:
+        dashboard = build_dashboard_view(result, compact)
+        if not self._restored_encoding_warning:
+            return dashboard
+        return Group(
+            Panel(
+                Text(self._restored_encoding_warning, style="yellow"),
+                title="本次掃描編碼提醒",
+                border_style="yellow",
+                padding=(0, 1),
+                expand=True,
+            ),
+            dashboard,
+        )
 
     def _sync_layout(self, width: int, height: int) -> None:
         if height <= 0:
@@ -589,20 +611,19 @@ class LogAnalyzerApp(App):
             "end_date",
             "end_time",
         }:
-            await self.action_run_analysis()
+            self._schedule_analysis_start()
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
-        async_actions = {
-            "run": self.action_run_analysis,
-            "confirm-export": self.action_confirm_export,
-        }
-        async_action = async_actions.get(button_id)
-        if async_action is not None:
-            await async_action()
+        if button_id == "run":
+            self._schedule_analysis_start()
+            return
+        if button_id == "confirm-export":
+            await self.action_confirm_export()
             return
 
         actions = {
+            "cancel-analysis": self.action_cancel_analysis,
             "browse-events": self.action_browse_events,
             "export-result": self.action_show_export_settings,
             "clear": self.action_clear_result,
@@ -652,29 +673,19 @@ class LogAnalyzerApp(App):
     def _show_source_scope(self, source: LogSourceSelection) -> None:
         if source.is_file:
             color, message, is_valid, _ = inspect_file_path(source.path)
-            mode = "單一檔案"
         else:
             color, message, is_valid, _ = inspect_directory_path(source.path)
-            mode = "資料夾（不含子目錄）"
 
         if not is_valid:
             self._clear_source_scope_preview(message)
             return
 
         self.query_one("#path-status", Static).update(format_path_status(message, color, False))
-        self.query_one("#source-scope-summary", Static).update(
-            f"{mode} · 支援檔案 {len(source.filenames)} 個"
-        )
-        self.query_one("#source-scope-filenames", Static).update("\n".join(source.filenames))
-        scope_list = self.query_one("#source-scope-list", VerticalScroll)
-        scope_list.display = bool(source.filenames)
+        self.query_one("#source-scope-preview", SourceScopePreview).show_source(source)
 
     def _clear_source_scope_preview(self, message: str) -> None:
         self.query_one("#path-status", Static).update(format_path_status(message, "red", False))
-        self.query_one("#source-scope-summary", Static).update(f"來源無效：{message}")
-        self.query_one("#source-scope-filenames", Static).update("")
-        scope_list = self.query_one("#source-scope-list", VerticalScroll)
-        scope_list.display = False
+        self.query_one("#source-scope-preview", SourceScopePreview).show_invalid(message)
 
     def action_browse_path(self) -> None:
         self._open_directory_picker(
@@ -766,15 +777,45 @@ class LogAnalyzerApp(App):
 
     def _handle_unexpected_error(self, result_box: RichLog, exc: Exception) -> None:
         logger.exception("TUI 分析發生未預期錯誤", exc_info=exc)
-        self._release_last_result()
         if not self.is_running:
+            return
+        if self._last_result is not None:
+            self._restore_previous_result(
+                result_box,
+                "本次分析失敗，已保留上次成功結果",
+                str(exc),
+            )
             return
         self._set_result(result_box, build_error_view("執行失敗", str(exc)))
         self._set_result_status("failed")
 
     def _handle_analysis_error(self, result_box: RichLog, exc: Exception) -> None:
-        self._release_last_result()
         if not self.is_running:
+            return
+
+        if self._last_result is not None:
+            if isinstance(exc, NoMatchingLogsError):
+                notice = "本次分析沒有符合條件的日誌，已保留上次成功結果"
+                detail = None
+                encoding_warning = format_encoding_warning(exc.diagnostics)
+            elif isinstance(exc, PermissionError):
+                notice = "本次分析權限不足，已保留上次成功結果"
+                detail = str(exc)
+                encoding_warning = None
+            elif isinstance(exc, FileNotFoundError):
+                notice = "本次分析找不到來源，已保留上次成功結果"
+                detail = str(exc)
+                encoding_warning = None
+            else:
+                notice = "本次分析失敗，已保留上次成功結果"
+                detail = str(exc)
+                encoding_warning = None
+            self._restore_previous_result(
+                result_box,
+                notice,
+                detail,
+                encoding_warning=encoding_warning,
+            )
             return
 
         if isinstance(exc, NoMatchingLogsError):
@@ -793,6 +834,17 @@ class LogAnalyzerApp(App):
 
         self._set_result(result_box, view)
         self._set_result_status(status)
+
+    def _handle_analysis_cancelled(self, result_box: RichLog) -> None:
+        if not self.is_running:
+            return
+        if self._restore_previous_result(
+            result_box,
+            "分析已取消，已保留上次成功結果",
+        ):
+            return
+        self._set_result(result_box, build_error_view("分析已取消", "目前分析已停止。"))
+        self._set_result_status("cancelled")
 
     def _save_recent_analysis_state(self, request: AnalysisRequest, display_mode: str) -> None:
         recent_state = load_recent_tui_state() or {}
@@ -816,12 +868,18 @@ class LogAnalyzerApp(App):
 
     async def _analyze_request(self, request: AnalysisRequest) -> AnalysisResult:
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, partial(analyze_logs, request))
+        control = getattr(self, "_analysis_control", None)
+        return await loop.run_in_executor(None, partial(analyze_logs, request, control=control))
 
     def _display_analysis_result(self, result_box: RichLog, result: AnalysisResult) -> None:
-        self._last_result = result
         if not self.is_running:
+            self._release_result(result, close_browser=False)
             return
+        self._restored_encoding_warning = None
+        previous_result = self._last_result
+        self._last_result = result
+        if previous_result is not None and previous_result is not result:
+            self._release_result(previous_result)
         self._set_result(
             result_box,
             build_dashboard_view(result, self._should_compact_dashboard(self.size.width, self.size.height)),
@@ -836,10 +894,28 @@ class LogAnalyzerApp(App):
                 await self.action_confirm_export()
             return
 
+        self._operation_in_progress = True
+        await self._run_analysis_lifecycle()
+
+    def action_schedule_analysis(self) -> None:
+        self._schedule_analysis_start()
+
+    def _schedule_analysis_start(self) -> None:
+        if getattr(self, "_operation_in_progress", False):
+            return
+        if self._focused_inside_export_settings():
+            if getattr(self.focused, "id", None) != "browse_output_path":
+                asyncio.create_task(self.action_confirm_export())
+            return
+
+        self._operation_in_progress = True
+        self._scheduled_analysis_task = asyncio.create_task(self._run_analysis_lifecycle())
+
+    async def _run_analysis_lifecycle(self) -> None:
+        self._restored_encoding_warning = None
         run_button = self.query_one("#run", Button)
         result_box = self.query_one("#result-box", RichLog)
         original_focused = self.focused
-        self._operation_in_progress = True
         confirmation_pending = False
 
         try:
@@ -1020,18 +1096,50 @@ class LogAnalyzerApp(App):
         run_button = self.query_one("#run", Button)
         self._set_export_settings_visible(False)
         self.query_one("#export-status", Static).update("")
-        self._release_last_result()
+        previous_result = self._last_result
+        if previous_result is not None:
+            self._dismiss_event_browser_for_result(previous_result)
 
         # 確認 Pattern 後才進入執行狀態並停用按鈕。
         self.set_focus(None)
         run_button.disabled = True
         self._set_result_status("running")
-        self._set_result(result_box, build_loading_view())
+        self._set_analysis_cancel_button(True)
+        if previous_result is None:
+            self._set_result(result_box, build_loading_view())
+        else:
+            self._set_result(
+                result_box,
+                build_dashboard_view(
+                    previous_result,
+                    self._should_compact_dashboard(self.size.width, self.size.height),
+                ),
+            )
+
+        loop = asyncio.get_running_loop()
+        operation_id = object()
+
+        def queue_progress(progress: AnalysisProgress) -> None:
+            try:
+                loop.call_soon_threadsafe(self._apply_analysis_progress, operation_id, progress)
+            except RuntimeError:
+                # The event loop may already be closed while a worker finishes its last callback.
+                return
+
+        control = AnalysisControl(progress_callback=queue_progress)
+        self._active_analysis_operation_id = operation_id
+        self._analysis_control = control
+        self._set_analysis_progress(AnalysisProgress("starting", None, 0, 0, 0))
 
         try:
             self._save_recent_analysis_state(request, display_mode)
             result = await self._analyze_request(request)
+            control.raise_if_cancelled()
             self._display_analysis_result(result_box, result)
+        except AnalysisCancelled:
+            if "result" in locals() and result is not self._last_result:
+                self._release_result(result, close_browser=False)
+            self._handle_analysis_cancelled(result_box)
         except (NoMatchingLogsError, PermissionError, FileNotFoundError, ValueError) as exc:
             self._handle_analysis_error(result_box, exc)
         except Exception as exc:  # noqa: BLE001
@@ -1043,7 +1151,11 @@ class LogAnalyzerApp(App):
         run_button: Button | None,
     ) -> None:
         self._operation_in_progress = False
+        if getattr(self, "_active_analysis_operation_id", None) is not None:
+            self._active_analysis_operation_id = None
+            self._analysis_control = None
         if self.is_running:
+            self._set_analysis_cancel_button(False)
             if run_button is not None:
                 run_button.disabled = False
             if (
@@ -1246,6 +1358,7 @@ class LogAnalyzerApp(App):
         if self._last_result is None and self._result_state != "no_results":
             return
         result_box = self.query_one("#result-box", RichLog)
+        self._restored_encoding_warning = None
         self._release_last_result()
         self._set_export_settings_visible(False)
         self.query_one("#export-status", Static).update("")
@@ -1264,6 +1377,25 @@ class LogAnalyzerApp(App):
         if result is None:
             return
 
+        self._release_result(result, close_browser=close_browser)
+
+    def _release_result(self, result: AnalysisResult, close_browser: bool = True) -> None:
+        self._dismiss_event_browser_for_result(result, close_browser=close_browser)
+        matched_logs = getattr(result, "matched_logs", None)
+        release = getattr(matched_logs, "release", None)
+        if callable(release):
+            try:
+                release()
+            except Exception:
+                logger.exception("釋放分析結果暫存資料失敗")
+
+
+    def _dismiss_event_browser_for_result(
+        self,
+        result: AnalysisResult,
+        *,
+        close_browser: bool = True,
+    ) -> None:
         try:
             active_screen = self.screen
         except Exception:  # noqa: BLE001 - app may be shutting down without an active screen
@@ -1273,13 +1405,84 @@ class LogAnalyzerApp(App):
             if close_browser and active_screen.is_mounted:
                 active_screen.dismiss()
 
-        matched_logs = getattr(result, "matched_logs", None)
-        release = getattr(matched_logs, "release", None)
-        if callable(release):
-            try:
-                release()
-            except Exception:
-                logger.exception("釋放分析結果暫存資料失敗")
+    def _restore_previous_result(
+        self,
+        result_box: RichLog,
+        notice: str,
+        detail: str | None = None,
+        *,
+        encoding_warning: str | None = None,
+    ) -> bool:
+        previous_result = self._last_result
+        if previous_result is None or not self.is_running:
+            return False
+
+        self._restored_encoding_warning = encoding_warning
+        self._set_result(
+            result_box,
+            self._build_dashboard_with_restore_warning(
+                previous_result,
+                self._should_compact_dashboard(self.size.width, self.size.height),
+            ),
+        )
+        self._set_result_status("complete", previous_result)
+        status_text = notice if not detail else f"{notice}：{detail}"
+        self.query_one("#result-status", Static).update(Text(status_text))
+        return True
+
+    def _set_analysis_cancel_button(self, visible: bool) -> None:
+        if not self.is_running:
+            return
+        button = self.query_one("#cancel-analysis", Button)
+        button.display = visible
+        button.disabled = not visible
+        button.label = "取消分析"
+
+    def action_cancel_analysis(self) -> None:
+        control = getattr(self, "_analysis_control", None)
+        if control is None or not getattr(self, "_operation_in_progress", False):
+            return
+        if control.is_cancelled:
+            return
+        control.cancel()
+        if self.is_running:
+            button = self.query_one("#cancel-analysis", Button)
+            button.disabled = True
+            button.label = "取消中…"
+            self.query_one("#result-status", Static).update("狀態：取消中，等待目前工作停止")
+
+    def _apply_analysis_progress(
+        self,
+        operation_id: object,
+        progress: AnalysisProgress,
+    ) -> None:
+        control = getattr(self, "_analysis_control", None)
+        if (
+            not self.is_running
+            or not getattr(self, "_operation_in_progress", False)
+            or getattr(self, "_active_analysis_operation_id", None) is not operation_id
+            or (control is not None and control.is_cancelled)
+        ):
+            return
+        self._set_analysis_progress(progress)
+
+    def _set_analysis_progress(self, progress: AnalysisProgress) -> None:
+        phase_names = {
+            "starting": "準備",
+            "scanning": "掃描",
+            "grouping": "整理",
+            "sorting": "排序",
+            "persisting": "儲存",
+            "summarizing": "摘要",
+        }
+        phase_name = phase_names.get(progress.phase, progress.phase)
+        parts = [f"狀態：分析中｜{phase_name}"]
+        if progress.filename:
+            parts.append(progress.filename)
+        if progress.files_total:
+            parts.append(f"檔案 {progress.files_completed}/{progress.files_total}")
+        parts.append(f"{progress.lines_processed:,} 行")
+        self.query_one("#result-status", Static).update(Text("｜".join(parts)))
 
     def action_clear_keyword(self) -> None:
         keyword_input = self.query_one("#keyword", Input)
@@ -1783,6 +1986,7 @@ class LogAnalyzerApp(App):
             "idle": "狀態：尚未分析",
             "running": "狀態：分析中",
             "failed": "狀態：失敗",
+            "cancelled": "狀態：已取消",
         }
         status.update(messages[state])
         clear_button.disabled = True

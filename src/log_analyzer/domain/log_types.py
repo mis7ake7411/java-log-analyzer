@@ -12,6 +12,8 @@ class ScanDiagnostics:
     after_time: int = 0
     after_level: int = 0
     after_keyword: int = 0
+    encoding_error_files: int = 0
+    encoding_error_lines: int = 0
 
 
 class LogEntry(TypedDict, total=False):

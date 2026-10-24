@@ -27,6 +27,51 @@ def _select_export_fields(app, selected: tuple[str, ...]) -> None:
         app.query_one(f"#export_field_{field}").value = field in selected
 
 
+async def _wait_for_scheduled_analysis(app) -> None:
+    operation = getattr(app, "_scheduled_analysis_task", None)
+    assert operation is not None
+    await asyncio.wait_for(operation, timeout=5)
+
+
+async def _wait_for_export_confirmation_layout(app, pilot) -> None:
+    confirm = app.query_one("#confirm-export")
+    form_panel = app.query_one("#form-panel")
+    previous_layout = None
+    hit_widget = None
+    for _ in range(5):
+        await pilot.pause()
+        region = confirm.region
+        layout = (region, form_panel.scroll_offset)
+        hit_widget, _ = app.screen.get_widget_at(region.x + 1, region.y + 1)
+        if layout == previous_layout and hit_widget is confirm:
+            return
+        previous_layout = layout
+    raise AssertionError(
+        "Confirmation button layout did not stabilize at a clickable position: "
+        f"region={confirm.region}, form_scroll={form_panel.scroll_offset}, "
+        f"hit_widget={type(hit_widget).__name__}#{hit_widget.id}"
+    )
+
+
+async def _submit_empty_export_selection(app, pilot) -> str:
+    settings = app.query_one("#export-settings")
+    confirm = app.query_one("#confirm-export")
+    assert settings.display is True
+    assert confirm.display is True
+    assert confirm.region.width > 0
+    assert confirm.region.height > 0
+    assert confirm.disabled is False
+    _select_export_fields(app, ())
+    await _wait_for_export_confirmation_layout(app, pilot)
+    assert confirm.region.y >= 0
+    assert confirm.region.y + confirm.region.height <= app.size.height
+    confirm_click_reached_button = await pilot.click("#confirm-export", offset=(1, 1))
+    assert confirm_click_reached_button is True
+    await pilot.pause()
+    assert app._operation_in_progress is False
+    return app.query_one("#export-status").render().plain
+
+
 def test_analysis_succeeds_with_missing_export_directory_without_creating_report(tmp_path, monkeypatch):
     logs, _ = _write_log(tmp_path, "captured before export")
     missing_export_dir = tmp_path / "not-created-until-export"
@@ -42,6 +87,7 @@ def test_analysis_succeeds_with_missing_export_directory_without_creating_report
 
             await pilot.click("#run")
             await pilot.pause()
+            await _wait_for_scheduled_analysis(app)
 
             result = app._last_result
             assert result is not None
@@ -72,6 +118,7 @@ def test_enter_from_export_controls_exports_retained_analysis_after_source_chang
 
             await pilot.click("#run")
             await pilot.pause()
+            await _wait_for_scheduled_analysis(app)
             result = app._last_result
             assert result is not None
             assert result.exported_files == []
@@ -132,6 +179,7 @@ def test_default_export_keeps_legacy_all_fields_report_layout(tmp_path, monkeypa
 
             await pilot.click("#run")
             await pilot.pause()
+            await _wait_for_scheduled_analysis(app)
             await pilot.click("#export-result")
             await pilot.pause()
             await pilot.click("#confirm-export")
@@ -175,19 +223,17 @@ def test_export_validation_failure_keeps_result_for_retry(tmp_path, monkeypatch)
             app.query_one("#path").value = str(logs)
             await pilot.click("#run")
             await pilot.pause()
+            await _wait_for_scheduled_analysis(app)
 
             result = app._last_result
             assert result is not None
+            assert app._operation_in_progress is False
             store = result.matched_logs
             assert len(store) == 1
 
             await pilot.click("#export-result")
             await pilot.pause()
-            _select_export_fields(app, ())
-            await pilot.click("#confirm-export")
-            await pilot.pause()
-
-            empty_field_status = app.query_one("#export-status").render().plain
+            empty_field_status = await _submit_empty_export_selection(app, pilot)
             assert "欄位" in empty_field_status
             _assert_result_store_retained(app, result, store)
 

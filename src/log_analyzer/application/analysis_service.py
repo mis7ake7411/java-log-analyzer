@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .dashboard_summary import DashboardAnalysis, aggregate_dashboard_summary
+from ..domain.analysis_control import AnalysisControl
 from ..domain.log_types import MatchedLogs, ScanDiagnostics, SourceSnapshot
 from ..domain.log_sources import select_log_source
 from ..domain.parser import ParseOptions, parse_log_directory
@@ -186,8 +187,14 @@ def run_analysis_with_options(options: AnalysisOptions) -> AnalysisResult:
     return result
 
 
-def analyze_logs(request: AnalysisRequest) -> AnalysisResult:
+def analyze_logs(
+    request: AnalysisRequest,
+    *,
+    control: AnalysisControl | None = None,
+) -> AnalysisResult:
     """掃描來源日誌並保留可供後續匯出的分析結果。"""
+    if control is not None:
+        control.raise_if_cancelled()
     source = select_log_source(request.path, selected_files=request.selected_files)
     normalized_levels = None if request.levels is None else tuple(request.levels)
     normalized_request = AnalysisRequest(
@@ -201,28 +208,37 @@ def analyze_logs(request: AnalysisRequest) -> AnalysisResult:
         levels=normalized_levels,
         selected_files=source.filenames,
     )
-    counts, matched_logs = parse_log_directory(
-        source.root,
-        ParseOptions(
-            start_time=normalized_request.start_dt,
-            end_time=normalized_request.end_dt,
-            keyword=normalized_request.keyword,
-            ignore_case=normalized_request.ignore_case,
-            log_pattern=normalized_request.log_pattern,
-            sort_by=normalized_request.sort_by,
-            levels=normalized_request.levels,
-            selected_files=source.filenames,
-        ),
+    parse_options = ParseOptions(
+        start_time=normalized_request.start_dt,
+        end_time=normalized_request.end_dt,
+        keyword=normalized_request.keyword,
+        ignore_case=normalized_request.ignore_case,
+        log_pattern=normalized_request.log_pattern,
+        sort_by=normalized_request.sort_by,
+        levels=normalized_request.levels,
+        selected_files=source.filenames,
     )
+    if control is None:
+        counts, matched_logs = parse_log_directory(source.root, parse_options)
+    else:
+        counts, matched_logs = parse_log_directory(source.root, parse_options, control=control)
     diagnostics = getattr(matched_logs, "diagnostics", ScanDiagnostics())
 
     try:
+        if control is not None:
+            control.raise_if_cancelled()
         if not counts and not matched_logs:
             raise NoMatchingLogsError(diagnostics)
 
         source_states: dict[str, SourceSnapshot] = dict(getattr(matched_logs, "source_states", {}))
-        dashboard_summary, matched_occurrences = aggregate_dashboard_summary(matched_logs)
-        return AnalysisResult(
+        if control is None:
+            dashboard_summary, matched_occurrences = aggregate_dashboard_summary(matched_logs)
+        else:
+            dashboard_summary, matched_occurrences = aggregate_dashboard_summary(
+                matched_logs,
+                control=control,
+            )
+        result = AnalysisResult(
             input_path=source.root,
             output_path="",
             format_name="未匯出",
@@ -242,6 +258,9 @@ def analyze_logs(request: AnalysisRequest) -> AnalysisResult:
             diagnostics=diagnostics,
             analysis_request=normalized_request,
         )
+        if control is not None:
+            control.raise_if_cancelled()
+        return result
     except Exception:
         _release_matched_logs(matched_logs)
         raise

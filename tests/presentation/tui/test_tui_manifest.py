@@ -207,9 +207,9 @@ def test_bundle_failure_is_atomic_and_retry_uses_same_result(tmp_path, monkeypat
     analysis_calls = []
     bundle_calls = []
 
-    def capture_analysis(request):
+    def capture_analysis(request, *, control=None):
         analysis_calls.append(request)
-        return real_analyze(request)
+        return real_analyze(request, control=control)
 
     def fail_once(result, options):
         bundle_calls.append((result, options))

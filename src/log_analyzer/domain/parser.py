@@ -5,16 +5,23 @@ import os
 import pickle
 import re
 import tempfile
+from array import array
 from collections import Counter
-from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from typing import cast
 
+from .analysis_control import AnalysisControl
 from .logback_pattern import DEFAULT_LOGBACK_REGEX, compile_logback_pattern
 from .log_sources import select_log_source
+from .matched_logs_store import MatchedLogsStore
 from .parser_aggregation import commit_entry, normalize_keyword, sort_key
 from .log_types import LogEntry, MatchedLogs, ScanDiagnostics, SourceSnapshot
+from .text_decoding import (
+    SOURCE_TEXT_ENCODING,
+    SOURCE_TEXT_ERRORS,
+    SOURCE_TEXT_NEWLINE,
+    normalize_decoded_line,
+)
 from .timezone import to_local_timezone
 
 _STACKTRACE_HEADER_RE = re.compile(r"^[A-Za-z_][\w.$]*(?:Exception|Error)(?::|\s|$)")
@@ -33,92 +40,6 @@ class ParseOptions:
     sort_by: str = "time"
     levels: tuple[str, ...] | None = None
     selected_files: tuple[str, ...] | None = None
-
-
-@dataclass(slots=True)
-class MatchedLogsStore:
-    path: str
-    length: int
-    _index_cache: dict[int, LogEntry] | None = None
-    source_states: dict[str, SourceSnapshot] = field(default_factory=dict)
-    diagnostics: ScanDiagnostics = field(default_factory=ScanDiagnostics)
-
-    def __iter__(self) -> Iterator[LogEntry]:
-        with open(self.path, "rb") as file_handle:
-            while True:
-                try:
-                    log = cast(LogEntry, pickle.load(file_handle))
-                except EOFError:
-                    break
-                yield log
-
-    def iter_page(self, start: int, size: int) -> Iterator[LogEntry]:
-        if size <= 0:
-            return
-
-        start = max(0, start)
-        if start >= self.length:
-            return
-
-        end = min(start + size, self.length)
-        with open(self.path, "rb") as file_handle:
-            for index in range(end):
-                try:
-                    log = cast(LogEntry, pickle.load(file_handle))
-                except EOFError:
-                    break
-                if index >= start:
-                    yield log
-
-    def __len__(self) -> int:
-        return self.length
-
-    def __getitem__(self, index: int) -> LogEntry:
-        if index < 0:
-            index += self.length
-        if index < 0 or index >= self.length:
-            raise IndexError(index)
-
-        cache = self._index_cache or {}
-        if index in cache:
-            return cache[index]
-
-        with open(self.path, "rb") as file_handle:
-            current_index = 0
-            while True:
-                try:
-                    log = cast(LogEntry, pickle.load(file_handle))
-                except EOFError:
-                    break
-                if current_index == index:
-                    self._remember(current_index, log)
-                    return log
-                current_index += 1
-        raise IndexError(index)
-
-    def __bool__(self):
-        return self.length > 0
-
-    def __eq__(self, other):
-        if isinstance(other, list):
-            return list(self) == other
-        return NotImplemented
-
-    def __del__(self):
-        self.release()
-
-    def release(self):
-        try:
-            if self.path and os.path.exists(self.path):
-                os.unlink(self.path)
-        except OSError:
-            pass
-        self._index_cache = {}
-
-    def _remember(self, index: int, log: LogEntry) -> None:
-        if self._index_cache is None:
-            self._index_cache = {}
-        self._index_cache[index] = log
 
 
 def parse_logs(  # noqa: PLR0913 - public legacy API retained for backward compatibility
@@ -151,7 +72,14 @@ def parse_logs(  # noqa: PLR0913 - public legacy API retained for backward compa
     )
 
 
-def parse_log_directory(directory: str, options: ParseOptions) -> tuple[Counter[str], MatchedLogs]:
+def parse_log_directory(
+    directory: str,
+    options: ParseOptions,
+    *,
+    control: AnalysisControl | None = None,
+) -> tuple[Counter[str], MatchedLogs]:
+    if control is not None:
+        control.raise_if_cancelled()
     counts = Counter()
     diagnostics = ScanDiagnostics()
     grouped_logs, _spilled_to_disk, source_states = _collect_grouped_logs(
@@ -159,13 +87,14 @@ def parse_log_directory(directory: str, options: ParseOptions) -> tuple[Counter[
         options,
         counts,
         diagnostics,
+        control=control,
     )
-    sorted_logs = iter_sorted_logs(grouped_logs, options.sort_by)
+    sorted_logs = iter_sorted_logs(grouped_logs, options.sort_by, control=control)
 
-    return counts, _persist_matched_logs(sorted_logs, source_states, diagnostics)
+    return counts, _persist_matched_logs(sorted_logs, source_states, diagnostics, control=control)
 
 
-def _collect_grouped_logs(directory, options, counts, diagnostics=None):
+def _collect_grouped_logs(directory, options, counts, diagnostics=None, *, control=None):
     search_keyword = normalize_keyword(options.keyword, options.ignore_case)
     selected_levels = _normalize_levels(options.levels)
     grouped_logs = {}
@@ -174,6 +103,7 @@ def _collect_grouped_logs(directory, options, counts, diagnostics=None):
 
     with tempfile.TemporaryDirectory() as temp_dir:
         shard_paths = _build_group_shard_paths(temp_dir)
+        _report_phase(control, "grouping")
 
         for entry in iter_logs(
             directory,
@@ -183,7 +113,9 @@ def _collect_grouped_logs(directory, options, counts, diagnostics=None):
             source_states,
             diagnostics=diagnostics,
             selected_files=options.selected_files,
+            control=control,
         ):
+            _raise_if_cancelled(control)
             if selected_levels is not None and entry["level"].upper() not in selected_levels:
                 continue
             if diagnostics is not None:
@@ -192,16 +124,17 @@ def _collect_grouped_logs(directory, options, counts, diagnostics=None):
                 if diagnostics is not None:
                     diagnostics.after_keyword += 1
             if len(grouped_logs) >= MAX_GROUPS_IN_MEMORY:
-                _spill_grouped_logs(grouped_logs, shard_paths)
+                _spill_grouped_logs(grouped_logs, shard_paths, control=control)
                 grouped_logs.clear()
                 spilled_to_disk = True
 
         if spilled_to_disk:
-            _spill_grouped_logs(grouped_logs, shard_paths)
-            grouped_logs = _load_grouped_logs_from_shards(shard_paths)
+            _spill_grouped_logs(grouped_logs, shard_paths, control=control)
+            grouped_logs = _load_grouped_logs_from_shards(shard_paths, control=control)
         else:
             grouped_logs = grouped_logs.values()
 
+        _raise_if_cancelled(control)
     return grouped_logs, spilled_to_disk, source_states
 
 
@@ -220,6 +153,7 @@ def iter_logs(  # noqa: PLR0913 - preserve the existing positional API
     *,
     diagnostics: ScanDiagnostics | None = None,
     selected_files: tuple[str, ...] | None = None,
+    control: AnalysisControl | None = None,
 ):
     """逐筆產生已解析、已套用時間區間過濾的日誌 entry"""
     if start_time is not None:
@@ -235,13 +169,60 @@ def iter_logs(  # noqa: PLR0913 - preserve the existing positional API
         raise FileNotFoundError(f"找不到目錄: {directory}")
 
     source = select_log_source(directory, selected_files=selected_files)
-    for filename in source.filenames:
+    files_total = len(source.filenames)
+    lines_processed = 0
+    if control is not None and files_total == 0:
+        control.report_progress("scanning", files_completed=0, files_total=0, force=True)
+
+    for file_index, filename in enumerate(source.filenames):
+        _raise_if_cancelled(control)
         filepath = os.path.join(source.root, filename)
         before = os.stat(filepath)
         if diagnostics is not None:
             diagnostics.files_scanned += 1
         accumulator = _EntryAccumulator(filename, start_time, end_time, diagnostics=diagnostics)
-        yield from _iter_entries_from_file(filepath, entry_pattern, accumulator)
+        if control is not None:
+            control.report_progress(
+                "scanning",
+                filename=filename,
+                files_completed=file_index,
+                files_total=files_total,
+                lines_processed=lines_processed,
+                force=True,
+            )
+
+        def on_line() -> None:
+            nonlocal lines_processed
+            lines_processed += 1
+            if control is not None:
+                control.raise_if_cancelled()
+                control.report_progress(
+                    "scanning",
+                    filename=filename,
+                    files_completed=file_index,
+                    files_total=files_total,
+                    lines_processed=lines_processed,
+                )
+
+        file_has_encoding_error = False
+
+        def on_encoding_error() -> None:
+            nonlocal file_has_encoding_error
+            if diagnostics is None:
+                return
+            diagnostics.encoding_error_lines += 1
+            if not file_has_encoding_error:
+                file_has_encoding_error = True
+                diagnostics.encoding_error_files += 1
+
+        yield from _iter_entries_from_file(
+            filepath,
+            entry_pattern,
+            accumulator,
+            on_line=on_line if control is not None else None,
+            on_encoding_error=on_encoding_error if diagnostics is not None else None,
+        )
+        _raise_if_cancelled(control)
         after = os.stat(filepath)
         source_states[filename] = {
             "size": after.st_size,
@@ -251,41 +232,70 @@ def iter_logs(  # noqa: PLR0913 - preserve the existing positional API
                 and before.st_mtime_ns == after.st_mtime_ns
             ),
         }
+        if control is not None:
+            control.report_progress(
+                "scanning",
+                filename=filename,
+                files_completed=file_index + 1,
+                files_total=files_total,
+                lines_processed=lines_processed,
+                force=True,
+            )
 
 
-def iter_sorted_logs(entries, sort_by="time", max_in_memory_groups=MAX_SORT_GROUPS_IN_MEMORY):
+def iter_sorted_logs(
+    entries,
+    sort_by="time",
+    max_in_memory_groups=MAX_SORT_GROUPS_IN_MEMORY,
+    *,
+    control: AnalysisControl | None = None,
+):
     """將已分組的 entries 依指定排序輸出，必要時改用外部合併排序"""
-    entries = list(entries)
+    if control is not None:
+        _report_phase(control, "sorting")
+    collected_entries = []
+    for entry in entries:
+        _raise_if_cancelled(control)
+        collected_entries.append(entry)
+    entries = collected_entries
+    _raise_if_cancelled(control)
     if len(entries) <= max_in_memory_groups:
-        yield from sorted(entries, key=lambda entry: sort_key(entry, sort_by))
+        # Python's built-in sort is a single non-interruptible operation.
+        sorted_entries = sorted(entries, key=lambda entry: sort_key(entry, sort_by))
+        _raise_if_cancelled(control)
+        yield from sorted_entries
         return
 
-    yield from _iter_sorted_logs_external(entries, sort_by, max_in_memory_groups)
+    yield from _iter_sorted_logs_external(entries, sort_by, max_in_memory_groups, control=control)
 
 
 def _build_group_shard_paths(temp_dir):
     return [os.path.join(temp_dir, f"group_shard_{index:03d}.pkl") for index in range(MAX_GROUP_SHARDS)]
 
 
-def _spill_grouped_logs(grouped_logs, shard_paths):
+def _spill_grouped_logs(grouped_logs, shard_paths, *, control=None):
     if not grouped_logs:
         return
 
     shard_entries = {}
     for log in grouped_logs.values():
+        _raise_if_cancelled(control)
         shard_index = _group_shard_index(log, len(shard_paths))
         shard_entries.setdefault(shard_index, []).append(log)
 
     for shard_index, entries in shard_entries.items():
+        _raise_if_cancelled(control)
         with open(shard_paths[shard_index], "ab") as file_handle:
             for entry in entries:
+                _raise_if_cancelled(control)
                 pickle.dump(entry, file_handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def _load_grouped_logs_from_shards(shard_paths):
+def _load_grouped_logs_from_shards(shard_paths, *, control=None):
     grouped_logs = {}
 
     for path in shard_paths:
+        _raise_if_cancelled(control)
         if not os.path.exists(path):
             continue
 
@@ -296,6 +306,7 @@ def _load_grouped_logs_from_shards(shard_paths):
                 except EOFError:
                     break
                 _merge_grouped_log(grouped_logs, entry)
+                _raise_if_cancelled(control)
 
     return grouped_logs.values()
 
@@ -327,35 +338,62 @@ def _group_log_key(entry):
     )
 
 
-def _persist_matched_logs(logs, source_states, diagnostics=None):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pkl") as file_handle:
-        length = 0
-        for log in logs:
-            pickle.dump(log, file_handle, protocol=pickle.HIGHEST_PROTOCOL)
-            length += 1
-        path = file_handle.name
+def _persist_matched_logs(logs, source_states, diagnostics=None, *, control=None):
+    path = None
+    try:
+        iterator = iter(logs)
+        sentinel = object()
+        first_log = next(iterator, sentinel)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pkl") as file_handle:
+            path = file_handle.name
+            length = 0
+            offsets = array("Q")
+            _report_phase(control, "persisting", force=True)
+            _raise_if_cancelled(control)
+            if first_log is not sentinel:
+                _raise_if_cancelled(control)
+                offsets.append(file_handle.tell())
+                pickle.dump(first_log, file_handle, protocol=pickle.HIGHEST_PROTOCOL)
+                length += 1
+            for log in iterator:
+                _raise_if_cancelled(control)
+                offsets.append(file_handle.tell())
+                pickle.dump(log, file_handle, protocol=pickle.HIGHEST_PROTOCOL)
+                length += 1
 
-    return MatchedLogsStore(
-        path=path,
-        length=length,
-        source_states=source_states,
-        diagnostics=diagnostics if diagnostics is not None else ScanDiagnostics(),
-    )
+        return MatchedLogsStore(
+            path=path,
+            length=length,
+            source_states=source_states,
+            diagnostics=diagnostics if diagnostics is not None else ScanDiagnostics(),
+            _offsets=offsets,
+        )
+    except BaseException:
+        if path is not None:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+        raise
 
 
-def _iter_sorted_logs_external(entries, sort_by, chunk_size):
+def _iter_sorted_logs_external(entries, sort_by, chunk_size, *, control=None):
     """把大量 entries 切成排序區塊後，透過暫存檔合併輸出"""
     with tempfile.TemporaryDirectory() as temp_dir:
         chunk_paths = []
         for index in range(0, len(entries), chunk_size):
+            _raise_if_cancelled(control)
             chunk = sorted(entries[index:index + chunk_size], key=lambda entry: sort_key(entry, sort_by))
+            _raise_if_cancelled(control)
             chunk_path = os.path.join(temp_dir, f"sorted_chunk_{len(chunk_paths):05d}.pkl")
             with open(chunk_path, "wb") as file_handle:
                 pickle.dump(chunk, file_handle, protocol=pickle.HIGHEST_PROTOCOL)
             chunk_paths.append(chunk_path)
 
         iterators = [_load_sorted_chunk(path) for path in chunk_paths]
-        yield from heapq.merge(*iterators, key=lambda entry: sort_key(entry, sort_by))
+        for entry in heapq.merge(*iterators, key=lambda entry: sort_key(entry, sort_by)):
+            _raise_if_cancelled(control)
+            yield entry
 
 
 def _load_sorted_chunk(path):
@@ -369,11 +407,25 @@ def _iter_entries_from_file(
     filepath,
     entry_pattern,
     accumulator: _EntryAccumulator,
+    *,
+    on_line=None,
+    on_encoding_error=None,
 ):
     """逐行讀取檔案，產生已完成的 log entry"""
 
-    with open(filepath, "r", encoding="utf-8", errors="ignore") as file_handle:
+    with open(
+        filepath,
+        "r",
+        encoding=SOURCE_TEXT_ENCODING,
+        errors=SOURCE_TEXT_ERRORS,
+        newline=SOURCE_TEXT_NEWLINE,
+    ) as file_handle:
         for line_num, line in enumerate(file_handle, 1):
+            if on_line is not None:
+                on_line()
+            line, has_encoding_error = normalize_decoded_line(line)
+            if has_encoding_error and on_encoding_error is not None:
+                on_encoding_error()
             match = entry_pattern.match(line)
 
             if match:
@@ -387,6 +439,16 @@ def _iter_entries_from_file(
         completed_entry = accumulator.finish()
         if completed_entry:
             yield completed_entry
+
+
+def _raise_if_cancelled(control) -> None:
+    if control is not None:
+        control.raise_if_cancelled()
+
+
+def _report_phase(control, phase: str, *, force: bool = True) -> None:
+    if control is not None:
+        control.report_progress(phase, force=force)
 
 
 @dataclass(slots=True)

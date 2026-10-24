@@ -3,6 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from log_analyzer.application.analysis_service import NoMatchingLogsError
+from log_analyzer.domain.log_types import ScanDiagnostics
 from log_analyzer.presentation.cli import entrypoint as cli
 
 
@@ -12,6 +14,30 @@ def _analysis_result():
         exported_files=["/tmp/report.csv"],
         counts={"ERROR": 2, "INFO": 0},
     )
+
+
+def test_cli_success_warns_when_invalid_utf8_was_replaced(capsys):
+    result = _analysis_result()
+    result.diagnostics = ScanDiagnostics(2, 4, 4, 4, 4, 1, 3)
+    args = SimpleNamespace(format="csv", max_export_mb=None, split_by_level=False)
+
+    cli._print_analysis_result(result, args)
+
+    output = capsys.readouterr().out
+    assert "UTF-8" in output
+    assert "�" in output
+    assert "3" in output
+
+
+def test_cli_zero_result_warns_when_invalid_utf8_was_replaced(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        cli._handle_cli_error(NoMatchingLogsError(ScanDiagnostics(1, 0, 0, 0, 0, 1, 2)))
+
+    assert exc_info.value.code == 1
+    output = capsys.readouterr().out
+    assert "UTF-8" in output
+    assert "�" in output
+    assert "2" in output
 
 
 def test_main_logs_unexpected_error_and_keeps_friendly_message(

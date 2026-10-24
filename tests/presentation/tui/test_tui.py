@@ -40,6 +40,14 @@ from log_analyzer.presentation.tui.views import analyze_dashboard
 from log_analyzer.version import get_package_version
 
 
+class _FakeSourceScopePreview:
+    def show_source(self, _source: object) -> None:
+        pass
+
+    def show_invalid(self, _message: str) -> None:
+        pass
+
+
 def test_tui_loads_structured_responsive_stylesheets():
     css_paths = [Path(path).name for path in LogAnalyzerApp.CSS_PATH]
 
@@ -57,11 +65,10 @@ def test_tui_loads_structured_responsive_stylesheets():
 def test_handle_unexpected_error_logs_and_displays_error(caplog):
     status_states = []
     app = SimpleNamespace(
-        _last_result=object(),
+        _last_result=None,
         _set_result_status=status_states.append,
         is_running=True,
     )
-    app._release_last_result = lambda: LogAnalyzerApp._release_last_result(app)
     result_box = object()
     displayed = {}
     app._set_result = lambda box, view: displayed.update(box=box, view=view)
@@ -958,9 +965,9 @@ def test_pasted_logback_xml_path_loads_pattern_before_analysis(
     analyzed_requests = []
     original_analyze_logs = tui_module.analyze_logs
 
-    def capture_request(request):
+    def capture_request(request, *, control=None):
         analyzed_requests.append(request)
-        return original_analyze_logs(request)
+        return original_analyze_logs(request, control=control)
 
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
@@ -1020,9 +1027,9 @@ def test_analysis_preserves_nonempty_manual_logback_pattern(monkeypatch, tmp_pat
     analyzed_requests = []
     original_analyze_logs = tui_module.analyze_logs
 
-    def capture_request(request):
+    def capture_request(request, *, control=None):
         analyzed_requests.append(request)
-        return original_analyze_logs(request)
+        return original_analyze_logs(request, control=control)
 
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
@@ -1062,9 +1069,9 @@ def test_manual_pattern_override_ignores_invalid_xml_and_uses_manual_pattern(mon
     analyzed_requests = []
     original_analyze_logs = tui_module.analyze_logs
 
-    def capture_request(request):
+    def capture_request(request, *, control=None):
         analyzed_requests.append(request)
-        return original_analyze_logs(request)
+        return original_analyze_logs(request, control=control)
 
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
@@ -1144,7 +1151,11 @@ def test_empty_manual_pattern_fails_before_analysis(monkeypatch, tmp_path):
     analysis_calls = []
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
-    monkeypatch.setattr(tui_module, "analyze_logs", lambda request: analysis_calls.append(request))
+    monkeypatch.setattr(
+        tui_module,
+        "analyze_logs",
+        lambda request, *, control=None: analysis_calls.append(request),
+    )
 
     async def run_check() -> None:
         app = LogAnalyzerApp()
@@ -1173,9 +1184,9 @@ def test_manual_text_is_ignored_when_override_is_off(monkeypatch, tmp_path):
     analyzed_requests = []
     original_analyze_logs = tui_module.analyze_logs
 
-    def capture_request(request):
+    def capture_request(request, *, control=None):
         analyzed_requests.append(request)
-        return original_analyze_logs(request)
+        return original_analyze_logs(request, control=control)
 
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
@@ -1217,9 +1228,9 @@ def test_clearing_selected_xml_uses_default_on_next_analysis(monkeypatch, tmp_pa
     requests = []
     original_analyze_logs = tui_module.analyze_logs
 
-    def capture_request(request):
+    def capture_request(request, *, control=None):
         requests.append(request)
-        return original_analyze_logs(request)
+        return original_analyze_logs(request, control=control)
 
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
@@ -1269,9 +1280,9 @@ def test_pasted_logback_xml_replaces_previous_autofilled_pattern(monkeypatch, tm
     analyzed_requests = []
     original_analyze_logs = tui_module.analyze_logs
 
-    def capture_request(request):
+    def capture_request(request, *, control=None):
         analyzed_requests.append(request)
-        return original_analyze_logs(request)
+        return original_analyze_logs(request, control=control)
 
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
@@ -1320,9 +1331,9 @@ def test_default_recipe_guard_suppresses_directory_xml_discovery(monkeypatch, tm
     analyzed_requests = []
     original_analyze_logs = tui_module.analyze_logs
 
-    def capture_request(request):
+    def capture_request(request, *, control=None):
         analyzed_requests.append(request)
-        return original_analyze_logs(request)
+        return original_analyze_logs(request, control=control)
 
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
@@ -1376,9 +1387,9 @@ def test_analysis_reports_invalid_selected_logback_xml(monkeypatch, tmp_path, xm
     analyzed_requests = []
     original_analyze_logs = tui_module.analyze_logs
 
-    def capture_request(request):
+    def capture_request(request, *, control=None):
         analyzed_requests.append(request)
-        return original_analyze_logs(request)
+        return original_analyze_logs(request, control=control)
 
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
@@ -1825,9 +1836,7 @@ def test_apply_selected_directory_autofills_logback_settings(monkeypatch, tmp_pa
     mapping = {
         "#path": FakeInput(str(log_dir)),
         "#path-status": FakeStatic(),
-        "#source-scope-summary": FakeStatic(),
-        "#source-scope-filenames": FakeStatic(),
-        "#source-scope-list": SimpleNamespace(display=False, can_focus=False, max_scroll_y=0),
+        "#source-scope-preview": _FakeSourceScopePreview(),
         "#logback_xml_path": FakeInput(),
         "#log_pattern": FakeInput(),
         "#manual_pattern_override": SimpleNamespace(value=False),
@@ -1881,9 +1890,7 @@ def test_apply_selected_directory_does_not_override_manual_logback_values(monkey
     mapping = {
         "#path": FakeInput(str(log_dir)),
         "#path-status": FakeStatic(),
-        "#source-scope-summary": FakeStatic(),
-        "#source-scope-filenames": FakeStatic(),
-        "#source-scope-list": SimpleNamespace(display=False, can_focus=False, max_scroll_y=0),
+        "#source-scope-preview": _FakeSourceScopePreview(),
         "#logback_xml_path": FakeInput("/manual/logback.xml"),
         "#log_pattern": FakeInput("manual pattern"),
         "#manual_pattern_override": SimpleNamespace(value=False),
@@ -2133,7 +2140,7 @@ def test_result_replacement_clear_and_unmount_release_stores(tmp_path: Path, mon
     failed_result = _stored_result(failed_path, _event_group())
     analysis_calls = []
 
-    def fake_analyze_logs(request):
+    def fake_analyze_logs(request, *, control=None):
         analysis_calls.append((old_path.exists(), request))
         return new_result
 
@@ -2150,11 +2157,12 @@ def test_result_replacement_clear_and_unmount_release_stores(tmp_path: Path, mon
             await app.action_run_analysis()
 
             assert len(analysis_calls) == 1
-            assert analysis_calls[0][0] is False
+            assert analysis_calls[0][0] is True
             assert isinstance(analysis_calls[0][1], AnalysisRequest)
             assert analysis_calls[0][1].path == str(tmp_path)
             assert app._last_result is new_result
             assert new_path.exists()
+            assert not old_path.exists()
 
             browser = EventBrowserScreen(new_result)
             app.push_screen(browser)
@@ -2170,9 +2178,12 @@ def test_result_replacement_clear_and_unmount_release_stores(tmp_path: Path, mon
             monkeypatch.setattr(
                 tui_module,
                 "analyze_logs",
-                lambda _request: (_ for _ in ()).throw(PermissionError("denied")),
+                lambda _request, *, control=None: (_ for _ in ()).throw(PermissionError("denied")),
             )
             await app.action_run_analysis()
+            assert failed_path.exists()
+            assert app._last_result is failed_result
+            app.action_clear_result()
             assert not failed_path.exists()
             assert app._last_result is None
 

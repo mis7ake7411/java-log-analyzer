@@ -3,6 +3,13 @@ from __future__ import annotations
 import os
 import re
 import xml.etree.ElementTree as ET
+
+from .text_decoding import (
+    SOURCE_TEXT_ENCODING,
+    SOURCE_TEXT_ERRORS,
+    SOURCE_TEXT_NEWLINE,
+    normalize_decoded_line,
+)
 from dataclasses import dataclass
 from collections.abc import Iterable
 
@@ -251,8 +258,17 @@ def _encoder_candidate(root: ET.Element, element: ET.Element) -> LogbackPatternC
 
 
 def _iter_nonempty_lines(filepath: str) -> Iterable[str]:
-    with open(filepath, "r", encoding="utf-8", errors="ignore") as file:
-        yield from (line for line in file if line.strip())
+    with open(
+        filepath,
+        "r",
+        encoding=SOURCE_TEXT_ENCODING,
+        errors=SOURCE_TEXT_ERRORS,
+        newline=SOURCE_TEXT_NEWLINE,
+    ) as file:
+        for line in file:
+            normalized_line, _has_encoding_error = normalize_decoded_line(line)
+            if normalized_line.strip():
+                yield normalized_line
 
 
 def _append_unique(

@@ -85,45 +85,6 @@
     margin-left: 1;
 }
 
-#source-scope-preview {
-    width: 1fr;
-    height: auto;
-    min-height: 0;
-    min-width: 0;
-    margin-bottom: 0;
-}
-
-#source-scope-summary {
-    width: 1fr;
-    min-width: 0;
-    height: auto;
-    min-height: 1;
-    color: #94a3b8;
-    overflow-x: hidden;
-    text-wrap: wrap;
-}
-
-#source-scope-list {
-    width: 1fr;
-    min-width: 0;
-    height: auto;
-    min-height: 0;
-    max-height: 5;
-    display: none;
-    padding: 0;
-    overflow-x: hidden;
-    overflow-y: auto;
-}
-
-#source-scope-filenames {
-    width: 1fr;
-    min-width: 0;
-    height: auto;
-    color: #cbd5e1;
-    overflow-x: hidden;
-    text-wrap: wrap;
-}
-
 .path-row.compact-buttons Button {
     width: 8;
 }
@@ -136,9 +97,13 @@
 }
 
 #result-status {
-    height: 1;
+    height: auto;
+    min-height: 1;
+    max-height: 2;
     margin-bottom: 1;
     color: #94a3b8;
+    overflow-x: hidden;
+    text-wrap: wrap;
 }
 
 #result-box {

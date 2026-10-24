@@ -38,10 +38,11 @@ def test_tui_previews_supported_directory_and_single_file_before_analysis(tmp_pa
             await pilot.pause()
 
             summary = _static_text(app.query_one("#source-scope-summary", Static))
+            hint = _static_text(app.query_one("#source-scope-hint", Static))
             filenames = _static_text(app.query_one("#source-scope-filenames", Static))
             assert "資料夾" in summary
-            assert "不含子目錄" in summary
-            assert "3" in summary
+            assert "3 個檔案" in summary
+            assert "不包含子目錄" in hint
             assert filenames.splitlines() == ["audit.LOG", "capture.txt", "trace.out"]
             assert app._result_state == "idle"
 
@@ -53,6 +54,7 @@ def test_tui_previews_supported_directory_and_single_file_before_analysis(tmp_pa
             filenames = _static_text(app.query_one("#source-scope-filenames", Static))
             assert "單一檔案" in summary
             assert "1" in summary
+            assert _static_text(app.query_one("#source-scope-hint", Static)) == ""
             assert filenames.splitlines() == ["audit.LOG"]
             assert path_input.value == str(selected_file)
             assert app._result_state == "idle"

@@ -11,6 +11,7 @@ from log_analyzer.domain.parser import (
     parse_logs,
 )
 import log_analyzer.domain.parser as parser_module
+from log_analyzer.domain.log_types import ScanDiagnostics
 
 
 FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "logback"
@@ -250,6 +251,47 @@ def test_parse_log_directory_reports_zero_result_scan_diagnostics(tmp_path):
     assert matched_logs.diagnostics.after_time == 0
     assert matched_logs.diagnostics.after_level == 0
     assert matched_logs.diagnostics.after_keyword == 0
+
+
+def test_scan_diagnostics_appends_encoding_counts_without_reordering_existing_fields():
+    diagnostics = ScanDiagnostics(1, 2, 3, 4, 5, 6, 7)
+
+    assert (
+        diagnostics.files_scanned,
+        diagnostics.parsed_entries,
+        diagnostics.after_time,
+        diagnostics.after_level,
+        diagnostics.after_keyword,
+    ) == (1, 2, 3, 4, 5)
+    assert diagnostics.encoding_error_files == 6
+    assert diagnostics.encoding_error_lines == 7
+
+
+def test_parser_replaces_invalid_utf8_in_matched_unmatched_and_stack_lines(tmp_path):
+    log_dir = tmp_path / "lossy-utf8"
+    log_dir.mkdir()
+    source = log_dir / "mixed.log"
+    source.write_bytes(
+        b"\xef\xbb\xbf"
+        b"2026-06-06 10:00:00.000 [main] INFO  com.test - valid \xef\xbf\xbd bad \x80\n"
+        b"unmatched \x81\n"
+        b"java.lang.RuntimeException: failure \x82\n"
+        b"    at com.test.App.main \x83\n"
+    )
+
+    counts, matched_logs = parse_log_directory(str(log_dir), ParseOptions())
+    try:
+        assert counts == {"INFO": 1}
+        assert len(matched_logs) == 1
+        entry = matched_logs[0]
+        assert entry["message"] == "valid \ufffd bad \ufffd"
+        assert "unmatched \ufffd" in entry["message_body"]
+        assert "java.lang.RuntimeException: failure \ufffd" in entry["stacktrace"]
+        assert "at com.test.App.main \ufffd" in entry["stacktrace"]
+        assert matched_logs.diagnostics.encoding_error_files == 1
+        assert matched_logs.diagnostics.encoding_error_lines == 4
+    finally:
+        matched_logs.release()
 
 
 def test_parse_log_directory_counts_unparseable_log_files(tmp_path):

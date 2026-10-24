@@ -137,7 +137,7 @@ async def _exercise_zero_result_retry(tmp_path, monkeypatch, retry_filter: str) 
 def test_zero_result_view_shows_all_five_stage_counts():
     rendered = _render_zero_result(ScanDiagnostics(6, 5, 4, 3, 0))
 
-    assert "掃描 .log 檔案" in rendered
+    assert "掃描 Log 檔案" in rendered
     assert "符合 Pattern 的事件" in rendered
     assert "時間範圍後" in rendered
     assert "Level 後" in rendered
@@ -146,10 +146,18 @@ def test_zero_result_view_shows_all_five_stage_counts():
         assert str(count) in rendered
 
 
+def test_zero_result_view_warns_when_invalid_utf8_was_replaced():
+    rendered = _render_zero_result(ScanDiagnostics(1, 0, 0, 0, 0, 1, 2))
+
+    assert "UTF-8" in rendered
+    assert "�" in rendered
+    assert "2" in rendered
+
+
 @pytest.mark.parametrize(
     ("diagnostics", "expected_reason"),
     [
-        (ScanDiagnostics(), "找不到 .log 檔案"),
+        (ScanDiagnostics(), "找不到支援的 Log 檔案"),
         (ScanDiagnostics(2, 0, 0, 0, 0), "目前的 Logback Pattern"),
         (ScanDiagnostics(2, 2, 0, 0, 0), "時間解析或時間範圍"),
         (ScanDiagnostics(2, 2, 2, 0, 0), "Level 篩選排除了所有"),

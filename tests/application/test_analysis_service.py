@@ -49,6 +49,34 @@ def test_analysis_result_defaults_scan_diagnostics():
     assert result.analysis_request is None
 
 
+def test_export_preserves_replacement_for_invalid_utf8_source_bytes(tmp_path):
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / "app.log").write_bytes(
+        b"2026-06-07 12:00:00.000 [main] ERROR com.test - damaged \x80 text\n"
+    )
+    result = analyze_logs(AnalysisRequest(path=str(logs), levels=None))
+
+    try:
+        assert result.diagnostics.encoding_error_files == 1
+        assert result.diagnostics.encoding_error_lines == 1
+        assert result.matched_logs[0]["message"] == "damaged \ufffd text"
+
+        report_files = export_analysis_result(
+            result,
+            ResultExportOptions(
+                output_path=str(tmp_path / "replacement.csv"),
+                fields=("message",),
+            ),
+        )
+
+        exported = Path(report_files[0]).read_text(encoding="utf-8-sig")
+        assert "damaged \ufffd text" in exported
+        assert "\x80" not in exported
+    finally:
+        result.matched_logs.release()
+
+
 def test_analysis_options_pass_frozen_file_selection_to_analysis(tmp_path):
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()

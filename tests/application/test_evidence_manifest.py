@@ -60,6 +60,8 @@ def _analyzed_export(tmp_path):
 def test_manifest_captures_frozen_analysis_reports_and_source_hashes(tmp_path):
     export_evidence_manifest = _export_evidence_manifest()
     result, report_options, report_files, source, logs = _analyzed_export(tmp_path)
+    result.diagnostics.encoding_error_files = 1
+    result.diagnostics.encoding_error_lines = 2
 
     manifest_path = export_evidence_manifest(result, report_options, report_files)
     manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
@@ -88,6 +90,8 @@ def test_manifest_captures_frozen_analysis_reports_and_source_hashes(tmp_path):
         "after_time": 2,
         "after_level": 2,
         "after_keyword": 2,
+        "encoding_error_files": 1,
+        "encoding_error_lines": 2,
     }
     assert manifest["export"] == {
         "fields": ["level", "message"],

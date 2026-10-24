@@ -2,10 +2,23 @@ from pathlib import Path
 
 import pytest
 
-from log_analyzer.domain.logback_xml import find_best_logback_pattern, load_logback_patterns
+from log_analyzer.domain.logback_xml import (
+    _iter_nonempty_lines,
+    find_best_logback_pattern,
+    load_logback_patterns,
+)
 
 
 FIXTURE_DIR = Path(__file__).parent.parent / "fixtures" / "logback"
+
+
+def test_log_sample_reader_replaces_invalid_utf8_instead_of_dropping_bytes(tmp_path):
+    sample = tmp_path / "sample.log"
+    sample.write_bytes(b"valid \xef\xbf\xbd and invalid \x80\n")
+
+    assert list(_iter_nonempty_lines(str(sample))) == [
+        "valid \ufffd and invalid \ufffd\n"
+    ]
 
 
 def test_load_logback_patterns_extracts_property_and_encoder_patterns(tmp_path):

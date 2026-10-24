@@ -7,6 +7,7 @@ import pytest
 from rich.cells import cell_len
 from rich.console import Console
 
+from log_analyzer.domain.log_types import ScanDiagnostics
 from log_analyzer.presentation.tui.views import build_dashboard_view
 
 
@@ -38,6 +39,7 @@ def _result(
         ignore_case=False,
         level_summary=level_summary,
         matched_logs=(),
+        diagnostics=ScanDiagnostics(),
         dashboard_summary=SimpleNamespace(
             exception_summary=(),
             time_hotspots=(),
@@ -175,6 +177,20 @@ def test_dashboard_status_is_concise_and_contains_export_state() -> None:
     assert pending.index("未匯出") < pending.index("總 Log")
     assert "先看摘要" not in pending
     assert exported.index("已匯出 CSV") < exported.index("總 Log")
+
+
+def test_dashboard_warns_when_invalid_utf8_was_replaced() -> None:
+    result = _result()
+    result.diagnostics = ScanDiagnostics(2, 4, 4, 4, 4, 1, 3)
+    output = _render(
+        result,
+        width=100,
+        compact=True,
+    )
+
+    assert "UTF-8" in output
+    assert "�" in output
+    assert "3" in output
 
 
 def test_analysis_information_and_level_distribution_are_full_width_sections() -> None:

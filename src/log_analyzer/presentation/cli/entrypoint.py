@@ -1,6 +1,10 @@
 import logging
 import sys
-from ...application.analysis_service import AnalysisOptions, run_analysis_with_options
+from ...application.analysis_service import (
+    AnalysisOptions,
+    NoMatchingLogsError,
+    run_analysis_with_options,
+)
 from ...domain.logback_pattern import UnsupportedLogbackPatternError
 from ...domain.log_sources import LogSourceSelection, select_log_source
 from ...infrastructure.exporting import ExportConflictError
@@ -13,6 +17,7 @@ from .runtime import (
     resolve_target_dir,
 )
 from ..error_messages import get_error_hint
+from ..encoding_warnings import format_encoding_warning
 from ...version import get_package_version
 
 logger = logging.getLogger(__name__)
@@ -85,6 +90,9 @@ def _print_analysis_result(result, args) -> None:
     for level, count in sorted(result.counts.items()):
         if count > 0:
             print(f"  {level}: {count}")
+    encoding_warning = format_encoding_warning(getattr(result, "diagnostics", None))
+    if encoding_warning:
+        print(encoding_warning)
 
 
 def _print_source_scope(source: LogSourceSelection) -> None:
@@ -147,6 +155,10 @@ def _run_cli_analysis(args, target_dir: str) -> None:
 
 def _handle_cli_error(exc: Exception) -> None:
     """輸出已知 CLI 錯誤並結束程式。"""
+    if isinstance(exc, NoMatchingLogsError):
+        encoding_warning = format_encoding_warning(exc.diagnostics)
+        if encoding_warning:
+            print(encoding_warning)
     if isinstance(exc, ExportConflictError):
         paths = "\n".join(f"  - {path}" for path in exc.paths)
         _print_error(

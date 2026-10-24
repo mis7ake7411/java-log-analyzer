@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 
+from ..domain.analysis_control import AnalysisControl
 from ..domain.log_types import LogEntry
 
 
@@ -21,6 +22,8 @@ class DashboardAnalysis:
 
 def aggregate_dashboard_summary(
     matched_logs: Iterable[LogEntry],
+    *,
+    control: AnalysisControl | None = None,
 ) -> tuple[DashboardAnalysis, int]:
     """單次走訪命中日誌，計算 dashboard 統計與命中筆數。"""
     exception_occurrences: Counter[str] = Counter()
@@ -32,8 +35,12 @@ def aggregate_dashboard_summary(
     thread_occurrences: Counter[str] = Counter()
     thread_groups: Counter[str] = Counter()
     matched_occurrences = 0
+    if control is not None:
+        control.report_progress("summarizing", force=True)
 
     for log in matched_logs:
+        if control is not None:
+            control.raise_if_cancelled()
         occurrence_count = int(log.get("count", 1))
         matched_occurrences += occurrence_count
         _add_summary_value(
@@ -60,6 +67,9 @@ def aggregate_dashboard_summary(
             thread_occurrences,
             thread_groups,
         )
+
+    if control is not None:
+        control.raise_if_cancelled()
 
     return (
         DashboardAnalysis(
