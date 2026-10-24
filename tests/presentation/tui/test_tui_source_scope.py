@@ -96,9 +96,19 @@ async def _wait_for_picker_path(picker, pilot) -> Input:
             await asyncio.sleep(0.01)
 
     try:
-        return await asyncio.wait_for(wait_until_mounted(), timeout=5)
+        path_input = await asyncio.wait_for(wait_until_mounted(), timeout=5)
     except asyncio.TimeoutError as exc:
         raise AssertionError("source picker input did not mount") from exc
+    confirm = picker.query_one("#picker-confirm")
+    await _wait_for_ui_state(
+        pilot,
+        lambda: confirm.region.width > 0 and confirm.region.height > 0,
+        "source picker confirm button was not laid out",
+    )
+    await _wait_for_layout_to_settle(
+        pilot, (picker, picker.query_one("#picker-card"), path_input, confirm)
+    )
+    return path_input
 
 
 async def _wait_for_source_picker(app, pilot):
