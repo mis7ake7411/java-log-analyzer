@@ -42,6 +42,7 @@ async def _wait_for_export_confirmation_layout(app, pilot) -> None:
     hit_widget = None
     for _ in range(5):
         await pilot.pause()
+        await asyncio.wait_for(pilot.wait_for_scheduled_animations(), timeout=5)
         region = confirm.region
         layout = (region, form_panel.scroll_offset)
         hit_x, hit_y = region.x + 1, region.y + 1

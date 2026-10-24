@@ -1117,6 +1117,7 @@ def test_analysis_preserves_nonempty_manual_logback_pattern(monkeypatch, tmp_pat
             app.query_one("#logback_xml_path").value = str(xml_file)
             app.query_one("#manual_pattern_override").value = True
             app.query_one("#log_pattern").value = manual_pattern
+            await pilot.pause()
 
             await app.action_run_analysis()
 
