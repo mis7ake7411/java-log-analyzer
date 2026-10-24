@@ -12,7 +12,35 @@
 - **分析摘要**：可快速查看例外群組、時間熱點，以及 Logger / Thread 分布
 - **自動分割**：匯出檔案過大時，會自動拆分成多個檔案，也可依 Log Level 分檔輸出
 
-## 安裝方式
+## 可攜版
+
+可攜版會將 Python 與所需套件一併打包。使用者解壓縮後即可執行，不需要 Clone 專案、安裝 Python 或啟用虛擬環境。整個 `log-analyzer` 資料夾必須保留，不能只搬走執行檔。
+
+| 平台 | 壓縮包 | 解壓後啟動方式 |
+| --- | --- | --- |
+| Windows x86_64 | `log-analyzer-<版本>-windows-x86_64.zip` | 雙擊 `log-analyzer.exe` |
+| Linux x86_64 | `log-analyzer-<版本>-linux-x86_64.tar.gz` | 在終端機進入資料夾，執行 `./log-analyzer` |
+
+無參數會啟動 TUI，也可帶入來源路徑與 CLI 選項。可攜版與原始碼版使用同一個程式入口與功能；可攜版 CLI 標準輸出採 UTF-8。成品由下方建置腳本產生，存放於 `dist/portable`；GitHub 自動產生的原始碼 ZIP 不包含可執行檔。
+
+目前已實際驗證 Windows 11 x86_64，以及 Debian 12／glibc 2.36／x86_64 的 Linux 容器。其他 Windows 版本、Linux 發行版、較舊 glibc 與其他 CPU 架構尚未驗證。
+
+### 可攜版驗證範圍
+
+以下流程已使用兩平台實際打包成品驗證；Windows 測試將 Python 移出 PATH，Linux 使用未安裝 Python、非 root 且程式目錄唯讀的環境。
+
+| 範圍 | 已驗證行為 |
+| --- | --- |
+| 基本操作 | 預設啟動 TUI、CLI 三種格式匯出、中文與空白路徑、寬窄終端機 |
+| 格式解析 | XML 多候選自動選擇、低信心時確認、手動 Pattern 優先、多行堆疊與來源座標 |
+| 篩選與排序 | 關鍵字大小寫、時間起訖邊界、多個 Level、ALL、時間與 Level 排序 |
+| 配方與瀏覽 | 儲存配方、跨工作目錄重開與載入、最近設定、事件原文與堆疊預覽 |
+| 進階匯出 | TUI JSON 選欄與證據清單、CSV／JSON／Markdown 依 Level 分檔、CSV／Markdown 大小分割、JSON Level 加大小分割 |
+| 保護與診斷 | 衝突時保留原報表、明確允許覆寫、無效 XML／Pattern、UTF-8 錯誤提示、證據清單報表雜湊 |
+
+配方與可攜版的最近設定放在使用者設定目錄，更新或移動程式資料夾不會搬走這些設定：Windows 使用 `%APPDATA%\java-log-analyzer`；Linux 使用 `$XDG_CONFIG_HOME/java-log-analyzer`，未設定時使用 `~/.config/java-log-analyzer`。原始碼啟動的最近設定仍保留在目前工作目錄。
+
+## 從原始碼安裝
 
 ### 1. 取得專案
 
@@ -51,6 +79,52 @@ python -m pytest -q
 ```
 
 GitHub Actions 會在 Python 3.10、3.11 與 3.12 上執行相同的 lint 與測試。
+
+### 建置可攜版
+
+Windows 可直接雙擊專案根目錄的 `build-portable.cmd`。腳本會建立或沿用 `.venv-portable`，安裝目前專案及打包工具，再產生 `dist/portable` 下的 ZIP 與校驗檔。需要既有 Python 3.10 以上與套件下載網路；會優先使用專案 `.venv`，其次尋找 `py -3` 或 `python`，不自動安裝系統 Python 或修改 PATH。成功或失敗都會停留畫面，方便查看訊息。
+
+每次修改程式後，可再次雙擊重新打包；同版本的 ZIP 與校驗檔會被取代，先前已解壓縮的 EXE 不會自動更新，請從新 ZIP 解壓測試。`.venv-portable` 與 `dist` 均已被 Git 忽略。
+
+更新不同版本時，請解壓縮到全新資料夾，勿直接覆蓋舊版目錄，以免殘留舊版套件資訊。
+
+Linux 則在專案根目錄的終端機執行：
+
+```sh
+sh ./build-portable.sh
+```
+
+Linux 腳本會建立或沿用 `.venv-portable`，安裝目前專案及打包工具，產生 `dist/portable` 下的 `tar.gz` 與校驗檔。需要 Python 3.10 以上（含 `venv`）、`binutils` 與套件下載網路；會優先使用專案 `.venv`，其次尋找 `python3`。缺少必要工具或任一步驟失敗就會停止，不自動安裝系統套件或修改 PATH。使用 `sh` 執行不需要額外設定腳本執行權限。
+
+Windows 與 Linux 必須各自在對應平台建置。以下命令都在專案根目錄執行，只新增專案內的獨立建置環境與 `dist/portable` 成品，不修改系統 Python 或 PATH。
+
+Windows：
+
+```powershell
+python -m venv .venv-portable
+.\.venv-portable\Scripts\python -m pip install . -r tools/portable/requirements-build.txt
+.\.venv-portable\Scripts\python tools/portable/build.py
+```
+
+Linux（另需有 `binutils` 建置工具）：
+
+```bash
+python3 -m venv .venv-portable
+.venv-portable/bin/python -m pip install . -r tools/portable/requirements-build.txt
+.venv-portable/bin/python tools/portable/build.py
+```
+
+建置環境需要 Python 3.10 以上。工具會核對安裝版本與目前專案版本，產生資料夾式壓縮包及對應 `.sha256`，完成後清除建置暫存；可用 `--output` 指定其他成品目錄。
+
+要驗證實際壓縮包，可在同一個獨立環境安裝 `tools/portable/requirements-verify.txt`，執行 `tools/portable/verify.py --help` 查看參數。驗證器使用真正的終端機操作，核對上述功能的筆數、內容、行號、分檔大小與雜湊，並保留終端畫面及結果記錄。`--work-dir` 必須指定全新的資料夾，避免覆蓋既有驗證記錄。
+
+例如在 Windows 專案根目錄驗證 1.1.0 成品（Linux 驗證另需可執行 Linux 容器的 Docker）：
+
+```powershell
+.\.venv-portable\Scripts\python -m pip install -r tools/portable/requirements-verify.txt
+.\.venv-portable\Scripts\python tools/portable/verify.py --archive dist/portable/log-analyzer-1.1.0-windows-x86_64.zip --expected-version 1.1.0 --work-dir .portable-work/windows-check
+.\.venv-portable\Scripts\python tools/portable/verify.py --archive dist/portable/log-analyzer-1.1.0-linux-x86_64.tar.gz --expected-version 1.1.0 --runtime-image debian:bookworm-slim --work-dir .portable-work/linux-check
+```
 
 ## 啟動方式
 
@@ -291,7 +365,7 @@ log-analyzer --version
 %d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n
 ```
 
-勾選「手動覆寫 Pattern」後可貼上 `logback.xml` 的 `<pattern>` 內容，但目前只支援常見 token；超出支援範圍時，工具會提示不支援的項目。CLI 仍可使用 `--log-pattern` 或 `--logback-xml`。
+勾選「手動覆寫 Pattern」後可貼上 `logback.xml` 的 `<pattern>` 內容，但目前只支援常見 token；超出支援範圍時，工具會提示不支援的項目。CLI 可使用 `--pattern` 或 `--logback-xml`。
 
 - 會解析成欄位：`%d` / `%date`、`%thread` / `%t`、`%level` / `%le` / `%p`、`%logger` / `%lo` / `%c`、`%msg` / `%message` / `%m`
 - 可接受但不納入輸出欄位：`%file`、`%line` / `%L`、`%class`、`%method` / `%M`、`%caller`、`%mdc` / `%X`、`%ex` / `%throwable` / `%xEx` / `%wEx` / `%wex` / `%rootException` / `%rEx`、`%n`

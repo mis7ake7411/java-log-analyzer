@@ -2,6 +2,7 @@ from log_analyzer.presentation.tui.controllers import exporting as exporting_mod
 from log_analyzer.presentation.tui.controllers import patterns as patterns_module
 import asyncio
 from pathlib import Path
+from tui_waits import wait_for_layout_to_settle
 
 from log_analyzer.application.analysis_service import AnalysisRequest, analyze_logs
 from log_analyzer.infrastructure.recipe_store import RECIPE_FIELDS, RecipeStore
@@ -546,7 +547,14 @@ def test_recipe_modal_controls_are_scroll_reachable_in_narrow_and_wide_layouts(t
             ):
                 control = screen.query_one(selector)
                 control.scroll_visible(animate=False)
-                await pilot.pause()
+                await wait_for_layout_to_settle(
+                    pilot, (control, content),
+                    lambda: (
+                        control.region.height > 0
+                        and control.region.y >= 0
+                        and control.region.bottom <= app.size.height
+                    ),
+                )
                 assert control.region.height > 0
                 assert control.region.y >= 0
                 assert control.region.y + control.region.height <= app.size.height

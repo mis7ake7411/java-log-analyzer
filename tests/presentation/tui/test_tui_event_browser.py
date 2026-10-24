@@ -8,12 +8,13 @@ from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import VerticalScroll
 from textual.widgets import Input, Select, Static
 
-from tui_waits import wait_for_button_ready, wait_for_ui_state
+from tui_waits import wait_for_button_ready, wait_for_ui_state, wait_for_layout_to_settle
 
 from log_analyzer.application.analysis_service import AnalysisResult
 from log_analyzer.application.source_preview import read_source_context
@@ -499,6 +500,56 @@ def test_event_browser_group_labels_separate_fields_and_show_result_order(tmp_pa
     asyncio.run(run_check())
 
 
+@pytest.mark.parametrize(
+    "message_body, remove_body",
+    [
+        pytest.param("", False, id="empty"),
+        pytest.param(None, False, id="none"),
+        pytest.param(17, False, id="non-string"),
+        pytest.param(None, True, id="missing"),
+    ],
+)
+def test_event_browser_message_renderers_fall_back_to_header_message(
+    message_body: object, remove_body: bool
+) -> None:
+    occurrence = _occurrence("failure.log", 7)
+    group = _group(1, [occurrence])
+    group["message"] = "Failure beta"
+    if remove_body:
+        group.pop("message_body")
+    else:
+        group["message_body"] = message_body
+
+    rendered = (
+        EventBrowserScreen._group_label(group).plain,
+        EventBrowserScreen._retained_details_text(group, occurrence).plain,
+    )
+
+    for text in rendered:
+        assert "Failure beta" in text
+        assert "（無保留訊息）" not in text
+
+
+def test_event_browser_message_renderers_prefer_body_and_keep_empty_placeholder() -> None:
+    occurrence = _occurrence("failure.log", 7)
+    group = _group(1, [occurrence])
+    group.update(message="Failure beta", message_body="Retained body")
+
+    for text in (
+        EventBrowserScreen._group_label(group).plain,
+        EventBrowserScreen._retained_details_text(group, occurrence).plain,
+    ):
+        assert "Retained body" in text
+        assert "Failure beta" not in text
+
+    group.update(message="", message_body="")
+    for text in (
+        EventBrowserScreen._group_label(group).plain,
+        EventBrowserScreen._retained_details_text(group, occurrence).plain,
+    ):
+        assert "（無保留訊息）" in text
+
+
 def test_event_browser_orders_occurrences_by_time_across_pages_and_selects_coordinate(
     tmp_path: Path,
 ) -> None:
@@ -702,8 +753,11 @@ def test_event_browser_resets_preview_scroll_for_another_occurrence(tmp_path: Pa
             await pilot.pause()
 
             preview_content = browser.query_one("#browser-preview-content", VerticalScroll)
+            await wait_for_layout_to_settle(pilot, (preview_content,))
             preview_content.scroll_end(animate=False)
-            await pilot.pause()
+            await wait_for_ui_state(
+                pilot, lambda: preview_content.scroll_y > 0, "source preview scroll did not move"
+            )
             assert preview_content.scroll_y > 0
 
             await pilot.click("#browser-back")

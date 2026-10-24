@@ -1,6 +1,7 @@
 import asyncio
 
 from textual.widgets import Collapsible, Input, Static
+from tui_waits import wait_for_layout_to_settle
 
 from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui import LogAnalyzerApp
@@ -50,7 +51,7 @@ def test_automatic_pattern_preview_is_collapsed_and_can_be_expanded(monkeypatch)
             assert details.collapsed
 
             details.collapsed = False
-            await pilot.pause()
+            await wait_for_layout_to_settle(pilot, (details, preview))
             assert not details.collapsed
             assert preview.region.height > 0
 
@@ -74,8 +75,13 @@ def test_long_pattern_wraps_without_overlapping_actions_at_common_sizes(monkeypa
             preview = app.query_one("#pattern-preview", Static)
             run_button = app.query_one("#run")
             panel = app.query_one("#form-panel")
+            await wait_for_layout_to_settle(pilot, (preview, panel, run_button))
             preview.scroll_visible(animate=False)
-            await pilot.pause()
+            await wait_for_layout_to_settle(
+                pilot,
+                (preview, panel, run_button),
+                lambda: preview.region.overlaps(panel.content_region),
+            )
             assert preview.region.width <= panel.content_region.width
             assert preview.region.height > 1
             visible_top = max(preview.region.y, panel.content_region.y)

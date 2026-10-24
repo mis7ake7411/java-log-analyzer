@@ -475,7 +475,7 @@ class EventBrowserScreen(ModalScreen[None]):
         logger = group.get("logger")
         logger_text = logger if isinstance(logger, str) and logger else "未知記錄器"
         message = group.get("message_body")
-        if not isinstance(message, str):
+        if not isinstance(message, str) or not message:
             message = group.get("message")
         message_text = (
             message if isinstance(message, str) and message else "（無保留訊息）"
@@ -602,7 +602,7 @@ class EventBrowserScreen(ModalScreen[None]):
         logger = group.get("logger")
         logger_text = logger if isinstance(logger, str) and logger else "未知記錄器"
         message = group.get("message_body")
-        if not isinstance(message, str):
+        if not isinstance(message, str) or not message:
             message = group.get("message")
         message_text = (
             message if isinstance(message, str) and message else "（無保留訊息）"

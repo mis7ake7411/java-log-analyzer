@@ -195,6 +195,8 @@ class _LevelFileWriter:
         self.base_name = output.stem
         self.suffix = output.suffix or f".{format_name}"
         self.encoding = _encoding_for(format_name)
+        report_suffix = _report_suffix(format_name)
+        self.suffix_size = _rendered_size(report_suffix, format_name) if report_suffix else 0
         self.part_paths: list[Path] = []
         self.current_part_index = 1
         self.current_has_logs = False
@@ -234,7 +236,10 @@ class _LevelFileWriter:
                 self.fields,
             )
 
-            if self.current_has_logs and self.current_size + block_size > self.threshold:
+            if (
+                self.current_has_logs
+                and self.current_size + block_size + self.suffix_size > self.threshold
+            ):
                 self._rotate_part()
                 continue
 
@@ -396,7 +401,7 @@ def _open_part_file(
     encoding: str,
     fields: tuple[str, ...] | None = None,
 ):
-    file_handle = path.open("w", encoding=encoding, newline="" if encoding == "utf-8-sig" else None)
+    file_handle = path.open("w", encoding=encoding, newline="")
     try:
         file_handle.write(_report_prefix(counts, format_name, fields))
     except BaseException:
@@ -429,7 +434,7 @@ def _summary_paths(context: _LevelExportContext, staged_paths: list[str]) -> lis
 
 
 def _write_text(output: Path, text: str, encoding: str) -> None:
-    with open(output, 'w', encoding=encoding, newline='' if encoding == 'utf-8-sig' else None) as file_handle:
+    with open(output, 'w', encoding=encoding, newline='') as file_handle:
         file_handle.write(text)
 
 

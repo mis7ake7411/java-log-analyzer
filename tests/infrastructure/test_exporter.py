@@ -203,6 +203,115 @@ def test_export_results_splits_large_reports(tmp_path, monkeypatch, fmt, expecte
         assert Path(file_path).stat().st_size <= 5_000
 
 
+def _size_split_threshold(logs, levels, counts, fmt, split_by_level):
+    prefix_counts = {levels[0]: 4} if split_by_level else counts
+    prefix_size = exporter._rendered_size(exporter._report_prefix(prefix_counts, fmt), fmt)
+    first_size = exporter._render_log_block(1, logs[0], fmt, False)[1]
+    second_size = exporter._render_log_block(2, logs[1], fmt, True)[1]
+    threshold = prefix_size + first_size + second_size
+
+    for level in levels:
+        level_counts = {level: 4} if split_by_level else counts
+        level_prefix_size = exporter._rendered_size(
+            exporter._report_prefix(level_counts, fmt), fmt
+        )
+        suffix_size = exporter._rendered_size(exporter._report_suffix(fmt), fmt)
+        for log in logs:
+            if log["level"] == level:
+                individual_size = exporter._render_log_block(1, log, fmt, False)[1]
+                assert level_prefix_size + individual_size + suffix_size <= threshold
+    return threshold
+
+
+def _expected_size_split_names(fmt, levels, split_by_level):
+    parts_per_level = 4 if fmt == "json" else 2
+    if split_by_level:
+        return [
+            f"report_{level}_part{index:03d}.{fmt}"
+            for level in levels
+            for index in range(1, parts_per_level + 1)
+        ]
+    return [f"report_part{index:03d}.{fmt}" for index in range(1, parts_per_level + 1)]
+
+
+def _assert_size_split_records(fmt, summary_path, report_paths, expected, levels):
+    from collections import Counter
+
+    counts = dict(Counter(level for level, _message in expected))
+    if fmt == "json":
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        assert summary["split"]["files"] == [str(path) for path in report_paths]
+        actual = []
+        for report_path in report_paths:
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            level = next((item for item in levels if f"_{item}_" in report_path.stem), None)
+            assert report["summary"] == ({level: 4} if level else counts)
+            actual.extend((result["level"], result["message"]) for result in report["results"])
+    elif fmt == "csv":
+        summary = summary_path.read_text(encoding="utf-8-sig")
+        assert all(path.name in summary for path in report_paths)
+        actual = []
+        for report_path in report_paths:
+            with report_path.open(encoding="utf-8-sig", newline="") as report:
+                rows = list(csv.reader(report))
+            actual.extend(
+                (row[4], row[8])
+                for row in rows
+                if len(row) == 12 and " boundary-" in row[8]
+            )
+    else:
+        summary = summary_path.read_text(encoding="utf-8")
+        assert all(path.name in summary for path in report_paths)
+        actual = [
+            record
+            for report_path in report_paths
+            for record in expected
+            if f"[{record[0]}] {record[1]}" in report_path.read_text(encoding="utf-8")
+        ]
+    assert sorted(actual) == sorted(expected)
+
+
+@pytest.mark.parametrize("fmt", ["csv", "json", "md"])
+@pytest.mark.parametrize("split_by_level", [False, True])
+def test_size_split_parts_stay_within_limit_and_preserve_records(
+    tmp_path, fmt, split_by_level
+):
+    levels = ("ERROR", "WARN") if split_by_level else ("INFO",)
+    logs = [
+        _build_level_log(index, level, "payload")
+        for level in levels
+        for index in range(1, 5)
+    ]
+    for log in logs:
+        log["message"] = f"{log['level']} boundary-{log['line_numbers'][0]}"
+
+    counts = {level: 4 for level in levels}
+    # The boundary admits two rendered entries exactly; JSON must reserve its closing suffix.
+    max_export_bytes = _size_split_threshold(logs, levels, counts, fmt, split_by_level)
+
+    output_path = tmp_path / f"report.{fmt}"
+    files = export_results(
+        counts,
+        logs,
+        str(output_path),
+        fmt,
+        max_export_bytes=max_export_bytes,
+        split_by_level=split_by_level,
+    )
+
+    assert Path(files[0]).name == f"report_summary.{fmt}"
+    report_paths = [Path(file_path) for file_path in files[1:]]
+    assert [path.name for path in report_paths] == _expected_size_split_names(
+        fmt, levels, split_by_level
+    )
+    assert all(path.exists() for path in report_paths)
+    for report_path in report_paths:
+        assert report_path.stat().st_size <= max_export_bytes
+
+    expected = [(log["level"], log["message"]) for log in logs]
+    _assert_size_split_records(fmt, Path(files[0]), report_paths, expected, levels)
+
+
 def test_export_results_accepts_iterable_input(tmp_path, monkeypatch):
     monkeypatch.setattr("log_analyzer.infrastructure.exporting.exporter.MAX_EXPORT_BYTES_PER_FILE", 5_000)
     output_path = tmp_path / "report.csv"

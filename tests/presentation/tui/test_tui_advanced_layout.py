@@ -107,7 +107,12 @@ def test_advanced_controls_fit_form_content_and_reflow(size, monkeypatch):
             ):
                 control = app.query_one(f"#{control_id}")
                 control.scroll_visible(animate=False)
-                await pilot.pause()
+                await _wait_for_layout_to_settle(
+                    pilot, (control, panel),
+                    lambda: panel.content_region.contains(
+                        control.region.x, control.region.y + control.region.height // 2
+                    ),
+                )
                 region = control.region
                 visible_center = region.y + region.height // 2
                 assert content.y <= visible_center < content.y + content.height
@@ -118,7 +123,10 @@ def test_advanced_controls_fit_form_content_and_reflow(size, monkeypatch):
             await pilot.pause()
             summary = app.query_one("#source-scope-summary")
             summary.scroll_visible(animate=False)
-            await pilot.pause()
+            await _wait_for_layout_to_settle(
+                pilot, (summary, panel),
+                lambda: _overlap(summary.region, panel.content_region),
+            )
             assert _overlap(summary.region, panel.content_region)
 
             for action_id in ("manage-recipes", "run"):

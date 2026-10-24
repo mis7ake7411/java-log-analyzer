@@ -6,6 +6,7 @@ from textual.widgets import Button, Input, Static
 from tui_waits import (
     wait_for_scheduled_analysis as _wait_for_scheduled_analysis,
     wait_for_button_ready as _wait_for_run_button_ready,
+    wait_for_ui_state,
 )
 
 from log_analyzer.domain.logback_xml import assess_logback_patterns
@@ -33,9 +34,20 @@ def _write_xml(path, name, pattern):
 
 
 async def _click_run_for_confirmation(app, pilot):
+    await _wait_for_run_button_ready(app, pilot)
     await asyncio.wait_for(pilot.click("#run"), timeout=5)
-    await pilot.pause()
+    await wait_for_ui_state(
+        pilot,
+        lambda: isinstance(app.screen, LogbackPatternConfirmationScreen),
+        "pattern confirmation did not open",
+    )
     assert app.screen.__class__.__name__ == "LogbackPatternConfirmationScreen"
+
+
+async def _confirm_first_pattern(app, pilot):
+    await _wait_for_run_button_ready(app, pilot, "#pattern-select-0")
+    assert await asyncio.wait_for(pilot.click("#pattern-select-0"), timeout=5)
+    await _wait_for_scheduled_analysis(app)
 
 
 async def _cancel_confirmation(pilot):
@@ -129,15 +141,13 @@ def test_user_can_confirm_an_uncertain_zero_match_candidate(tmp_path, monkeypatc
             await pilot.pause()
             app.query_one("#path", Input).value = str(log_dir)
             app.query_one("#logback_xml_path", Input).value = str(xml_path)
-            await asyncio.wait_for(pilot.click("#run"), timeout=5)
-            await pilot.pause()
+            await _click_run_for_confirmation(app, pilot)
 
             screen = app.screen
             assert screen.__class__.__name__ == "LogbackPatternConfirmationScreen"
             message = screen.query_one("#pattern-confirmation-message", Static).render().plain
             assert "0" in message
-            await asyncio.wait_for(pilot.click("#pattern-select-0"), timeout=5)
-            await asyncio.wait_for(pilot.pause(), timeout=5)
+            await _confirm_first_pattern(app, pilot)
 
             assert submitted
             assert submitted[0].log_pattern == "[%d{yyyy-MM-dd HH:mm:ss.SSS}] [%thread] [%-5level] %logger - %msg%n"
@@ -274,8 +284,7 @@ async def _exercise_cancel_retry_frozen_request(log_dir, xml_path, tmp_path, ass
 
         app.query_one("#path", Input).value = str(tmp_path)
         _set_log_filters(app, "changed-filter", "INFO")
-        await asyncio.wait_for(pilot.click("#pattern-select-0"), timeout=5)
-        await asyncio.wait_for(pilot.pause(), timeout=5)
+        await _confirm_first_pattern(app, pilot)
         assert submitted
         request = submitted[0]
         assert request.path == str(log_dir)
