@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+
 import pickle
 from collections import Counter
 from pathlib import Path
@@ -10,6 +11,8 @@ from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import VerticalScroll
 from textual.widgets import Static
+
+from tui_waits import wait_for_button_ready, wait_for_ui_state
 
 from log_analyzer.application.analysis_service import AnalysisResult
 from log_analyzer.application.source_preview import read_source_context
@@ -176,24 +179,31 @@ def test_event_browser_pages_groups_and_occurrences(tmp_path: Path) -> None:
                 f"button={next_button.region}"
             )
             next_button.focus()
+            await wait_for_button_ready(app, pilot, "#browser-next")
             await pilot.press("enter")
-            await pilot.pause(0.3)
+            await wait_for_ui_state(pilot, lambda: len(options.options) == 1, "group page did not change")
             assert len(options.options) == 1
             assert "Service100" in str(options.options[0].prompt)
 
             options.focus()
             await pilot.press("enter")
-            await pilot.pause(0.3)
+            await wait_for_ui_state(pilot, lambda: len(options.options) == 100, "occurrence page did not open")
             assert len(options.options) == 100
 
             next_button.focus()
+            await wait_for_button_ready(app, pilot, "#browser-next")
             await pilot.press("enter")
-            await pilot.pause(0.3)
+            await wait_for_ui_state(
+                pilot,
+                lambda: str(options.options[0].prompt).startswith("many.log:101"),
+                "second occurrence page did not open",
+            )
             assert not browser.query_one("#browser-next").disabled
             assert len(options.options) == 100
             next_button.focus()
+            await wait_for_button_ready(app, pilot, "#browser-next")
             await pilot.press("enter")
-            await pilot.pause(0.3)
+            await wait_for_ui_state(pilot, lambda: len(options.options) == 5, "last occurrence page did not open")
             assert len(options.options) == 5
             assert str(options.options[0].prompt).startswith("many.log:201")
 

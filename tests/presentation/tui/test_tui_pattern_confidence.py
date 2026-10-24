@@ -2,6 +2,11 @@ import asyncio
 
 from textual.widgets import Button, Input, Static
 
+from tui_waits import (
+    wait_for_scheduled_analysis as _wait_for_scheduled_analysis,
+    wait_for_button_ready as _wait_for_run_button_ready,
+)
+
 from log_analyzer.domain.logback_xml import assess_logback_patterns
 from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui import LogAnalyzerApp
@@ -35,26 +40,6 @@ async def _click_run_for_confirmation(app, pilot):
 async def _cancel_confirmation(pilot):
     await asyncio.wait_for(pilot.press("escape"), timeout=5)
     await pilot.pause()
-
-
-async def _wait_for_run_button_ready(app, pilot):
-    run_button = app.query_one("#run", Button)
-
-    async def wait_until_ready():
-        while run_button.disabled or run_button.has_class("-active"):
-            await pilot.pause(0.01)
-
-    await asyncio.wait_for(wait_until_ready(), timeout=1)
-
-
-async def _wait_for_scheduled_analysis(app, previous_task=None) -> None:
-    async def wait_until_scheduled() -> asyncio.Task:
-        while (task := getattr(app, "_scheduled_analysis_task", None)) is None or task is previous_task:
-            await asyncio.sleep(0.01)
-        return task
-
-    task = await asyncio.wait_for(wait_until_scheduled(), timeout=5)
-    await asyncio.wait_for(task, timeout=10)
 
 
 def _set_log_filters(app, keyword, *levels):

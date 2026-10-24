@@ -5,18 +5,14 @@ from pathlib import Path
 import pytest
 from textual.widgets import Input
 
+from tui_waits import (
+    wait_until as _wait_until,
+)
+
 from log_analyzer.application.analysis_service import AnalysisRequest, analyze_logs
 from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui import LogAnalyzerApp
 from log_analyzer.presentation.tui.dialogs import ExportConflictScreen
-
-
-async def _wait_until(predicate) -> None:
-    for _ in range(300):
-        if predicate():
-            return
-        await asyncio.sleep(0.01)
-    raise AssertionError("operation did not reach the expected lifecycle state")
 
 
 def _result_fixture(tmp_path):

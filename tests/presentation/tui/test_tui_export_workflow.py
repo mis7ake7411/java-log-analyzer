@@ -4,7 +4,11 @@ import io
 import json
 from types import SimpleNamespace
 
-from textual.errors import NoWidget
+from tui_waits import (
+    wait_for_scheduled_analysis as _wait_for_scheduled_analysis,
+    wait_for_export_to_finish,
+    wait_for_export_confirmation_layout as _wait_for_export_confirmation_layout,
+)
 
 from log_analyzer.infrastructure.exporting.csv import render_csv_prefix
 from log_analyzer.infrastructure.exporting.fields import EXPORT_FIELDS
@@ -27,43 +31,6 @@ def _write_log(tmp_path, message: str):
 def _select_export_fields(app, selected: tuple[str, ...]) -> None:
     for field in EXPORT_FIELDS:
         app.query_one(f"#export_field_{field}").value = field in selected
-
-
-async def _wait_for_scheduled_analysis(app) -> None:
-    operation = getattr(app, "_scheduled_analysis_task", None)
-    assert operation is not None
-    await asyncio.wait_for(operation, timeout=5)
-
-
-async def _wait_for_export_confirmation_layout(app, pilot) -> None:
-    confirm = app.query_one("#confirm-export")
-    form_panel = app.query_one("#form-panel")
-    previous_layout = None
-    hit_widget = None
-    for _ in range(5):
-        await pilot.pause()
-        await asyncio.wait_for(pilot.wait_for_scheduled_animations(), timeout=5)
-        region = confirm.region
-        layout = (region, form_panel.scroll_offset)
-        hit_x, hit_y = region.x + 1, region.y + 1
-        screen_size = app.screen.size
-        hit_widget = None
-        if 0 <= hit_x < screen_size.width and 0 <= hit_y < screen_size.height:
-            try:
-                hit_widget, _ = app.screen.get_widget_at(hit_x, hit_y)
-            except NoWidget:
-                pass
-        if layout == previous_layout and hit_widget is confirm:
-            return
-        previous_layout = layout
-    hit_widget_name = (
-        "none" if hit_widget is None else f"{type(hit_widget).__name__}#{hit_widget.id}"
-    )
-    raise AssertionError(
-        "Confirmation button layout did not stabilize at a clickable position: "
-        f"region={confirm.region}, form_scroll={form_panel.scroll_offset}, "
-        f"hit_widget={hit_widget_name}"
-    )
 
 
 async def _submit_empty_export_selection(app, pilot) -> str:
@@ -206,10 +173,7 @@ def test_default_export_keeps_legacy_all_fields_report_layout(tmp_path, monkeypa
                 "#confirm-export", offset=(1, 1)
             )
             assert confirm_click_reached_button is True
-            for _ in range(10):
-                await pilot.pause()
-                if captured_options and not app._operation_in_progress:
-                    break
+            await wait_for_export_to_finish(app, pilot, lambda: bool(captured_options))
 
             assert captured_options
             assert app._operation_in_progress is False

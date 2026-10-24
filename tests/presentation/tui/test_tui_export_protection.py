@@ -3,6 +3,10 @@ import json
 
 from textual.widgets import Input, Static
 
+from tui_waits import (
+    wait_for_export_to_finish as _wait_for_export_to_finish,
+)
+
 from log_analyzer.presentation.tui import LogAnalyzerApp
 
 
@@ -30,17 +34,6 @@ async def _analyze_and_open_export(app, pilot, logs, output_dir):
     app.action_show_export_settings()
     await pilot.pause()
     return result
-
-
-async def _wait_for_export_to_finish(app, pilot, completion_condition):
-    async def wait_until_finished() -> None:
-        while app._operation_in_progress or not completion_condition():
-            await asyncio.sleep(0.01)
-
-    try:
-        await asyncio.wait_for(wait_until_finished(), timeout=10)
-    except asyncio.TimeoutError as exc:
-        raise AssertionError("export operation did not finish") from exc
 
 
 def _assert_result_retained(app, result, store):

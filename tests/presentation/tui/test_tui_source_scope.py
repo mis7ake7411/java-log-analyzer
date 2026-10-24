@@ -1,9 +1,14 @@
 import asyncio
 
-from textual.css.query import NoMatches
 from textual.containers import VerticalScroll
 from textual.events import Paste
 from textual.widgets import Input, Static
+
+from tui_waits import (
+    wait_for_ui_state as _wait_for_ui_state,
+    wait_for_scheduled_analysis as _wait_for_scheduled_analysis,
+    wait_for_layout_to_settle as _wait_for_layout_to_settle,
+)
 
 from log_analyzer.domain.log_sources import select_log_source
 from log_analyzer.presentation.tui import app as tui_module
@@ -17,54 +22,6 @@ def _disable_recent_state(monkeypatch):
 
 def _static_text(widget: Static) -> str:
     return widget.render().plain
-
-
-async def _wait_for_ui_state(pilot, predicate, message: str) -> None:
-    async def wait_until_ready() -> None:
-        while not predicate():
-            await asyncio.sleep(0.01)
-
-    try:
-        await asyncio.wait_for(wait_until_ready(), timeout=5)
-    except asyncio.TimeoutError as exc:
-        raise AssertionError(message) from exc
-
-
-async def _wait_for_scheduled_analysis(app, pilot) -> None:
-    await _wait_for_ui_state(
-        pilot,
-        lambda: getattr(app, "_scheduled_analysis_task", None) is not None,
-        "analysis task was not scheduled",
-    )
-    analysis_task = app._scheduled_analysis_task
-    assert analysis_task is not None
-    await asyncio.wait_for(analysis_task, timeout=5)
-
-
-async def _wait_for_layout_to_settle(pilot, widgets) -> None:
-    previous_layout = None
-    stable_layouts = 0
-    for _ in range(10):
-        await pilot.pause()
-        layout = tuple(
-            (
-                widget.region.x,
-                widget.region.y,
-                widget.region.width,
-                widget.region.height,
-                widget.display,
-                getattr(widget, "max_scroll_y", None),
-            )
-            for widget in widgets
-        )
-        if layout == previous_layout:
-            stable_layouts += 1
-            if stable_layouts == 1:
-                return
-        else:
-            previous_layout = layout
-            stable_layouts = 0
-    raise AssertionError("source preview layout did not settle")
 
 
 async def _wait_for_source_preview(app, pilot, path) -> None:
@@ -95,21 +52,12 @@ async def _wait_for_source_preview(app, pilot, path) -> None:
 
 
 async def _wait_for_picker_path(picker, pilot) -> Input:
-    async def wait_until_mounted() -> Input:
-        while True:
-            try:
-                path_input = picker.query_one("#picker-path", Input)
-            except NoMatches:
-                await asyncio.sleep(0.01)
-                continue
-            if path_input.is_mounted:
-                return path_input
-            await asyncio.sleep(0.01)
-
-    try:
-        path_input = await asyncio.wait_for(wait_until_mounted(), timeout=5)
-    except asyncio.TimeoutError as exc:
-        raise AssertionError("source picker input did not mount") from exc
+    await _wait_for_ui_state(
+        pilot,
+        lambda: any(widget.is_mounted for widget in picker.query("#picker-path")),
+        "source picker input did not mount",
+    )
+    path_input = picker.query_one("#picker-path", Input)
     confirm = picker.query_one("#picker-confirm")
     await _wait_for_ui_state(
         pilot,
@@ -441,7 +389,7 @@ def test_analysis_freezes_directory_file_list_when_execution_starts(tmp_path, mo
             monkeypatch.setattr(app, "_analyze_request", add_file_after_selection)
             await pilot.click("#run")
             await pilot.pause()
-            await _wait_for_scheduled_analysis(app, pilot)
+            await _wait_for_scheduled_analysis(app)
 
             assert len(submitted_requests) == 1
             assert submitted_requests[0].selected_files == ("first.log",)
@@ -491,7 +439,7 @@ def test_single_file_xml_autofill_ignores_conflicting_sibling_samples(tmp_path, 
             monkeypatch.setattr(app, "_analyze_request", capture_request)
             await pilot.click("#run")
             await pilot.pause()
-            await _wait_for_scheduled_analysis(app, pilot)
+            await _wait_for_scheduled_analysis(app)
 
             assert len(submitted_requests) == 1
             assert submitted_requests[0].selected_files == (selected_file.name,)
