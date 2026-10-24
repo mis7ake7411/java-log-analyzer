@@ -14,8 +14,8 @@ from .analysis_control import AnalysisControl
 from .logback_pattern import DEFAULT_LOGBACK_REGEX, compile_logback_pattern
 from .log_sources import select_log_source
 from .matched_logs_store import MatchedLogsStore
-from .parser_aggregation import commit_entry, normalize_keyword, sort_key
-from .log_types import LogEntry, MatchedLogs, ScanDiagnostics, SourceSnapshot
+from log_analyzer.domain.parser_aggregation import commit_entry, normalize_keyword, normalize_line_numbers, sort_key
+from log_analyzer.domain.log_types import FileScanCoverage, LogEntry, MatchedLogs, ScanDiagnostics, SourceSnapshot
 from .text_decoding import (
     SOURCE_TEXT_ENCODING,
     SOURCE_TEXT_ERRORS,
@@ -25,6 +25,7 @@ from .text_decoding import (
 from .timezone import to_local_timezone
 
 _STACKTRACE_HEADER_RE = re.compile(r"^[A-Za-z_][\w.$]*(?:Exception|Error)(?::|\s|$)")
+_POSSIBLE_LOG_HEADER_RE = re.compile(r"^\s*\d{4}[-/]\d{2}[-/]\d{2}[T ]\d{2}:\d{2}:\d{2}")
 MAX_SORT_GROUPS_IN_MEMORY = 5000
 MAX_GROUPS_IN_MEMORY = 5000
 MAX_GROUP_SHARDS = 32
@@ -317,7 +318,9 @@ def _merge_grouped_log(grouped_logs, entry):
     if key in grouped_logs:
         grouped_logs[key].count += entry.count
         grouped_logs[key].last_timestamp = entry.last_timestamp
-        grouped_logs[key].line_numbers = grouped_logs[key].line_numbers + entry.line_numbers
+        if not isinstance(grouped_logs[key].line_numbers, list):
+            grouped_logs[key].line_numbers = normalize_line_numbers(grouped_logs[key].line_numbers)
+        grouped_logs[key].line_numbers.extend(normalize_line_numbers(entry.line_numbers))
         grouped_logs[key].occurrences.extend(entry.occurrences)
         return
 
@@ -412,7 +415,11 @@ def _iter_entries_from_file(
     on_encoding_error=None,
 ):
     """逐行讀取檔案，產生已完成的 log entry"""
-
+    coverage = None
+    if accumulator.diagnostics is not None:
+        coverage = FileScanCoverage(accumulator.filename)
+        accumulator.diagnostics.file_coverage.append(coverage)
+    has_header = False
     with open(
         filepath,
         "r",
@@ -427,8 +434,11 @@ def _iter_entries_from_file(
             if has_encoding_error and on_encoding_error is not None:
                 on_encoding_error()
             match = entry_pattern.match(line)
+            if coverage is not None:
+                _record_line_coverage(coverage, line_num, line, bool(match), has_header)
 
             if match:
+                has_header = True
                 completed_entry = accumulator.start_entry(match, line_num)
                 if completed_entry:
                     yield completed_entry
@@ -439,6 +449,23 @@ def _iter_entries_from_file(
         completed_entry = accumulator.finish()
         if completed_entry:
             yield completed_entry
+
+
+def _record_line_coverage(coverage, line_num, line, matched, has_header):
+    coverage.total_lines += 1
+    stripped = line.strip()
+    if matched:
+        coverage.parsed_entries += 1
+    elif not stripped:
+        coverage.blank_lines += 1
+    elif not has_header or _POSSIBLE_LOG_HEADER_RE.match(line):
+        coverage.unrecognized_lines += 1
+        if len(coverage.unrecognized_samples) < 3:
+            coverage.unrecognized_samples.append((line_num, line.rstrip("\r\n")[:240]))
+    elif stripped.startswith(("at ", "Caused by:", "Suppressed:", "... ")) or _STACKTRACE_HEADER_RE.match(stripped):
+        coverage.stacktrace_lines += 1
+    else:
+        coverage.continuation_lines += 1
 
 
 def _raise_if_cancelled(control) -> None:

@@ -1,3 +1,4 @@
+from log_analyzer.presentation.tui.controllers import exporting as exporting_module
 import asyncio
 
 import pytest
@@ -105,7 +106,7 @@ def test_legacy_recipe_display_mode_is_ignored_without_replacing_result_or_rewri
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("analysis must not run")),
     )
     monkeypatch.setattr(
-        tui_module,
+        exporting_module,
         "export_analysis_result",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("export must not run")),
     )

@@ -2,13 +2,14 @@ from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-
 from ...application.analysis_service import AnalysisResult
 from ...application.dashboard_summary import DashboardAnalysis, aggregate_dashboard_summary
 from ...domain.log_types import ScanDiagnostics
 from ..encoding_warnings import format_encoding_warning
+from log_analyzer.presentation.scan_diagnostics import format_scan_coverage
+from log_analyzer.presentation.analysis_labels import request_time_range
+from log_analyzer.domain.logback_pattern import DEFAULT_LOGBACK_PATTERN
 from ..error_messages import get_error_hint
-
 
 def analyze_dashboard(result: AnalysisResult) -> DashboardAnalysis:
     """使用已保留的摘要，或由舊版呼叫者提供的明細計算摘要。"""
@@ -85,6 +86,9 @@ def build_zero_result_view(diagnostics: ScanDiagnostics) -> Panel:
     encoding_warning = format_encoding_warning(diagnostics)
     if encoding_warning:
         panel.renderable = Group(panel.renderable, Text(encoding_warning, style="yellow"))
+    coverage = format_scan_coverage(diagnostics)
+    if coverage:
+        panel.renderable = Group(panel.renderable, Text(coverage))
     return panel
 
 
@@ -135,6 +139,9 @@ def build_dashboard_view(result: AnalysisResult, compact: bool) -> Group:
     analysis_request = getattr(result, "analysis_request", None)
     selected_path = getattr(analysis_request, "path", None)
     metadata.add_row("Log 來源", Text(selected_path or result.input_path))
+    if analysis_request is not None:
+        metadata.add_row("時間區間", Text(request_time_range(analysis_request)))
+        metadata.add_row("Pattern", Text(getattr(analysis_request, "log_pattern", None) or DEFAULT_LOGBACK_PATTERN))
     metadata.add_row(
         "輸出檔案",
         Text("\n".join(result.exported_files) if has_export else "尚未匯出"),
@@ -203,6 +210,10 @@ def build_dashboard_view(result: AnalysisResult, compact: bool) -> Group:
         overview,
         _ResponsivePanelRow(metric_cards, minimum_panel_width=24),
         summary_panels,
+        *(
+            [Panel(Text(coverage), title="逐檔解析診斷", border_style="yellow")]
+            if (coverage := format_scan_coverage(getattr(result, "diagnostics", None))) else []
+        ),
         exception_panel,
         hotspot_panel,
         distribution_panel,

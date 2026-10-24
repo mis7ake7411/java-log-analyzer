@@ -1,3 +1,7 @@
+from log_analyzer.presentation.tui.controllers import patterns as patterns_module
+from log_analyzer.presentation.tui.controllers import results as results_module
+from tui_fixtures import make_analysis_result
+from dataclasses import replace
 import asyncio
 from datetime import datetime
 import logging
@@ -19,22 +23,15 @@ from tui_waits import (
 from log_analyzer.application.analysis_service import AnalysisRequest
 from log_analyzer.infrastructure.paths import get_system_root_path
 from log_analyzer.presentation.tui import LogAnalyzerApp
-from log_analyzer.presentation.tui.dialogs import DirectoryPickerScreen, FilePickerScreen
-from log_analyzer.presentation.tui.inputs import (
-    get_default_end_date_text,
-    get_default_end_time_text,
-    get_default_output_name_text,
-    get_default_start_date_text,
-    get_default_start_time_text,
-    parse_datetime_range_inputs,
-)
+from log_analyzer.presentation.tui.screens.path_picker import DirectoryPickerScreen, FilePickerScreen
+from log_analyzer.presentation.tui.form_values import get_default_end_date_text, get_default_end_time_text, get_default_output_name_text, get_default_start_date_text, get_default_start_time_text, parse_datetime_range_inputs
 from log_analyzer.presentation.tui.views import (
     build_dashboard_view,
     build_error_view,
     build_loading_view,
 )
 from log_analyzer.domain.parser import MatchedLogsStore
-from log_analyzer.presentation.tui.event_browser import EventBrowserScreen
+from log_analyzer.presentation.tui.screens.event_browser import EventBrowserScreen
 from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.error_messages import get_error_hint
 from log_analyzer.presentation.tui import views as tui_views
@@ -890,7 +887,7 @@ def test_paste_invalid_output_path_keeps_value_and_displays_error(tmp_path):
         app = LogAnalyzerApp()
         async with app.run_test() as pilot:
             await pilot.pause()
-            result = SimpleNamespace(total_logs=1, matched_occurrences=1)
+            result = make_analysis_result(tmp_path)
             app._last_result = result
             app._set_result_status("complete", result)
             app.action_show_export_settings()
@@ -1153,7 +1150,7 @@ def test_explicit_xml_outside_log_directory_is_not_replaced_by_autodiscovery(mon
         f'<configuration><property name="FILE_LOG_PATTERN" value="{external_pattern}"/></configuration>',
         encoding="utf-8",
     )
-    local_candidate = tui_module.find_best_logback_pattern(str(local_xml), str(log_dir))
+    local_candidate = patterns_module.find_best_logback_pattern(str(local_xml), str(log_dir))
     assert local_candidate is not None
     assert local_candidate.pattern == local_pattern
     assert local_candidate.matches == 1
@@ -1881,7 +1878,7 @@ def test_apply_selected_directory_autofills_logback_settings(monkeypatch, tmp_pa
         "#pattern-preview": FakeStatic(),
     }
 
-    monkeypatch.setattr("log_analyzer.presentation.tui.app.find_best_logback_pattern", lambda *_args, **_kwargs: FakePattern())
+    monkeypatch.setattr("log_analyzer.presentation.tui.controllers.patterns.find_best_logback_pattern", lambda *_args, **_kwargs: FakePattern())
 
     app = LogAnalyzerApp()
     app.query_one = lambda selector, *_args, **_kwargs: mapping[selector]  # type: ignore[assignment]
@@ -1935,7 +1932,7 @@ def test_apply_selected_directory_does_not_override_manual_logback_values(monkey
         "#pattern-preview": FakeStatic(),
     }
 
-    monkeypatch.setattr("log_analyzer.presentation.tui.app.find_best_logback_pattern", fail_if_called)
+    monkeypatch.setattr("log_analyzer.presentation.tui.controllers.patterns.find_best_logback_pattern", fail_if_called)
 
     app = LogAnalyzerApp()
     app.query_one = lambda selector, *_args, **_kwargs: mapping[selector]  # type: ignore[assignment]
@@ -2069,12 +2066,12 @@ def test_result_status_starts_idle_and_disables_clear():
     asyncio.run(run_check())
 
 
-def test_result_status_shows_completion_summary_and_clear_returns_to_idle():
+def test_result_status_shows_completion_summary_and_clear_returns_to_idle(tmp_path):
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test() as pilot:
             await pilot.pause()
-            result = SimpleNamespace(total_logs=12, matched_occurrences=5)
+            result = replace(make_analysis_result(tmp_path), total_logs=12, matched_occurrences=5)
 
             app._last_result = result
             app._set_result_status("complete", result)
@@ -2182,7 +2179,7 @@ def test_result_replacement_clear_and_unmount_release_stores(tmp_path: Path, mon
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(tui_module, "analyze_logs", fake_analyze_logs)
-    monkeypatch.setattr(tui_module, "build_dashboard_view", lambda *_args: "dashboard")
+    monkeypatch.setattr(results_module, "build_dashboard_view", lambda *_args: "dashboard")
 
     async def run_check() -> None:
         app = LogAnalyzerApp()
@@ -2280,7 +2277,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(
             )
 
             sequence = []
-            for _ in range(8):
+            for _ in range(9):
                 focused = app.focused
                 sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
                 await pilot.press("tab")
@@ -2290,6 +2287,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(
                 None,
                 "path",
                 "browse_path",
+                "select-source-files",
                 "keyword",
                 "clear_keyword",
                 "toggle_advanced_settings",
@@ -2311,7 +2309,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
             await pilot.pause()
 
             sequence = []
-            for _ in range(16):
+            for _ in range(17):
                 focused = app.focused
                 sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
                 await pilot.press("tab")
@@ -2321,6 +2319,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
                 None,
                 "path",
                 "browse_path",
+                "select-source-files",
                 "keyword",
                 "clear_keyword",
                 "toggle_advanced_settings",
@@ -2354,7 +2353,7 @@ def test_form_panel_scroll_area_reaches_right_edge():
     asyncio.run(run_check())
 
 
-def test_form_controls_keep_gap_from_scrollbar():
+def test_form_controls_keep_gap_from_scrollbar(tmp_path):
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(1292, 797)) as pilot:
@@ -2363,7 +2362,7 @@ def test_form_controls_keep_gap_from_scrollbar():
             form_panel = app.query_one("#form-panel")
             content_right = form_panel.content_region.x + form_panel.content_region.width
 
-            result = SimpleNamespace(total_logs=1, matched_occurrences=1)
+            result = make_analysis_result(tmp_path)
             app._last_result = result
             app._set_result_status("complete", result)
             app.action_show_export_settings()

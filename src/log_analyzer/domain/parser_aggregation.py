@@ -32,7 +32,7 @@ _LOG_FIELDS = {
 @dataclass(slots=True)
 class GroupedLog:
     count: int
-    line_numbers: tuple[int, ...]
+    line_numbers: list[int] | tuple[int, ...]
     timestamp: str
     last_timestamp: str
     level: str
@@ -157,21 +157,14 @@ def add_to_grouped_logs(grouped_logs, entry):
 
 
 def _append_line_number(entry, line_num):
-    line_numbers = entry.line_numbers
-    if isinstance(line_numbers, tuple):
-        entry.line_numbers = (*line_numbers, line_num)
-        return
-
-    if line_numbers is None:
-        entry.line_numbers = (line_num,)
-        return
-
-    entry.line_numbers = (line_numbers, line_num)
+    if not isinstance(entry.line_numbers, list):
+        entry.line_numbers = normalize_line_numbers(entry.line_numbers)
+    entry.line_numbers.append(line_num)
 
 
 def normalize_line_numbers(line_numbers):
     if isinstance(line_numbers, list):
-        return line_numbers
+        return list(line_numbers)
     if isinstance(line_numbers, tuple):
         return list(line_numbers)
     if line_numbers is None:

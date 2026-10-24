@@ -83,3 +83,36 @@
     height: 1fr;
     min-height: 8;
 }
+
+/* Give the dashboard useful reading space without moving either action row off screen. */
+#content.compact #output-panel {
+    padding: 0 1;
+}
+
+#content.compact.has-result #output-panel {
+    height: 2fr;
+}
+
+#content.compact #form-column {
+    min-height: 9;
+}
+
+#shell.compact.short.has-result #hero {
+    display: none;
+}
+
+#content.compact #result-box {
+    border: none;
+}
+
+#content.compact #output-panel > .section-title {
+    margin-bottom: 0;
+}
+
+#content.compact #result-status {
+    margin-bottom: 0;
+}
+
+#content.compact #output-actions {
+    margin-top: 0;
+}

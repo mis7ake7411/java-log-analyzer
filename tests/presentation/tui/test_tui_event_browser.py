@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 
 import pickle
 from collections import Counter
@@ -10,7 +11,7 @@ from types import SimpleNamespace
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import VerticalScroll
-from textual.widgets import Static
+from textual.widgets import Input, Select, Static
 
 from tui_waits import wait_for_button_ready, wait_for_ui_state
 
@@ -18,7 +19,8 @@ from log_analyzer.application.analysis_service import AnalysisResult
 from log_analyzer.application.source_preview import read_source_context
 from log_analyzer.domain.parser import MatchedLogsStore
 from log_analyzer.presentation.tui import LogAnalyzerApp
-from log_analyzer.presentation.tui.event_browser import EventBrowserScreen
+from log_analyzer.presentation.tui.screens.event_browser import EventBrowserScreen
+from log_analyzer.presentation.tui.screens import event_browser as browser_module
 
 
 class EventBrowserHarness(App[None]):
@@ -123,6 +125,198 @@ class _BoundedOccurrenceList(list[dict[str, object]]):
             if stop - start > 100:
                 self.copied_completely = True
         return super().__getitem__(index)
+
+
+def test_browser_query_filters_and_sorts_without_changing_analysis_result(tmp_path):
+    groups = [
+        _group(0, [_occurrence("app.log", 1)]),
+        _group(1, [_occurrence("app.log", line) for line in (2, 3, 4)]),
+        _group(2, [_occurrence("app.log", line, thread="worker-z") for line in (5, 6)]),
+    ]
+    groups[2]["last_timestamp"] = "2026-10-24 12:00:00"
+    groups[2]["occurrences"][0]["timestamp"] = "2026-10-24 12:00:00"
+    result = _result(tmp_path, groups)
+
+    async def run_check():
+        app = EventBrowserHarness(result)
+        async with app.run_test(size=(100, 38)) as pilot:
+            browser = app.screen
+            search = browser.query_one("#browser-query", Input)
+            search.value = "worker-z"
+            search.focus()
+            await pilot.press("enter")
+            await wait_for_ui_state(pilot, lambda: browser._group_indices == [2], "thread query did not finish")
+            assert len(browser.query_one("#event-options").options) == 1
+            assert "Service2" in str(browser.query_one("#event-options").options[0].prompt)
+            search.value = ""
+            browser.query_one("#browser-order", Select).value = "count"
+            search.focus()
+            await pilot.press("enter")
+            await wait_for_ui_state(pilot, lambda: browser._group_indices == [1, 2, 0], "count sort did not finish")
+            browser.query_one("#browser-order", Select).value = "recent"
+            search.focus()
+            await pilot.press("enter")
+            await wait_for_ui_state(pilot, lambda: browser._group_indices == [2, 0, 1], "recent sort did not finish")
+            search.value = "no matching group"
+            search.focus()
+            await pilot.press("enter")
+            await wait_for_ui_state(pilot, lambda: browser._group_indices == [], "empty query did not finish")
+            assert not browser.query_one("#event-options").options
+            assert browser.query_one("#browser-next").disabled
+            await wait_for_button_ready(app, pilot, "#browser-clear")
+            browser.query_one("#browser-clear").focus()
+            await pilot.press("enter")
+            await wait_for_ui_state(pilot, lambda: browser._group_indices is None, "clear did not restore groups")
+            assert len(browser.query_one("#event-options").options) == 3
+            assert list(result.matched_logs) == groups
+            assert result.matched_groups == 3
+            assert result.matched_occurrences == 6
+
+    try:
+        asyncio.run(run_check())
+    finally:
+        result.matched_logs.release()
+
+
+def test_browser_query_error_keeps_the_visible_page_and_reports_failure(tmp_path):
+    groups = [_group(0, [_occurrence("app.log", 1)])]
+    result = _result(tmp_path, groups)
+    original_store = result.matched_logs
+
+    class UnreadableStore(list):
+        def __iter__(self):
+            raise OSError("stored results unavailable")
+
+        def __getitem__(self, index):
+            if getattr(self, "unreadable", False):
+                raise OSError("stored results unavailable")
+            return super().__getitem__(index)
+
+    store = UnreadableStore(groups)
+    result.matched_logs = store
+
+    async def run_check():
+        app = EventBrowserHarness(result)
+        async with app.run_test(size=(100, 38)) as pilot:
+            browser = app.screen
+            options = browser.query_one("#event-options")
+            before = str(options.options[0].prompt)
+            store.unreadable = True
+            search = browser.query_one("#browser-query", Input)
+            search.value = "failure"
+            search.focus()
+            await pilot.press("enter")
+            await wait_for_ui_state(pilot, lambda: browser._query_task is not None and browser._query_task.done(), "failed query did not settle")
+            assert browser._query_task.exception() is None
+            assert "stored results unavailable" in browser.query_one("#browser-query-status", Static).render().plain
+            assert str(options.options[0].prompt) == before
+            assert not search.disabled
+
+    try:
+        asyncio.run(run_check())
+    finally:
+        original_store.release()
+
+
+def test_closing_browser_cancels_its_active_query(tmp_path, monkeypatch):
+    result = _result(tmp_path, [_group(0, [_occurrence("app.log", 1)])])
+
+    async def run_check():
+        entered, finished = asyncio.Event(), asyncio.Event()
+
+        async def delayed_query(*_args):
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                finished.set()
+
+        monkeypatch.setattr(browser_module, "find_group_indices", delayed_query)
+        app = EventBrowserHarness(result)
+        async with app.run_test(size=(100, 38)) as pilot:
+            browser = app.screen
+            search = browser.query_one("#browser-query", Input)
+            search.value = "failure"
+            search.focus()
+            await pilot.press("enter")
+            await wait_for_ui_state(pilot, entered.is_set, "query did not start")
+            browser.query_one("#close-event-browser").focus()
+            await pilot.press("enter")
+            await wait_for_ui_state(pilot, finished.is_set, "query was not cancelled on close")
+            assert browser._query_task.cancelled()
+            assert app.screen is not browser
+            assert result.matched_groups == 1
+
+    try:
+        asyncio.run(run_check())
+    finally:
+        result.matched_logs.release()
+
+
+def test_browser_back_preserves_group_and_occurrence_selection(tmp_path):
+    (tmp_path / "app.log").write_text("first\nsecond\nthird\n", encoding="utf-8")
+    groups = [_group(index, [_occurrence("app.log", 1), _occurrence("app.log", 2)]) for index in range(4)]
+    result = _result(tmp_path, groups, {"app.log": _snapshot(tmp_path / "app.log")})
+
+    async def run_check():
+        app = EventBrowserHarness(result)
+        async with app.run_test(size=(100, 38)) as pilot:
+            browser = app.screen
+            browser.page_size = 2
+            browser._render_group_page()
+            next_button = browser.query_one("#browser-next")
+            await wait_for_button_ready(app, pilot, "#browser-next")
+            next_button.focus()
+            await pilot.press("enter")
+            options = browser.query_one("#event-options")
+            options.focus()
+            await pilot.press("down", "enter")
+            options.focus()
+            await pilot.press("down", "enter")
+            await wait_for_ui_state(pilot, lambda: browser._view == "preview", "preview did not open")
+            for expected in ("occurrences", "groups"):
+                await wait_for_button_ready(app, pilot, "#browser-back")
+                browser.query_one("#browser-back").focus()
+                await pilot.press("enter")
+                await wait_for_ui_state(pilot, lambda: browser._view == expected, "back did not restore list")
+                assert options.highlighted == 1
+            assert browser._group_start == 2
+            assert "Service3" in str(options.options[1].prompt)
+
+    try:
+        asyncio.run(run_check())
+    finally:
+        result.matched_logs.release()
+
+
+def test_browser_query_controls_and_actions_fit_short_narrow_and_wide_screens(tmp_path):
+    result = _result(tmp_path, [_group(0, [_occurrence("app.log", 1)])])
+
+    async def run_check():
+        for size in ((64, 18), (72, 28), (160, 40)):
+            app = EventBrowserHarness(result)
+            async with app.run_test(size=size) as pilot:
+                browser = app.screen
+                search = browser.query_one("#browser-query", Input)
+                search.value = "failure"
+                search.focus()
+                await pilot.press("enter")
+                await wait_for_ui_state(pilot, lambda: browser._group_indices == [0], "search did not render")
+                ids = ("browser-query", "browser-order", "browser-apply", "browser-clear", "browser-previous", "browser-next", "close-event-browser")
+                for widget_id in ids:
+                    widget = browser.query_one(f"#{widget_id}")
+                    assert widget.region.bottom <= browser.region.bottom, (size, widget_id, widget.region)
+                    assert widget.region.right <= browser.region.right, (size, widget_id, widget.region)
+                    assert widget.is_on_screen, (size, widget_id)
+                capture = os.environ.get("TUI_CAPTURE_DIR")
+                if capture:
+                    Path(capture).mkdir(parents=True, exist_ok=True)
+                    app.save_screenshot(filename=f"event-query-{size[0]}x{size[1]}.svg", path=capture)
+
+    try:
+        asyncio.run(run_check())
+    finally:
+        result.matched_logs.release()
 
 
 def test_event_browser_selects_cross_file_coordinate_and_context(tmp_path: Path, monkeypatch) -> None:

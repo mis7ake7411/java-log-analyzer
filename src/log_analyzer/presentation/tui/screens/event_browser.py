@@ -1,18 +1,17 @@
 from __future__ import annotations
-
+import asyncio
 from math import ceil
-
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Container, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, OptionList, Static
+from textual.widgets import Button, Input, OptionList, Select, Static
 from textual.widgets.option_list import Option
-
-from ...application.analysis_service import AnalysisResult
-from ...application.source_context_index import SourceContextReader
-from ...application.source_preview import SourcePreview, read_source_context
-from ...domain.log_types import LogEntry, OccurrenceCoordinate
+from log_analyzer.application.analysis_service import AnalysisResult
+from log_analyzer.application.event_query import find_group_indices
+from log_analyzer.application.source_context_index import SourceContextReader
+from log_analyzer.application.source_preview import SourcePreview, read_source_context
+from log_analyzer.domain.log_types import LogEntry, OccurrenceCoordinate
 
 
 class EventBrowserScreen(ModalScreen[None]):
@@ -24,6 +23,12 @@ class EventBrowserScreen(ModalScreen[None]):
         self._view = "groups"
         self._valid = True
         self._group_start = 0
+        self._group_indices: list[int] | None = None
+        self._group_highlight = 0
+        self._occurrence_highlight = 0
+        self._query_sort = "original"
+        self._query_task: asyncio.Task | None = None
+        self._querying = False
         self._group_page: list[LogEntry] = []
         self._selected_group: LogEntry | None = None
         self._occurrences: list[OccurrenceCoordinate] = []
@@ -39,6 +44,24 @@ class EventBrowserScreen(ModalScreen[None]):
             yield Static("事件瀏覽", id="browser-title")
             yield Static("", id="browser-page")
             yield Static("", id="browser-sort-hint")
+            with Container(id="browser-controls"):
+                yield Input(
+                    placeholder="搜尋訊息、Logger 或 Thread", id="browser-query"
+                )
+                with Container(id="browser-query-toolbar"):
+                    yield Select(
+                        [
+                            ("分析原排序", "original"),
+                            ("出現次數最多", "count"),
+                            ("最近出現", "recent"),
+                        ],
+                        value="original",
+                        allow_blank=False,
+                        id="browser-order",
+                    )
+                    yield Button("套用", id="browser-apply")
+                    yield Button("清除", id="browser-clear")
+            yield Static("", id="browser-query-status")
             yield OptionList(id="event-options")
             with VerticalScroll(id="browser-preview-content"):
                 yield Static("", id="source-warning")
@@ -55,11 +78,94 @@ class EventBrowserScreen(ModalScreen[None]):
                 yield Button("關閉", id="close-event-browser")
 
     def on_mount(self) -> None:
+        self._update_browser_layout()
         self._render_group_page()
         self.query_one("#event-options", OptionList).focus()
 
     def on_unmount(self) -> None:
         self.invalidate()
+
+    def on_resize(self) -> None:
+        if self.is_mounted:
+            self._update_browser_layout()
+
+    def _update_browser_layout(self) -> None:
+        self.query_one("#browser-controls").set_class(self.size.width >= 100, "wide")
+        self.query_one("#event-browser-card").set_class(self.size.height < 30, "short")
+        self.query_one("#browser-sort-hint").display = (
+            self._view != "preview" and self.size.height >= 30
+        )
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "browser-query":
+            event.stop()
+            self._start_query()
+
+    def _start_query(self) -> None:
+        if self._valid and not self._querying and self._view == "groups":
+            self._querying = True
+            self._query_task = asyncio.create_task(self._apply_group_query())
+
+    async def _apply_group_query(self) -> None:
+        search = self.query_one("#browser-query", Input)
+        order = self.query_one("#browser-order", Select)
+        controls = [
+            search,
+            order,
+            self.query_one("#browser-apply"),
+            self.query_one("#browser-clear"),
+        ]
+        query, sort_by = search.value.strip(), str(order.value)
+        status = self.query_one("#browser-query-status", Static)
+        status.update("正在搜尋已分析結果…")
+        for widget in controls:
+            widget.disabled = True
+        self.query_one("#event-options").disabled = True
+        self.query_one("#browser-previous").disabled = True
+        self.query_one("#browser-next").disabled = True
+        previous = (
+            self._group_indices,
+            self._query_sort,
+            self._group_start,
+            self._group_highlight,
+        )
+        try:
+            indices = (
+                None
+                if not query and sort_by == "original"
+                else await find_group_indices(self.result.matched_logs, query, sort_by)
+            )
+            if not self._valid:
+                return
+            self._group_indices = indices
+            self._query_sort = sort_by
+            self._group_start = self._group_highlight = 0
+            self._render_group_page()
+            count = len(self.result.matched_logs) if indices is None else len(indices)
+            status.update(
+                f"瀏覽 {count}/{len(self.result.matched_logs)} 群組；分析結果與匯出內容未變更。"
+                if indices is not None
+                else ""
+            )
+        except (OSError, ValueError, EOFError) as exc:
+            (
+                self._group_indices,
+                self._query_sort,
+                self._group_start,
+                self._group_highlight,
+            ) = previous
+            status.update(f"無法搜尋：{exc}")
+        finally:
+            self._querying = False
+            if self._valid and self.is_mounted:
+                for widget in controls:
+                    widget.disabled = False
+                self.query_one("#event-options").disabled = False
+                self.query_one("#browser-previous").disabled = self._group_start <= 0
+                self.query_one("#browser-next").disabled = (
+                    self._group_start + self.page_size >= self._group_length()
+                )
+                self.query_one("#event-options").focus()
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         if not self._valid or event.option_list.id != "event-options":
@@ -73,6 +179,7 @@ class EventBrowserScreen(ModalScreen[None]):
             if page_index < 0 or page_index >= len(self._group_page):
                 return
             self._selected_group = self._group_page[page_index]
+            self._group_highlight = page_index
             occurrences = self._selected_group.get("occurrences")
             self._occurrences = occurrences if isinstance(occurrences, list) else []
             self._occurrence_order = sorted(
@@ -80,18 +187,26 @@ class EventBrowserScreen(ModalScreen[None]):
                 key=self._occurrence_sort_key,
             )
             self._occurrence_start = 0
+            self._occurrence_highlight = 0
             self._render_occurrence_page()
         elif self._view == "occurrences":
             absolute_index = self._occurrence_start + page_index
             if absolute_index < 0 or absolute_index >= len(self._occurrence_order):
                 return
             occurrence_index = self._occurrence_order[absolute_index]
+            self._occurrence_highlight = page_index
             self._render_preview(self._occurrences[occurrence_index])
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
         if button_id == "close-event-browser":
             self.dismiss()
+        elif button_id == "browser-apply":
+            self._start_query()
+        elif button_id == "browser-clear":
+            self.query_one("#browser-query", Input).value = ""
+            self.query_one("#browser-order", Select).value = "original"
+            self._start_query()
         elif button_id == "browser-previous":
             self._move_page(-1)
         elif button_id == "browser-next":
@@ -101,12 +216,16 @@ class EventBrowserScreen(ModalScreen[None]):
                 self._render_occurrence_page()
             elif self._view == "occurrences":
                 self._render_group_page()
+            self.query_one("#event-options").focus()
         elif button_id == "copy-coordinate":
             self._copy_coordinate()
 
     def invalidate(self) -> None:
         """Prevent cached coordinates from being used after their result is released."""
         self._valid = False
+        if self._query_task is not None and not self._query_task.done():
+            self._query_task.cancel()
+        self._group_indices = None
         self._group_page.clear()
         self._selected_group = None
         self._occurrences = []
@@ -119,15 +238,17 @@ class EventBrowserScreen(ModalScreen[None]):
         if not self._valid:
             return
         if self._view == "groups":
-            length = len(self.result.matched_logs)
+            length = self._group_length()
             next_start = self._group_start + direction * self.page_size
             if 0 <= next_start < length:
                 self._group_start = next_start
+                self._group_highlight = 0
                 self._render_group_page()
         elif self._view == "occurrences":
             next_start = self._occurrence_start + direction * self.page_size
             if 0 <= next_start < len(self._occurrence_order):
                 self._occurrence_start = next_start
+                self._occurrence_highlight = 0
                 self._render_occurrence_page()
 
     def _render_group_page(self) -> None:
@@ -139,9 +260,16 @@ class EventBrowserScreen(ModalScreen[None]):
         self._occurrence_order.clear()
         self._occurrence_start = 0
         store = self.result.matched_logs
-        length = len(store)
+        length = self._group_length()
         iter_page = getattr(store, "iter_page", None)
-        if callable(iter_page):
+        if self._group_indices is not None:
+            self._group_page = [
+                store[index]
+                for index in self._group_indices[
+                    self._group_start : self._group_start + self.page_size
+                ]
+            ]
+        elif callable(iter_page):
             self._group_page = list(iter_page(self._group_start, self.page_size))
         else:
             end = min(self._group_start + self.page_size, length)
@@ -156,6 +284,17 @@ class EventBrowserScreen(ModalScreen[None]):
             options=options,
             start=self._group_start,
             length=length,
+        )
+        if options:
+            self.query_one("#event-options", OptionList).highlighted = min(
+                self._group_highlight, len(options) - 1
+            )
+
+    def _group_length(self) -> int:
+        return (
+            len(self.result.matched_logs)
+            if self._group_indices is None
+            else len(self._group_indices)
         )
 
     def _render_occurrence_page(self) -> None:
@@ -180,6 +319,10 @@ class EventBrowserScreen(ModalScreen[None]):
             start=self._occurrence_start,
             length=length,
         )
+        if options:
+            self.query_one("#event-options", OptionList).highlighted = min(
+                self._occurrence_highlight, len(options) - 1
+            )
 
     def _render_preview(self, occurrence: OccurrenceCoordinate) -> None:
         if not self._valid:
@@ -194,6 +337,8 @@ class EventBrowserScreen(ModalScreen[None]):
             reader=self._source_context_reader,
         )
         self._view = "preview"
+        self.query_one("#browser-controls").display = False
+        self.query_one("#browser-query-status").display = False
         self._current_preview = preview
         self._copy_path_line = (
             preview.path_line if preview.warning is None and preview.lines else None
@@ -217,23 +362,35 @@ class EventBrowserScreen(ModalScreen[None]):
         encoding_notice_widget.display = bool(preview.encoding_notice)
         encoding_notice_widget.update(preview.encoding_notice or "")
         self.query_one("#source-path", Static).display = True
-        self.query_one("#source-path", Static).update(Text(preview.path_line or "", no_wrap=False))
+        self.query_one("#source-path", Static).update(
+            Text(preview.path_line or "", no_wrap=False)
+        )
         retained_details = self.query_one("#retained-details", Static)
         retained_details.display = True
         if self._selected_group is not None:
-            retained_details.update(self._retained_details_text(self._selected_group, occurrence))
+            retained_details.update(
+                self._retained_details_text(self._selected_group, occurrence)
+            )
         context_widget = self.query_one("#source-context", Static)
         has_verified_context = preview.warning is None and bool(preview.lines)
         context_widget.display = has_verified_context
-        context_widget.update(self._context_text(preview) if has_verified_context else Text())
+        context_widget.update(
+            self._context_text(preview) if has_verified_context else Text()
+        )
         self.query_one("#copy-feedback", Static).display = True
         self.query_one("#copy-feedback", Static).update("")
         copy_button = self.query_one("#copy-coordinate", Button)
         copy_button.display = True
         copy_button.disabled = self._copy_path_line is None
-        self.query_one("#browser-preview-content", VerticalScroll).scroll_home(animate=False)
+        self.query_one("#browser-preview-content", VerticalScroll).scroll_home(
+            animate=False
+        )
 
-    def _set_list_state(self, title: str, options: list[Option], start: int, length: int) -> None:
+    def _set_list_state(
+        self, title: str, options: list[Option], start: int, length: int
+    ) -> None:
+        self.query_one("#browser-controls").display = self._view == "groups"
+        self.query_one("#browser-query-status").display = self._view == "groups"
         self.query_one("#browser-title", Static).update(title)
         first = start + 1 if length else 0
         last = min(start + self.page_size, length)
@@ -247,7 +404,7 @@ class EventBrowserScreen(ModalScreen[None]):
         self.query_one("#browser-page", Static).update(page_label)
         self.query_one("#browser-page", Static).display = True
         sort_hint = self.query_one("#browser-sort-hint", Static)
-        sort_hint.display = True
+        sort_hint.display = self.size.height >= 30
         sort_hint.update(self._sort_hint())
         event_options = self.query_one("#event-options", OptionList)
         event_options.set_options(options)
@@ -257,7 +414,9 @@ class EventBrowserScreen(ModalScreen[None]):
         self.query_one("#browser-previous", Button).display = True
         self.query_one("#browser-next", Button).display = True
         self.query_one("#browser-previous", Button).disabled = start <= 0
-        self.query_one("#browser-next", Button).disabled = start + self.page_size >= length
+        self.query_one("#browser-next", Button).disabled = (
+            start + self.page_size >= length
+        )
         back_button = self.query_one("#browser-back", Button)
         back_button.display = self._view != "groups"
         back_button.label = "返回事件群組" if self._view == "occurrences" else "返回"
@@ -301,7 +460,9 @@ class EventBrowserScreen(ModalScreen[None]):
             else "?"
         )
         filename = group.get("filename")
-        filename_text = filename if isinstance(filename, str) and filename else "未知檔案"
+        filename_text = (
+            filename if isinstance(filename, str) and filename else "未知檔案"
+        )
         line_numbers = group.get("line_numbers", [])
         first_line = (
             line_numbers[0]
@@ -316,7 +477,9 @@ class EventBrowserScreen(ModalScreen[None]):
         message = group.get("message_body")
         if not isinstance(message, str):
             message = group.get("message")
-        message_text = message if isinstance(message, str) and message else "（無保留訊息）"
+        message_text = (
+            message if isinstance(message, str) and message else "（無保留訊息）"
+        )
 
         EventBrowserScreen._append_field(
             text,
@@ -347,7 +510,9 @@ class EventBrowserScreen(ModalScreen[None]):
         timestamp = group.get("timestamp")
         last_timestamp = group.get("last_timestamp")
         first_text = timestamp if isinstance(timestamp, str) and timestamp else ""
-        last_text = last_timestamp if isinstance(last_timestamp, str) and last_timestamp else ""
+        last_text = (
+            last_timestamp if isinstance(last_timestamp, str) and last_timestamp else ""
+        )
         if first_text and last_text and first_text != last_text:
             return f"{first_text} → {last_text}"
         return first_text or last_text or "未知時間"
@@ -358,15 +523,21 @@ class EventBrowserScreen(ModalScreen[None]):
         line_number = occurrence.get("line_number")
         timestamp = occurrence.get("timestamp")
         thread = occurrence.get("thread")
-        filename_text = filename if isinstance(filename, str) and filename else "未知檔案"
+        filename_text = (
+            filename if isinstance(filename, str) and filename else "未知檔案"
+        )
         line_text = (
             str(line_number)
             if isinstance(line_number, int) and not isinstance(line_number, bool)
             else "?"
         )
-        timestamp_text = timestamp if isinstance(timestamp, str) and timestamp else "未知時間"
+        timestamp_text = (
+            timestamp if isinstance(timestamp, str) and timestamp else "未知時間"
+        )
         thread_text = thread if isinstance(thread, str) and thread else "未知執行緒"
-        return Text(f"{filename_text}:{line_text}｜時間 {timestamp_text}｜執行緒 {thread_text}")
+        return Text(
+            f"{filename_text}:{line_text}｜時間 {timestamp_text}｜執行緒 {thread_text}"
+        )
 
     def _occurrence_sort_key(self, occurrence_index: int) -> tuple[str, str, int]:
         occurrence = self._occurrences[occurrence_index]
@@ -387,12 +558,18 @@ class EventBrowserScreen(ModalScreen[None]):
     def _sort_hint(self) -> str:
         if self._view == "occurrences":
             return "排序：本群組內依時間由早到晚"
+        if self._query_sort == "count":
+            return "瀏覽排序：出現次數最多"
+        if self._query_sort == "recent":
+            return "瀏覽排序：最近出現"
         if getattr(self.result, "sort_by", "time") == "level":
             return "排序：層級順序，再依時間由早到晚"
         return "排序：時間由早到晚"
 
     @staticmethod
-    def _retained_details_text(group: LogEntry, occurrence: OccurrenceCoordinate) -> Text:
+    def _retained_details_text(
+        group: LogEntry, occurrence: OccurrenceCoordinate
+    ) -> Text:
         text = Text()
 
         text.append("選取的出現位置\n", style="bold cyan")
@@ -400,9 +577,13 @@ class EventBrowserScreen(ModalScreen[None]):
         thread = occurrence.get("thread")
         filename = occurrence.get("filename")
         line_number = occurrence.get("line_number")
-        timestamp_text = timestamp if isinstance(timestamp, str) and timestamp else "未知時間"
+        timestamp_text = (
+            timestamp if isinstance(timestamp, str) and timestamp else "未知時間"
+        )
         thread_text = thread if isinstance(thread, str) and thread else "未知執行緒"
-        filename_text = filename if isinstance(filename, str) and filename else "未知檔案"
+        filename_text = (
+            filename if isinstance(filename, str) and filename else "未知檔案"
+        )
         line_text = (
             str(line_number)
             if isinstance(line_number, int) and not isinstance(line_number, bool)
@@ -410,7 +591,9 @@ class EventBrowserScreen(ModalScreen[None]):
         )
         EventBrowserScreen._append_field(text, "時間：", timestamp_text + "\n")
         EventBrowserScreen._append_field(text, "執行緒：", thread_text + "\n")
-        EventBrowserScreen._append_field(text, "座標：", f"{filename_text}:{line_text}\n\n")
+        EventBrowserScreen._append_field(
+            text, "座標：", f"{filename_text}:{line_text}\n\n"
+        )
 
         text.append("事件群組資訊\n", style="bold cyan")
 
@@ -421,7 +604,9 @@ class EventBrowserScreen(ModalScreen[None]):
         message = group.get("message_body")
         if not isinstance(message, str):
             message = group.get("message")
-        message_text = message if isinstance(message, str) and message else "（無保留訊息）"
+        message_text = (
+            message if isinstance(message, str) and message else "（無保留訊息）"
+        )
         stacktrace = group.get("stacktrace")
         if not isinstance(stacktrace, str) or not stacktrace:
             stacktrace_lines = group.get("stacktrace_lines")
@@ -458,5 +643,8 @@ class EventBrowserScreen(ModalScreen[None]):
                 text.append("\n")
             style = "bold cyan" if line_number == preview.match_line else "dim"
             text.append(f"{line_number:>6}  ", style=style)
-            text.append(content, style="bold yellow" if line_number == preview.match_line else "")
+            text.append(
+                content,
+                style="bold yellow" if line_number == preview.match_line else "",
+            )
         return text

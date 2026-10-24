@@ -1,8 +1,20 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol, TypedDict, runtime_checkable
+
+
+@dataclass
+class FileScanCoverage:
+    filename: str
+    total_lines: int = 0
+    parsed_entries: int = 0
+    blank_lines: int = 0
+    stacktrace_lines: int = 0
+    continuation_lines: int = 0
+    unrecognized_lines: int = 0
+    unrecognized_samples: list[tuple[int, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -14,6 +26,7 @@ class ScanDiagnostics:
     after_keyword: int = 0
     encoding_error_files: int = 0
     encoding_error_lines: int = 0
+    file_coverage: list[FileScanCoverage] = field(default_factory=list)
 
 
 class LogEntry(TypedDict, total=False):

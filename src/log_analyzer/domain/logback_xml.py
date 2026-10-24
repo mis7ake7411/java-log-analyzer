@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import re
 import xml.etree.ElementTree as ET
+from contextlib import closing
+from itertools import islice
 
 from .text_decoding import (
     SOURCE_TEXT_ENCODING,
@@ -27,6 +29,7 @@ class LogbackPatternCandidate:
     xml_path: str = ""
     error: str | None = None
     previews: tuple[PatternSample, ...] = ()
+    file_scores: tuple[PatternFileScore, ...] = ()
 
     @property
     def score(self) -> float:
@@ -39,6 +42,13 @@ class LogbackPatternCandidate:
 class PatternSample:
     raw: str
     fields: dict[str, str] | None
+
+
+@dataclass(frozen=True, slots=True)
+class PatternFileScore:
+    filename: str
+    matches: int
+    checked: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,7 +107,8 @@ def assess_logback_patterns(
     if sample_limit <= 0:
         raise ValueError("sample_limit 必須大於 0")
 
-    samples = list(_read_log_samples(log_dir, min(sample_limit, 50), selected_files=selected_files))
+    source = select_log_source(log_dir, selected_files=selected_files)
+    samples = list(_read_source_samples(source.root, min(sample_limit, 50), selected_files=source.filenames))
     candidates: list[LogbackPatternCandidate] = []
     seen_patterns: set[str] = set()
     xml_errors: list[str] = []
@@ -113,7 +124,7 @@ def assess_logback_patterns(
             if candidate.pattern in seen_patterns:
                 continue
             seen_patterns.add(candidate.pattern)
-            candidates.append(_assess_candidate(candidate, samples, xml_path))
+            candidates.append(_assess_candidate(candidate, samples, xml_path, source.filenames))
 
     return _classify_assessment(tuple(candidates), len(samples), tuple(xml_errors))
 
@@ -172,6 +183,17 @@ def _classify_assessment(
     elif best_candidates[0].score < 0.8:
         reason = f"最高候選只命中 {best_candidates[0].matches}/{best_candidates[0].checked}，低於 80% 信心門檻。"
     else:
+        weak_files = [
+            item.filename for item in best_candidates[0].file_scores
+            if item.checked and item.matches / item.checked < 0.8
+        ]
+        if weak_files:
+            names = "、".join(weak_files[:5])
+            suffix = f"（共 {len(weak_files)} 個）" if len(weak_files) > 5 else ""
+            return LogbackPatternAssessment(
+                "uncertain", f"整體命中率達門檻，但個別檔案低於 80%：{names}{suffix}。",
+                candidates, None, checked,
+            )
         return LogbackPatternAssessment(
             "ready",
             f"唯一最高候選命中 {best_candidates[0].matches}/{best_candidates[0].checked}。",
@@ -185,8 +207,9 @@ def _classify_assessment(
 
 def _assess_candidate(
     candidate: LogbackPatternCandidate,
-    samples: list[str],
+    samples: list[tuple[str, str]],
     xml_path: str,
+    filenames: tuple[str, ...],
 ) -> LogbackPatternCandidate:
     scored = LogbackPatternCandidate(
         candidate.name,
@@ -195,6 +218,7 @@ def _assess_candidate(
         xml_path=xml_path,
     )
     scored.checked = len(samples)
+    counts = {filename: [0, 0] for filename in filenames}
     try:
         pattern = compile_logback_pattern(candidate.pattern)
     except (ValueError, re.error) as exc:
@@ -203,10 +227,12 @@ def _assess_candidate(
 
     matched_previews: list[PatternSample] = []
     unmatched_previews: list[PatternSample] = []
-    for line in samples:
+    for filename, line in samples:
+        counts[filename][1] += 1
         match = pattern.match(line)
         if match:
             scored.matches += 1
+            counts[filename][0] += 1
             if len(matched_previews) < 3:
                 matched_previews.append(
                     PatternSample(
@@ -217,6 +243,10 @@ def _assess_candidate(
         elif len(unmatched_previews) < 3:
             unmatched_previews.append(PatternSample(raw=line.rstrip("\r\n")[:500], fields=None))
     scored.previews = tuple(matched_previews + unmatched_previews)
+    scored.file_scores = tuple(
+        PatternFileScore(filename, matches, checked)
+        for filename, (matches, checked) in counts.items()
+    )
     return scored
 
 
@@ -226,18 +256,28 @@ def _read_log_samples(
     *,
     selected_files: tuple[str, ...] | None = None,
 ) -> Iterable[str]:
+    for _, line in _read_source_samples(log_dir, sample_limit, selected_files=selected_files):
+        yield line
+
+
+def _read_source_samples(
+    log_dir: str,
+    sample_limit: int,
+    *,
+    selected_files: tuple[str, ...] | None = None,
+) -> Iterable[tuple[str, str]]:
     source = select_log_source(log_dir, selected_files=selected_files)
     remaining = sample_limit
-    for filename in source.filenames:
+    for index, filename in enumerate(source.filenames):
         if remaining <= 0:
             break
-
+        # 為後續檔案保留額度；空檔／短檔未用完的額度交給後續檔案。
+        quota = max(1, remaining // (len(source.filenames) - index))
         filepath = os.path.join(source.root, filename)
-        for line in _iter_nonempty_lines(filepath):
-            if remaining <= 0:
-                break
-            yield line
-            remaining -= 1
+        with closing(_iter_nonempty_lines(filepath)) as lines:
+            for line in islice(lines, quota):
+                yield filename, line
+                remaining -= 1
 
 
 def _property_candidate(element: ET.Element) -> LogbackPatternCandidate | None:

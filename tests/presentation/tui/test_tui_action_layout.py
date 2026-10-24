@@ -5,10 +5,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from textual.widgets import RichLog
+from textual.widgets import Input, RichLog
+import os
 
 from tui_waits import (
     wait_for_layout_to_settle as _wait_for_layout_to_settle,
+    wait_for_ui_state,
 )
 
 from log_analyzer.presentation.tui import app as tui
@@ -117,6 +119,37 @@ def test_form_actions_align_with_form_panel_and_stay_visible(size) -> None:
                 assert feedback.region.height >= 2
                 _assert_inside(feedback, app.query_one("#content"))
                 _assert_inside(feedback, app.screen)
+
+    asyncio.run(run_check())
+
+
+@pytest.mark.parametrize("size", [(72, 28), (80, 40), (160, 40)])
+def test_result_remains_readable_with_changed_conditions_in_short_window(size):
+    async def run_check():
+        with (
+            patch.object(tui, "load_recent_tui_state", return_value={}),
+            patch.object(tui, "save_recent_tui_state"),
+        ):
+            app = tui.LogAnalyzerApp()
+            async with app.run_test(size=size) as pilot:
+                box = app.query_one("#result-box", RichLog)
+                app._pending_result_identity = app._capture_result_form_identity()
+                app._display_analysis_result(box, _dashboard_result())
+                notice = app.query_one("#result-context-notice")
+                app.query_one("#keyword", Input).value = "changed"
+                await wait_for_ui_state(pilot, lambda: notice.display, "changed conditions notice did not appear")
+                await _wait_for_layout_to_settle(pilot, (box, notice))
+                assert notice.display
+                assert box.content_size.height >= 6
+                _assert_form_actions_fit(app)
+                for button in app.query_one("#output-actions").query("Button"):
+                    _assert_inside(button, app.screen)
+                assert box.max_scroll_y > 0
+                box.scroll_end(animate=False)
+                await wait_for_ui_state(pilot, lambda: box.scroll_y > 0, "result scroll did not move")
+                capture = os.environ.get("TUI_CAPTURE_DIR")
+                if capture:
+                    app.save_screenshot(filename=f"readable-result-{size[0]}x{size[1]}.svg", path=capture)
 
     asyncio.run(run_check())
 

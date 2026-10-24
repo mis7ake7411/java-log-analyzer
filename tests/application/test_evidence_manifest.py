@@ -132,6 +132,19 @@ def test_manifest_captures_frozen_analysis_reports_and_source_hashes(tmp_path):
     assert "Second failure" not in serialized
 
 
+def test_manifest_does_not_include_local_unrecognized_line_samples(tmp_path):
+    result, options, report_files, _, _ = _analyzed_export(tmp_path)
+    try:
+        result.diagnostics.file_coverage[0].unrecognized_samples.append((1, "private diagnostic sample"))
+        path = _export_evidence_manifest()(result, options, report_files)
+        serialized = Path(path).read_text(encoding="utf-8")
+        assert "private diagnostic sample" not in serialized
+        assert "file_coverage" not in serialized
+        assert result.diagnostics.file_coverage[0].unrecognized_samples
+    finally:
+        result.matched_logs.release()
+
+
 def test_manifest_uses_file_source_root_and_reports_verified_changed_and_missing(tmp_path):
     export_evidence_manifest = _export_evidence_manifest()
     logs = tmp_path / "logs"

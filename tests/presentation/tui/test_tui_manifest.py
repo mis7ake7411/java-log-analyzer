@@ -1,3 +1,4 @@
+from log_analyzer.presentation.tui.controllers import exporting as exporting_module
 import asyncio
 import hashlib
 import json
@@ -59,7 +60,7 @@ def test_manifest_is_opt_in_and_default_export_creates_reports_only(tmp_path, mo
         manifest_calls.append((args, kwargs))
         raise AssertionError("default export must not create a bundle")
 
-    monkeypatch.setattr(tui_module, "export_analysis_bundle", fail_if_called)
+    monkeypatch.setattr(exporting_module, "export_analysis_bundle", fail_if_called)
 
     async def run_check() -> None:
         app = LogAnalyzerApp()
@@ -90,7 +91,7 @@ def test_export_click_freezes_report_options_and_manifest_choice(tmp_path, monke
     monkeypatch.chdir(tmp_path)
     export_started = threading.Event()
     continue_export = threading.Event()
-    real_bundle = tui_module.export_analysis_bundle
+    real_bundle = exporting_module.export_analysis_bundle
     bundle_calls = []
 
     def blocking_bundle(result, options):
@@ -100,7 +101,7 @@ def test_export_click_freezes_report_options_and_manifest_choice(tmp_path, monke
             raise TimeoutError("test did not release the export bundle")
         return real_bundle(result, options)
 
-    monkeypatch.setattr(tui_module, "export_analysis_bundle", blocking_bundle)
+    monkeypatch.setattr(exporting_module, "export_analysis_bundle", blocking_bundle)
 
     async def run_check() -> None:
         app = LogAnalyzerApp()
@@ -138,14 +139,14 @@ def test_manifest_uses_frozen_analysis_and_matches_exported_report_hash(tmp_path
     export_dir = tmp_path / "exports"
     export_dir.mkdir()
     monkeypatch.chdir(tmp_path)
-    real_bundle = tui_module.export_analysis_bundle
+    real_bundle = exporting_module.export_analysis_bundle
     bundle_calls = []
 
     def capture_bundle(result, options):
         bundle_calls.append((result, options))
         return real_bundle(result, options)
 
-    monkeypatch.setattr(tui_module, "export_analysis_bundle", capture_bundle)
+    monkeypatch.setattr(exporting_module, "export_analysis_bundle", capture_bundle)
 
     async def run_check() -> None:
         app = LogAnalyzerApp()
@@ -203,7 +204,7 @@ def test_bundle_failure_is_atomic_and_retry_uses_same_result(tmp_path, monkeypat
     export_dir.mkdir()
     monkeypatch.chdir(tmp_path)
     real_analyze = tui_module.analyze_logs
-    real_bundle = tui_module.export_analysis_bundle
+    real_bundle = exporting_module.export_analysis_bundle
     analysis_calls = []
     bundle_calls = []
 
@@ -218,7 +219,7 @@ def test_bundle_failure_is_atomic_and_retry_uses_same_result(tmp_path, monkeypat
         return real_bundle(result, options)
 
     monkeypatch.setattr(tui_module, "analyze_logs", capture_analysis)
-    monkeypatch.setattr(tui_module, "export_analysis_bundle", fail_once)
+    monkeypatch.setattr(exporting_module, "export_analysis_bundle", fail_once)
 
     async def run_check() -> None:
         app = LogAnalyzerApp()
@@ -264,7 +265,7 @@ def test_bundle_retry_keeps_auto_generated_report_name(tmp_path, monkeypatch):
     export_dir = tmp_path / "exports"
     export_dir.mkdir()
     monkeypatch.chdir(tmp_path)
-    real_bundle = tui_module.export_analysis_bundle
+    real_bundle = exporting_module.export_analysis_bundle
     generated_names = []
     bundle_output_paths = []
 
@@ -280,7 +281,7 @@ def test_bundle_retry_keeps_auto_generated_report_name(tmp_path, monkeypatch):
         return real_bundle(result, options)
 
     monkeypatch.setattr(tui_module, "get_default_output_name_text", next_default_name)
-    monkeypatch.setattr(tui_module, "export_analysis_bundle", fail_bundle_once)
+    monkeypatch.setattr(exporting_module, "export_analysis_bundle", fail_bundle_once)
 
     async def run_check() -> None:
         app = LogAnalyzerApp()
@@ -325,8 +326,8 @@ def test_report_export_failure_does_not_attempt_manifest_and_keeps_result(tmp_pa
         bundle_calls.append((args, kwargs))
         raise AssertionError("bundle must not run when manifest is not requested")
 
-    monkeypatch.setattr(tui_module, "export_analysis_result", fail_report)
-    monkeypatch.setattr(tui_module, "export_analysis_bundle", fail_bundle)
+    monkeypatch.setattr(exporting_module, "export_analysis_result", fail_report)
+    monkeypatch.setattr(exporting_module, "export_analysis_bundle", fail_bundle)
 
     async def run_check() -> None:
         app = LogAnalyzerApp()

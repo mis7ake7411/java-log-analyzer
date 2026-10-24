@@ -1,3 +1,5 @@
+from log_analyzer.presentation.tui.controllers import exporting as exporting_module
+from log_analyzer.presentation.tui.controllers import patterns as patterns_module
 import asyncio
 from pathlib import Path
 
@@ -171,7 +173,7 @@ def test_apply_restores_saved_conditions_without_running_or_replacing_result(tmp
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("analysis must not run")),
     )
     monkeypatch.setattr(
-        tui_module,
+        exporting_module,
         "export_analysis_result",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("export must not run")),
     )
@@ -453,7 +455,7 @@ def test_modal_enter_does_not_run_actions_and_escape_closes(tmp_path, monkeypatc
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("analysis must not run")),
     )
     monkeypatch.setattr(
-        tui_module,
+        exporting_module,
         "export_analysis_result",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("export must not run")),
     )
@@ -609,7 +611,7 @@ def test_applied_default_pattern_is_preserved_until_source_path_changes(tmp_path
         f'<configuration><property name="CONSOLE_LOG_PATTERN" value="{pattern}"/></configuration>',
         encoding="utf-8",
     )
-    assert tui_module.find_best_logback_pattern(str(xml_path), str(logs)) is not None
+    assert patterns_module.find_best_logback_pattern(str(xml_path), str(logs)) is not None
 
     store = RecipeStore(tmp_path / "recipes.json")
     store.save(

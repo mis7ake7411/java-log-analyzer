@@ -139,7 +139,10 @@ def test_no_matches_carry_scan_diagnostics_and_real_scan_can_succeed_after_retry
         )
 
     assert str(caught.value).startswith("找不到符合條件的 log")
-    assert caught.value.diagnostics == ScanDiagnostics(1, 1, 1, 1, 0)
+    from log_analyzer.domain.log_types import FileScanCoverage
+
+    coverage = [FileScanCoverage("app.log", total_lines=1, parsed_entries=1)]
+    assert caught.value.diagnostics == ScanDiagnostics(1, 1, 1, 1, 0, file_coverage=coverage)
 
     result = run_analysis(
         str(logs),
@@ -153,7 +156,7 @@ def test_no_matches_carry_scan_diagnostics_and_real_scan_can_succeed_after_retry
     )
 
     assert result.total_logs == 1
-    assert result.diagnostics == ScanDiagnostics(1, 1, 1, 1, 1)
+    assert result.diagnostics == ScanDiagnostics(1, 1, 1, 1, 1, file_coverage=coverage)
     result.matched_logs.release()
 
 

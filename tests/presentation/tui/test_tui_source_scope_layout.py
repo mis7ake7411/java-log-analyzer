@@ -6,7 +6,7 @@ from textual.containers import VerticalScroll
 from textual.widgets import Input, Static
 
 from log_analyzer.domain.log_sources import select_log_source
-from log_analyzer.presentation.tui.source_scope import SourceScopePreview
+from log_analyzer.presentation.tui.components.source_scope import SourceScopePreview
 
 
 class _SourceScopeHarness(App):
@@ -149,6 +149,8 @@ def test_source_scope_list_is_focusable_only_when_it_scrolls_and_updates_after_r
 
             app.query_one("#before", Input).focus()
             await pilot.press("tab")
+            assert app.focused is app.query_one("#select-source-files")
+            await pilot.press("tab")
             assert app.focused is scope_list
 
             await pilot.resize_terminal(160, 44)
@@ -157,6 +159,8 @@ def test_source_scope_list_is_focusable_only_when_it_scrolls_and_updates_after_r
             assert not scope_list.focusable
 
             app.query_one("#before", Input).focus()
+            await pilot.press("tab")
+            assert app.focused is app.query_one("#select-source-files")
             await pilot.press("tab")
             assert app.focused is app.query_one("#keyword", Input)
 
