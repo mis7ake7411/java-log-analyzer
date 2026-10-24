@@ -1022,7 +1022,9 @@ def test_pasted_logback_xml_path_loads_pattern_before_analysis(
 
             if submit_via == "run_button":
                 app.query_one("#run").scroll_visible(animate=False)
-                await pilot.pause()
+                await _wait_for_layout_to_settle(
+                    pilot, (app.query_one("#run"), app.query_one("#form-panel"))
+                )
                 clicked = await pilot.click("#run")
                 assert clicked, "#run click did not hit its button"
             else:
@@ -1984,9 +1986,11 @@ def test_run_button_stays_below_form_scroll_area():
             form_panel = app.query_one("#form-panel")
             form_actions = app.query_one("#form-actions")
             app.action_toggle_advanced_settings()
-            await pilot.pause()
+            await _wait_for_layout_to_settle(pilot, (form_panel, form_actions))
             form_panel.scroll_end(animate=False)
-            await pilot.pause()
+            await _wait_for_layout_to_settle(
+                pilot, (form_panel, form_actions), lambda: form_panel.scroll_offset.y > 0
+            )
 
             assert form_panel.scroll_offset.y > 0
             assert form_actions.region.y >= form_panel.region.y + form_panel.region.height

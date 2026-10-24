@@ -14,7 +14,7 @@ from textual.app import App, ComposeResult
 from textual.containers import VerticalScroll
 from textual.widgets import Input, Select, Static
 
-from tui_waits import wait_for_button_ready, wait_for_ui_state
+from tui_waits import wait_for_button_ready, wait_for_ui_state, wait_for_layout_to_settle
 
 from log_analyzer.application.analysis_service import AnalysisResult
 from log_analyzer.application.source_preview import read_source_context
@@ -753,8 +753,11 @@ def test_event_browser_resets_preview_scroll_for_another_occurrence(tmp_path: Pa
             await pilot.pause()
 
             preview_content = browser.query_one("#browser-preview-content", VerticalScroll)
+            await wait_for_layout_to_settle(pilot, (preview_content,))
             preview_content.scroll_end(animate=False)
-            await pilot.pause()
+            await wait_for_ui_state(
+                pilot, lambda: preview_content.scroll_y > 0, "source preview scroll did not move"
+            )
             assert preview_content.scroll_y > 0
 
             await pilot.click("#browser-back")
