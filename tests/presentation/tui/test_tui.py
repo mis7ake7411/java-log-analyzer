@@ -680,11 +680,23 @@ def test_advanced_settings_logback_browse_button_keeps_right_edge_aligned():
         async with app.run_test(size=(1606, 979)) as pilot:
             await pilot.pause()
             app.action_toggle_advanced_settings()
-            await pilot.pause()
 
             logback_xml_path = app.query_one("#logback_xml_path")
             browse_button = app.query_one("#browse_logback_xml")
             path_row = logback_xml_path.parent
+            await _wait_for_ui_state(
+                pilot,
+                lambda: (
+                    logback_xml_path.region.width > 0
+                    and browse_button.region.width > 0
+                    and browse_button.region.height > 0
+                ),
+                "Logback browse control did not enter the layout",
+            )
+            await _wait_for_layout_to_settle(
+                pilot,
+                (logback_xml_path, browse_button, path_row, app.query_one("#advanced-settings")),
+            )
 
             assert browse_button.region.width <= 10
             assert browse_button.region.x + browse_button.region.width <= path_row.region.x + path_row.region.width

@@ -257,6 +257,7 @@ def test_auto_discovery_refreshes_xml_candidates_before_each_analysis(tmp_path, 
 
             second_xml = _write_xml(log_dir / "logback-spring.xml", "SECOND_PATTERN", TIED_PATTERN)
             previous_task = app._scheduled_analysis_task
+            await _wait_for_run_button_ready(app, pilot)
             second_click = await asyncio.wait_for(pilot.click("#run"), timeout=5)
             assert second_click, "second #run click did not hit its button"
             await _wait_for_scheduled_analysis(app, previous_task)

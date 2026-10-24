@@ -181,9 +181,20 @@ def test_default_export_keeps_legacy_all_fields_report_layout(tmp_path, monkeypa
             await pilot.pause()
             await _wait_for_scheduled_analysis(app)
             await pilot.click("#export-result")
-            await pilot.pause()
-            await pilot.click("#confirm-export")
-            await pilot.pause()
+            settings = app.query_one("#export-settings")
+            confirm = app.query_one("#confirm-export")
+            await _wait_for_export_confirmation_layout(app, pilot)
+            assert settings.display is True
+            assert confirm.display is True
+            assert confirm.disabled is False
+            confirm_click_reached_button = await pilot.click(
+                "#confirm-export", offset=(1, 1)
+            )
+            assert confirm_click_reached_button is True
+            for _ in range(10):
+                await pilot.pause()
+                if captured_options and not app._operation_in_progress:
+                    break
 
             assert app._last_result is not None
             assert len(captured_options) == 1
