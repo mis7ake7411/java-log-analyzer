@@ -49,8 +49,9 @@ def _overlap(first, second) -> bool:
     )
 
 
-@pytest.mark.parametrize("size", SIZES)
+@pytest.mark.parametrize("size", SIZES, ids=['viewport-80x24', 'viewport-80x32', 'viewport-100x40', 'viewport-120x40', 'viewport-160x44', 'viewport-240x44'])
 def test_advanced_controls_fit_form_content_and_reflow(size, monkeypatch):
+    """情境：各視窗尺寸的進階控制應留在表單內且可捲動到達。"""
     _disable_recent_state(monkeypatch)
 
     async def run_check() -> None:
@@ -138,6 +139,7 @@ def test_advanced_controls_fit_form_content_and_reflow(size, monkeypatch):
 
 
 def test_advanced_responsive_layout_reflows_after_resize(monkeypatch):
+    """情境：執行中調整視窗尺寸後進階設定應重新排版。"""
     _disable_recent_state(monkeypatch)
 
     async def run_check() -> None:

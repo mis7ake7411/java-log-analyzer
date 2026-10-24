@@ -15,9 +15,10 @@ from log_analyzer.application.analysis_service import (
 )
 
 
-@pytest.mark.parametrize("fmt", ["csv", "json", "md"])
-@pytest.mark.parametrize("split", ["none", "size", "level"])
+@pytest.mark.parametrize("fmt", ["csv", "json", "md"], ids=['format-csv', 'format-json', 'format-md'])
+@pytest.mark.parametrize("split", ["none", "size", "level"], ids=['split-none', 'split-size', 'split-level'])
 def test_complete_export_family_conflict_then_explicit_replacement(tmp_path, fmt, split):
+    """情境：各格式與分檔模式遇衝突應保留整組舊檔而明確覆蓋可成功替換。"""
     source = tmp_path / "input.log"
     source.write_text(
         "2026-10-22 12:00:00.000 [main] ERROR example.App - first error\n"

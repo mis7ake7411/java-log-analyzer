@@ -51,6 +51,7 @@ def _patch_recent_state(monkeypatch) -> None:
 
 
 def test_failed_reanalysis_keeps_previous_store_bytes_and_exportability(tmp_path, monkeypatch):
+    """情境：重新分析失敗應保留舊儲存器位元組及匯出能力。"""
     previous_result = _result_fixture(tmp_path, "previous", "retain me")
     previous_store_path = Path(previous_result.matched_logs.path)
     previous_store_bytes = previous_store_path.read_bytes()
@@ -80,6 +81,7 @@ def test_failed_reanalysis_keeps_previous_store_bytes_and_exportability(tmp_path
 
 
 def test_no_matching_reanalysis_keeps_previous_result_and_exportability(tmp_path, monkeypatch):
+    """情境：重新分析零結果應保留舊結果及匯出能力。"""
     previous_result = _result_fixture(tmp_path, "previous", "retain on no matches")
     previous_store_path = Path(previous_result.matched_logs.path)
     previous_store_bytes = previous_store_path.read_bytes()
@@ -108,6 +110,7 @@ def test_no_matching_reanalysis_keeps_previous_result_and_exportability(tmp_path
 
 
 def test_no_matching_reanalysis_shows_encoding_warning_and_keeps_previous_result(tmp_path, monkeypatch):
+    """情境：重新分析零結果有編碼警告時應顯示並保留舊結果。"""
     previous_result = _result_fixture(tmp_path, "previous", "retain with encoding warning")
     previous_store_path = Path(previous_result.matched_logs.path)
     previous_store_bytes = previous_store_path.read_bytes()
@@ -160,6 +163,7 @@ def test_no_matching_reanalysis_shows_encoding_warning_and_keeps_previous_result
 
 
 def test_restored_encoding_warning_clears_on_success_and_clear(tmp_path, monkeypatch):
+    """情境：恢復的編碼警告應在成功分析或清除時移除。"""
     previous_result = _result_fixture(tmp_path, "previous", "replace after warning")
     replacement_result = _result_fixture(tmp_path, "replacement", "clean replacement")
     _patch_recent_state(monkeypatch)
@@ -194,6 +198,7 @@ def test_restored_encoding_warning_clears_on_success_and_clear(tmp_path, monkeyp
 
 
 def test_reanalysis_keeps_previous_store_alive_until_success_replaces_it(tmp_path, monkeypatch):
+    """情境：重新分析期間舊儲存器應存活至成功替換。"""
     previous_result = _result_fixture(tmp_path, "previous", "old dashboard")
     new_result = _result_fixture(tmp_path, "new", "new dashboard")
     previous_store_path = Path(previous_result.matched_logs.path)
@@ -233,10 +238,12 @@ def test_reanalysis_keeps_previous_store_alive_until_success_replaces_it(tmp_pat
 @pytest.mark.parametrize(
     ("start_method", "cancel_method"),
     [("button", "button"), ("keyboard", "shortcut")],
+    ids=['start-button-cancel-button', 'start-keyboard-cancel-shortcut'],
 )
 def test_pilot_can_cancel_a_background_analysis_without_blocking_the_event_pump(
     tmp_path, monkeypatch, start_method, cancel_method
 ):
+    """情境：按鈕與快捷鍵都應可取消背景分析且不阻塞 UI 事件處理。"""
     control_module = _analysis_control_module()
     previous_result = _result_fixture(tmp_path, "previous", "keep after cancel")
     previous_store_path = Path(previous_result.matched_logs.path)
@@ -297,6 +304,7 @@ def test_pilot_can_cancel_a_background_analysis_without_blocking_the_event_pump(
 
 
 def test_queued_progress_after_cancel_does_not_overwrite_cancelling_status(tmp_path, monkeypatch):
+    """情境：取消後排隊的進度不得蓋掉取消中狀態。"""
     control_module = _analysis_control_module()
     _patch_recent_state(monkeypatch)
     entered = threading.Event()
@@ -335,6 +343,7 @@ def test_queued_progress_after_cancel_does_not_overwrite_cancelling_status(tmp_p
 
 
 def test_late_progress_callback_from_completed_operation_is_ignored(tmp_path, monkeypatch):
+    """情境：上一輪完成後晚到的進度回呼應忽略。"""
     control_module = _analysis_control_module()
     result = _result_fixture(tmp_path, "logs", "completed result")
     controls = []

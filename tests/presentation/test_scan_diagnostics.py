@@ -3,6 +3,7 @@ from log_analyzer.presentation.scan_diagnostics import format_scan_coverage
 
 
 def test_coverage_summary_keeps_literal_samples_and_marks_truncated_file_list():
+    """情境：覆蓋摘要應原樣顯示樣本並標明檔案清單截斷。"""
     files = [FileScanCoverage(f"{i}.log", total_lines=2, parsed_entries=1) for i in range(21)]
     files[0].unrecognized_lines = 1
     files[0].unrecognized_samples = [(2, "[red]literal[/red]")]
@@ -15,5 +16,6 @@ def test_coverage_summary_keeps_literal_samples_and_marks_truncated_file_list():
 
 
 def test_legacy_diagnostics_do_not_claim_coverage():
+    """情境：舊版診斷缺少覆蓋資料時不得宣稱已核對覆蓋率。"""
     assert format_scan_coverage(None) is None
     assert format_scan_coverage(ScanDiagnostics()) is None

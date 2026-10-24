@@ -20,6 +20,7 @@ def _stage_files(transaction, files):
 
 
 def test_no_clobber_conflict_reports_all_existing_targets_without_publishing(tmp_path):
+    """情境：不覆蓋模式應列出全部既有目標且不發布檔案。"""
     output = tmp_path / "report.csv"
     (tmp_path / "first.csv").write_bytes(b"old first")
     (tmp_path / "second.csv").write_bytes(b"old second")
@@ -41,8 +42,9 @@ def test_no_clobber_conflict_reports_all_existing_targets_without_publishing(tmp
     assert not list(tmp_path.glob(".report.csv.export-*"))
 
 
-@pytest.mark.parametrize("target_kind", ["directory", "symlink"])
+@pytest.mark.parametrize("target_kind", ["directory", "symlink"], ids=['target-kind-directory', 'target-kind-symlink'])
 def test_export_target_must_be_a_regular_file_or_absent(tmp_path, target_kind):
+    """情境：目標是目錄或符號連結時應拒絕替換。"""
     output = tmp_path / "report.csv"
     target = tmp_path / "first.csv"
     if target_kind == "directory":
@@ -68,6 +70,7 @@ def test_export_target_must_be_a_regular_file_or_absent(tmp_path, target_kind):
 
 @pytest.mark.skipif(os.name == "nt", reason="Windows paths are case-insensitive")
 def test_case_distinct_protected_source_does_not_block_export_on_posix(tmp_path):
+    """情境：POSIX 上僅大小寫不同的來源不應誤擋匯出。"""
     source = tmp_path / "Report.csv"
     output = tmp_path / "report.csv"
     source.write_bytes(b"input source")
@@ -85,6 +88,7 @@ def test_case_distinct_protected_source_does_not_block_export_on_posix(tmp_path)
 
 @pytest.mark.skipif(os.name == "nt", reason="Windows paths are case-insensitive")
 def test_case_distinct_targets_are_allowed_on_posix(tmp_path):
+    """情境：POSIX 上僅大小寫不同的目標應可並存。"""
     transaction = ExportTransaction(tmp_path / "report.csv")
     staged = _stage_files(
         transaction,
@@ -103,6 +107,7 @@ def test_case_distinct_targets_are_allowed_on_posix(tmp_path):
 def test_later_publish_failure_rolls_back_new_files_and_restores_overwritten_files(
     tmp_path, monkeypatch
 ):
+    """情境：後續發布失敗應回滾新檔並還原被覆蓋檔案。"""
     import log_analyzer.infrastructure.exporting.transaction as transaction_module
 
     old_files = {
@@ -133,6 +138,7 @@ def test_later_publish_failure_rolls_back_new_files_and_restores_overwritten_fil
 
 
 def test_interrupt_immediately_after_backup_restores_original_file(tmp_path, monkeypatch):
+    """情境：剛備份完成就中斷時應還原原檔。"""
     import log_analyzer.infrastructure.exporting.transaction as transaction_module
 
     original = tmp_path / "first.csv"
@@ -159,6 +165,7 @@ def test_interrupt_immediately_after_backup_restores_original_file(tmp_path, mon
 
 
 def test_interrupt_after_first_publish_rolls_back_to_original(tmp_path, monkeypatch):
+    """情境：第一個檔案發布後中斷應回復原狀。"""
     import log_analyzer.infrastructure.exporting.transaction as transaction_module
 
     original = tmp_path / "first.csv"
@@ -186,6 +193,7 @@ def test_interrupt_after_first_publish_rolls_back_to_original(tmp_path, monkeypa
 def test_identity_is_captured_before_publication_without_post_publish_stat(
     tmp_path, monkeypatch
 ):
+    """情境：檔案識別應在發布前取得且不依賴發布後 stat。"""
     import log_analyzer.infrastructure.exporting.transaction as transaction_module
 
     transaction = ExportTransaction(tmp_path / "report.csv")
@@ -218,6 +226,7 @@ def test_identity_is_captured_before_publication_without_post_publish_stat(
 def test_interrupted_rollback_preserves_backup_and_reports_recovery_paths(
     tmp_path, monkeypatch
 ):
+    """情境：回滾途中再次中斷應保留備份並提供復原路徑。"""
     import log_analyzer.infrastructure.exporting.transaction as transaction_module
 
     original = tmp_path / "first.csv"
@@ -254,6 +263,7 @@ def test_interrupted_rollback_preserves_backup_and_reports_recovery_paths(
 def test_cleanup_failure_is_visible_and_preserves_stage_with_published_paths(
     tmp_path, monkeypatch
 ):
+    """情境：清理失敗應明確回報且保留已發布路徑與暫存。"""
     import log_analyzer.infrastructure.exporting.transaction as transaction_module
 
     transaction = ExportTransaction(tmp_path / "report.csv")
@@ -275,6 +285,7 @@ def test_cleanup_failure_is_visible_and_preserves_stage_with_published_paths(
 
 
 def test_no_clobber_race_after_first_publish_rolls_back_only_our_file(tmp_path, monkeypatch):
+    """情境：發布後出現同名競爭檔案時只應回滾本次建立的檔案。"""
     import log_analyzer.infrastructure.exporting.transaction as transaction_module
 
     transaction = ExportTransaction(tmp_path / "report.csv")
@@ -301,6 +312,7 @@ def test_no_clobber_race_after_first_publish_rolls_back_only_our_file(tmp_path, 
 
 
 def test_rollback_failure_keeps_backup_and_reports_recovery_paths(tmp_path, monkeypatch):
+    """情境：回滾失敗應保留備份並回報復原位置。"""
     import log_analyzer.infrastructure.exporting.transaction as transaction_module
 
     old_files = {
@@ -343,6 +355,7 @@ def test_rollback_failure_keeps_backup_and_reports_recovery_paths(tmp_path, monk
 
 
 def test_explicit_overwrite_repeated_success_cleans_transaction_directories(tmp_path):
+    """情境：多次明確覆蓋成功後應清除交易暫存目錄。"""
     target = tmp_path / "report.csv"
     output = tmp_path / "first.csv"
     for value in (b"first", b"second"):

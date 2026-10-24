@@ -364,6 +364,24 @@ class LogAnalyzerApp(
         self._save_recent_form_state(recent_state)
 
     async def _analyze_request(self, request: AnalysisRequest) -> AnalysisResult:
+        """將同步的 analyze_logs 放到執行緒池，等待結果時讓 UI 仍能處理事件。
+
+        async 本身不會把解析變成背景執行緒；run_in_executor 才負責轉交工作。
+        partial 預先綁定請求與 control，建立供執行緒呼叫的無參數函式。
+        await 等待其結果或例外；取消仍須由 control 的檢查點合作完成。
+
+        Args:
+            request: 本輪固定的 AnalysisRequest，包含來源與篩選條件。
+
+        Returns:
+            AnalysisResult: 執行緒池中分析完成後的結果。
+
+        Raises:
+            OSError: 來源或暫存檔案無法讀寫時向上傳遞。
+            AnalysisCancelled: control 觀察到取消要求時停止處理。
+            ValueError: 來源範圍無效或 Pattern 不受支援時停止處理。
+            NoMatchingLogsError: 沒有符合條件的事件。
+        """
         loop = asyncio.get_running_loop()
         control = getattr(self, "_analysis_control", None)
         return await loop.run_in_executor(

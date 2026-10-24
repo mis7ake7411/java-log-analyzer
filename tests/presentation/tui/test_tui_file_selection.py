@@ -31,6 +31,7 @@ class SelectionHarness(App):
 
 
 def test_file_search_preserves_hidden_choices_and_keyboard_selection(tmp_path):
+    """情境：搜尋檔名不應遺失隱藏的勾選且支援鍵盤操作。"""
     for name, size in (("a.log", 3), ("b.txt", 5), ("c.out", 7)):
         (tmp_path / name).write_text("x" * size, encoding="utf-8")
 
@@ -66,8 +67,9 @@ def test_file_search_preserves_hidden_choices_and_keyboard_selection(tmp_path):
     asyncio.run(check())
 
 
-@pytest.mark.parametrize("size", [(64, 18), (80, 32), (160, 40)])
+@pytest.mark.parametrize("size", [(64, 18), (80, 32), (160, 40)], ids=['viewport-64x18', 'viewport-80x32', 'viewport-160x40'])
 def test_file_selection_actions_fit_and_cancel_preserves_source(tmp_path, size):
+    """情境：各視窗尺寸下選檔操作應完整且取消不改來源。"""
     (tmp_path / "app.log").write_text("sample", encoding="utf-8")
     source = select_log_source(str(tmp_path))
 
@@ -94,6 +96,7 @@ def test_file_selection_actions_fit_and_cancel_preserves_source(tmp_path, size):
 
 
 def test_selected_files_are_shared_by_xml_assessment_and_analysis(tmp_path, monkeypatch):
+    """情境：XML 評估與實際分析應使用相同選檔範圍。"""
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
     logs = tmp_path / "logs"

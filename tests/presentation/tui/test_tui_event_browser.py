@@ -129,6 +129,7 @@ class _BoundedOccurrenceList(list[dict[str, object]]):
 
 
 def test_browser_query_filters_and_sorts_without_changing_analysis_result(tmp_path):
+    """情境：事件查詢與排序應不修改原分析結果。"""
     groups = [
         _group(0, [_occurrence("app.log", 1)]),
         _group(1, [_occurrence("app.log", line) for line in (2, 3, 4)]),
@@ -180,6 +181,7 @@ def test_browser_query_filters_and_sorts_without_changing_analysis_result(tmp_pa
 
 
 def test_browser_query_error_keeps_the_visible_page_and_reports_failure(tmp_path):
+    """情境：查詢失敗應保留目前頁面並回報原因。"""
     groups = [_group(0, [_occurrence("app.log", 1)])]
     result = _result(tmp_path, groups)
     original_store = result.matched_logs
@@ -220,6 +222,7 @@ def test_browser_query_error_keeps_the_visible_page_and_reports_failure(tmp_path
 
 
 def test_closing_browser_cancels_its_active_query(tmp_path, monkeypatch):
+    """情境：關閉瀏覽視窗應取消進行中的查詢。"""
     result = _result(tmp_path, [_group(0, [_occurrence("app.log", 1)])])
 
     async def run_check():
@@ -255,6 +258,7 @@ def test_closing_browser_cancels_its_active_query(tmp_path, monkeypatch):
 
 
 def test_browser_back_preserves_group_and_occurrence_selection(tmp_path):
+    """情境：返回上一層應保留群組與出現位置選擇。"""
     (tmp_path / "app.log").write_text("first\nsecond\nthird\n", encoding="utf-8")
     groups = [_group(index, [_occurrence("app.log", 1), _occurrence("app.log", 2)]) for index in range(4)]
     result = _result(tmp_path, groups, {"app.log": _snapshot(tmp_path / "app.log")})
@@ -291,6 +295,7 @@ def test_browser_back_preserves_group_and_occurrence_selection(tmp_path):
 
 
 def test_browser_query_controls_and_actions_fit_short_narrow_and_wide_screens(tmp_path):
+    """情境：查詢控制與操作在短窄及寬視窗都應完整可見。"""
     result = _result(tmp_path, [_group(0, [_occurrence("app.log", 1)])])
 
     async def run_check():
@@ -321,6 +326,7 @@ def test_browser_query_controls_and_actions_fit_short_narrow_and_wide_screens(tm
 
 
 def test_event_browser_selects_cross_file_coordinate_and_context(tmp_path: Path, monkeypatch) -> None:
+    """情境：事件瀏覽應選到跨檔案正確座標及上下文。"""
     first_path = tmp_path / "first.log"
     second_path = tmp_path / "second.log"
     first_path.write_text("first file match\n", encoding="utf-8")
@@ -356,6 +362,7 @@ def test_event_browser_selects_cross_file_coordinate_and_context(tmp_path: Path,
 
 
 def test_event_browser_pages_groups_and_occurrences(tmp_path: Path) -> None:
+    """情境：群組與出現位置應支援分頁。"""
     occurrences = [_occurrence("many.log", number) for number in range(1, 206)]
     groups = [_group(index, [_occurrence("many.log", index + 1)]) for index in range(100)]
     groups.append(_group(100, occurrences))
@@ -406,6 +413,7 @@ def test_event_browser_pages_groups_and_occurrences(tmp_path: Path) -> None:
 
 
 def test_event_browser_does_not_copy_the_complete_occurrence_list(tmp_path: Path) -> None:
+    """情境：事件瀏覽不應複製全部出現位置清單。"""
     group = _group(1, [_occurrence("many.log", 1)])
     occurrences = _BoundedOccurrenceList(
         _occurrence("many.log", number) for number in range(1, 206)
@@ -431,6 +439,7 @@ def test_event_browser_does_not_copy_the_complete_occurrence_list(tmp_path: Path
 
 
 def test_event_browser_labels_are_traditional_chinese(tmp_path: Path) -> None:
+    """情境：事件瀏覽標籤應使用繁體中文。"""
     result = _result(tmp_path, [_group(1, [_occurrence("sample.log", 1)])])
 
     async def run_check() -> None:
@@ -461,6 +470,7 @@ def test_event_browser_labels_are_traditional_chinese(tmp_path: Path) -> None:
 
 
 def test_event_browser_group_labels_separate_fields_and_show_result_order(tmp_path: Path) -> None:
+    """情境：群組標籤應分開欄位並顯示結果順序。"""
     group = _group(1, [_occurrence("sample.log", 7)])
     group.update(
         timestamp="2026-10-20 12:00:00",
@@ -512,6 +522,7 @@ def test_event_browser_group_labels_separate_fields_and_show_result_order(tmp_pa
 def test_event_browser_message_renderers_fall_back_to_header_message(
     message_body: object, remove_body: bool
 ) -> None:
+    """情境：本文空白、缺少或非字串時應退回首行訊息。"""
     occurrence = _occurrence("failure.log", 7)
     group = _group(1, [occurrence])
     group["message"] = "Failure beta"
@@ -531,6 +542,7 @@ def test_event_browser_message_renderers_fall_back_to_header_message(
 
 
 def test_event_browser_message_renderers_prefer_body_and_keep_empty_placeholder() -> None:
+    """情境：非空本文應優先使用且完全空白時保留佔位提示。"""
     occurrence = _occurrence("failure.log", 7)
     group = _group(1, [occurrence])
     group.update(message="Failure beta", message_body="Retained body")
@@ -553,6 +565,7 @@ def test_event_browser_message_renderers_prefer_body_and_keep_empty_placeholder(
 def test_event_browser_orders_occurrences_by_time_across_pages_and_selects_coordinate(
     tmp_path: Path,
 ) -> None:
+    """情境：出現位置應跨頁依時間排序並定位正確來源。"""
     page_two_path = tmp_path / "late-095.log"
     page_two_path.write_text("late match\n", encoding="utf-8")
     source_states = {"late-095.log": _snapshot(page_two_path)}
@@ -624,6 +637,7 @@ def test_event_browser_orders_occurrences_by_time_across_pages_and_selects_coord
 
 
 def test_event_browser_close_does_not_clear_result_occurrences(tmp_path: Path) -> None:
+    """情境：關閉事件瀏覽不得清空結果中的出現位置。"""
     occurrences = [
         _occurrence("same.log", 3),
         _occurrence("same.log", 1),
@@ -653,6 +667,7 @@ def test_event_browser_close_does_not_clear_result_occurrences(tmp_path: Path) -
 
 
 def test_event_browser_shows_retained_details_separately_from_raw_context(tmp_path: Path) -> None:
+    """情境：保留的解析內容應與來源原文上下文分區顯示。"""
     source_path = tmp_path / "details.log"
     source_path.write_text(
         "\n".join(f"physical line {number}" for number in range(1, 11)),
@@ -714,6 +729,7 @@ def test_event_browser_shows_retained_details_separately_from_raw_context(tmp_pa
 
 
 def test_event_browser_resets_preview_scroll_for_another_occurrence(tmp_path: Path) -> None:
+    """情境：改選另一出現位置時預覽捲動應回頂端。"""
     first_path = tmp_path / "first-scroll.log"
     second_path = tmp_path / "second-scroll.log"
     first_path.write_text("first physical match\n", encoding="utf-8")
@@ -779,6 +795,7 @@ def test_event_browser_resets_preview_scroll_for_another_occurrence(tmp_path: Pa
 def test_event_browser_keeps_preview_actions_reachable_on_narrow_and_wide_screens(
     tmp_path: Path,
 ) -> None:
+    """情境：寬窄視窗下預覽操作都應可到達。"""
     source_path = tmp_path / "reachable.log"
     source_path.write_text("match\n", encoding="utf-8")
     result = _result(
@@ -820,6 +837,7 @@ def test_event_browser_keeps_preview_actions_reachable_on_narrow_and_wide_screen
 
 
 def test_event_browser_shows_stale_warning_without_copy(tmp_path: Path) -> None:
+    """情境：來源過期應顯示警告並停用複製。"""
     source_path = tmp_path / "changed.log"
     source_path.write_text("line-1", encoding="utf-8")
     group = _group(1, [_occurrence("changed.log", 1)])
@@ -859,6 +877,7 @@ def test_event_browser_shows_nonfatal_encoding_notice_and_keeps_copy_enabled(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
+    """情境：非致命編碼提示不應停用原文複製。"""
     source_path = tmp_path / "invalid-utf8.log"
     source_path.write_bytes(b"matched \x80 line\n")
     result = _result(
@@ -892,6 +911,7 @@ def test_event_browser_shows_nonfatal_encoding_notice_and_keeps_copy_enabled(
 
 
 def test_event_browser_keeps_full_path_visible_when_clipboard_fails(tmp_path: Path, monkeypatch) -> None:
+    """情境：剪貼簿失敗時仍應保留完整可讀路徑。"""
     source_path = tmp_path / "manual-copy.log"
     source_path.write_text("line-1\n", encoding="utf-8")
     result = _result(
@@ -924,6 +944,7 @@ def test_event_browser_keeps_full_path_visible_when_clipboard_fails(tmp_path: Pa
 
 
 def test_event_browser_owns_and_clears_private_source_indexes(tmp_path: Path) -> None:
+    """情境：瀏覽視窗應自行擁有並清理來源定位索引。"""
     source_path = tmp_path / "lifecycle.log"
     source_path.write_text(
         "".join(f"來源行 {line_number}\n" for line_number in range(1, 401)),

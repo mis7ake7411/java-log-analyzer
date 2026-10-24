@@ -16,6 +16,7 @@ def _assert_legacy_flat_modules_are_absent(*relative_paths: str) -> None:
 
 
 def test_cli_package_reexports_main_and_canonical_helpers_are_available():
+    """情境：CLI 套件應重新匯出 main 且標準 helper 可匯入。"""
     cli = importlib.import_module("log_analyzer.presentation.cli")
     entrypoint = importlib.import_module("log_analyzer.presentation.cli.entrypoint")
     args = importlib.import_module("log_analyzer.presentation.cli.args")
@@ -32,6 +33,7 @@ def test_cli_package_reexports_main_and_canonical_helpers_are_available():
 
 
 def test_tui_package_exports_app_and_canonical_helpers_are_available():
+    """情境：TUI 套件應匯出 App 且標準 helper 可匯入。"""
     tui = importlib.import_module("log_analyzer.presentation.tui")
     app = importlib.import_module("log_analyzer.presentation.tui.app")
     dialogs = importlib.import_module("log_analyzer.presentation.tui.screens.path_picker")
@@ -80,6 +82,7 @@ def test_tui_package_exports_app_and_canonical_helpers_are_available():
 
 
 def test_exporting_package_reexports_api_and_canonical_helpers_are_available():
+    """情境：匯出套件應重新匯出 API 且標準 helper 可匯入。"""
     exporting = importlib.import_module("log_analyzer.infrastructure.exporting")
     exporter = importlib.import_module("log_analyzer.infrastructure.exporting.exporter")
     fields = importlib.import_module("log_analyzer.infrastructure.exporting.fields")
@@ -98,6 +101,7 @@ def test_exporting_package_reexports_api_and_canonical_helpers_are_available():
 
 
 def test_exporter_limit_patch_controls_canonical_export_call(tmp_path, monkeypatch):
+    """情境：修改標準匯出器大小門檻應影響正式匯出呼叫。"""
     canonical_exporter = importlib.import_module("log_analyzer.infrastructure.exporting.exporter")
     monkeypatch.setattr(canonical_exporter, "MAX_EXPORT_BYTES_PER_FILE", 5_000)
     output_path = tmp_path / "report.csv"
@@ -128,6 +132,7 @@ def test_exporter_limit_patch_controls_canonical_export_call(tmp_path, monkeypat
 
 
 def test_tui_package_stylesheets_resolve_inside_log_analyzer_package():
+    """情境：TUI 樣式表路徑應解析在套件內。"""
     app = importlib.import_module("log_analyzer.presentation.tui.app").LogAnalyzerApp
 
     assert all(Path(path).is_file() for path in app.CSS_PATH)

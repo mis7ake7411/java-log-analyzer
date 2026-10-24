@@ -19,6 +19,7 @@ def _write_entries(path, count):
 
 
 def test_legacy_store_reuses_offsets_for_revisited_deep_page(tmp_path, monkeypatch):
+    """情境：舊儲存器重訪深處分頁時應重用位元組索引。"""
     path = tmp_path / "matched.pkl"
     _write_entries(path, 100)
     store = MatchedLogsStore(str(path), 100)
@@ -41,6 +42,7 @@ def test_legacy_store_reuses_offsets_for_revisited_deep_page(tmp_path, monkeypat
 
 
 def test_legacy_random_access_builds_offsets_and_reuses_them(tmp_path, monkeypatch):
+    """情境：舊儲存器隨機存取應建立並重用索引。"""
     path = tmp_path / "matched.pkl"
     _write_entries(path, 100)
     store = MatchedLogsStore(str(path), 100)
@@ -65,6 +67,7 @@ def test_legacy_random_access_builds_offsets_and_reuses_them(tmp_path, monkeypat
 
 
 def test_prebuilt_offsets_seek_to_pages_and_random_items(tmp_path, monkeypatch):
+    """情境：預建索引應直接定位分頁與單筆資料。"""
     path = tmp_path / "matched.pkl"
     offsets = _write_entries(path, 100)
     store = MatchedLogsStore(str(path), 100, _offsets=offsets)
@@ -87,6 +90,7 @@ def test_prebuilt_offsets_seek_to_pages_and_random_items(tmp_path, monkeypatch):
 
 
 def test_page_clamps_start_and_end_and_returns_empty_outside_bounds(tmp_path):
+    """情境：分頁應修正範圍邊界且超界時產生空結果。"""
     path = tmp_path / "matched.pkl"
     offsets = _write_entries(path, 5)
     store = MatchedLogsStore(str(path), 5, _offsets=offsets)
@@ -99,6 +103,7 @@ def test_page_clamps_start_and_end_and_returns_empty_outside_bounds(tmp_path):
 
 
 def test_indexing_preserves_random_negative_and_invalid_index_behavior(tmp_path):
+    """情境：索引讀取應保留隨機、負數與無效索引行為。"""
     path = tmp_path / "matched.pkl"
     offsets = _write_entries(path, 5)
     store = MatchedLogsStore(str(path), 5, _offsets=offsets)
@@ -111,6 +116,7 @@ def test_indexing_preserves_random_negative_and_invalid_index_behavior(tmp_path)
 
 
 def test_short_pickle_file_stops_pages_and_invalidates_missing_item_access(tmp_path):
+    """情境：pickle 檔案較短時分頁應停止且缺少單筆資料應報錯。"""
     path = tmp_path / "matched.pkl"
     _write_entries(path, 2)
     store = MatchedLogsStore(str(path), 4)
@@ -121,6 +127,7 @@ def test_short_pickle_file_stops_pages_and_invalidates_missing_item_access(tmp_p
 
 
 def test_random_access_cache_is_bounded_to_recent_entries(tmp_path):
+    """情境：隨機讀取快取應限制為最近使用的少量項目。"""
     path = tmp_path / "matched.pkl"
     offsets = _write_entries(path, 100)
     store = MatchedLogsStore(str(path), 100, _offsets=offsets)
@@ -138,6 +145,7 @@ def test_random_access_cache_is_bounded_to_recent_entries(tmp_path):
 
 
 def test_constructor_preserves_existing_positional_fields_and_cache_entries(tmp_path, monkeypatch):
+    """情境：建構子應保留舊版位置參數及既有快取項目。"""
     path = tmp_path / "matched.pkl"
     offsets = _write_entries(path, 70)
     supplied_cache = {index: {"cached_index": index} for index in range(70)}
@@ -171,6 +179,7 @@ def test_constructor_preserves_existing_positional_fields_and_cache_entries(tmp_
 
 
 def test_store_keeps_iterable_truth_and_list_equality_behavior(tmp_path):
+    """情境：儲存器應保留迭代、真假值及與 list 比較行為。"""
     path = tmp_path / "matched.pkl"
     _write_entries(path, 3)
     store = MatchedLogsStore(str(path), 3)
@@ -187,6 +196,7 @@ def test_store_keeps_iterable_truth_and_list_equality_behavior(tmp_path):
 
 
 def test_release_is_idempotent_after_partial_indexing(tmp_path):
+    """情境：部分建立索引後重複釋放應安全。"""
     path = tmp_path / "matched.pkl"
     _write_entries(path, 10)
     store = MatchedLogsStore(str(path), 10)
@@ -202,6 +212,7 @@ def test_release_is_idempotent_after_partial_indexing(tmp_path):
 
 
 def test_parse_result_uses_persisted_offsets_for_first_deep_page(tmp_path, monkeypatch):
+    """情境：解析結果的第一個深處分頁應直接使用保存的索引。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     lines = []

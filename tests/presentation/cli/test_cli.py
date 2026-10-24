@@ -17,6 +17,7 @@ def _analysis_result():
 
 
 def test_cli_success_warns_when_invalid_utf8_was_replaced(capsys):
+    """情境：CLI 成功分析遇解碼替代時應附警告。"""
     result = _analysis_result()
     result.diagnostics = ScanDiagnostics(2, 4, 4, 4, 4, 1, 3)
     args = SimpleNamespace(format="csv", max_export_mb=None, split_by_level=False)
@@ -30,6 +31,7 @@ def test_cli_success_warns_when_invalid_utf8_was_replaced(capsys):
 
 
 def test_cli_zero_result_warns_when_invalid_utf8_was_replaced(capsys):
+    """情境：CLI 零結果遇解碼替代時也應附警告。"""
     with pytest.raises(SystemExit) as exc_info:
         cli._handle_cli_error(NoMatchingLogsError(ScanDiagnostics(1, 0, 0, 0, 0, 1, 2)))
 
@@ -43,6 +45,7 @@ def test_cli_zero_result_warns_when_invalid_utf8_was_replaced(capsys):
 def test_main_logs_unexpected_error_and_keeps_friendly_message(
     monkeypatch, caplog, capsys, tmp_path
 ):
+    """情境：main 應記錄非預期錯誤並保留友善訊息。"""
     source_dir = tmp_path
     (source_dir / "sample.log").write_text("sample\n", encoding="utf-8")
 
@@ -67,6 +70,7 @@ def test_main_logs_unexpected_error_and_keeps_friendly_message(
 def test_main_passes_analysis_options_and_prints_success_result(
     monkeypatch, capsys, tmp_path
 ):
+    """情境：main 應傳入 AnalysisOptions 並顯示成功摘要。"""
     source_dir = tmp_path
     for filename in ("alpha.LOG", "middle.txt", "omega.OUT"):
         (source_dir / filename).write_text("sample\n", encoding="utf-8")
@@ -133,6 +137,7 @@ def test_main_passes_analysis_options_and_prints_success_result(
 def test_main_freezes_single_file_scope_for_xml_and_analysis(
     monkeypatch, capsys, tmp_path
 ):
+    """情境：XML 抽樣與實際分析應共用固定單檔範圍。"""
     selected_file = tmp_path / "chosen.LoG"
     sibling_file = tmp_path / "sibling.txt"
     xml_file = tmp_path / "logback.xml"
@@ -181,6 +186,7 @@ def test_main_freezes_single_file_scope_for_xml_and_analysis(
 
 
 def test_uncertain_xml_pattern_exits_before_creating_report(monkeypatch, capsys, tmp_path):
+    """情境：XML 候選不確定時應在建立報表前退出。"""
     source_dir = tmp_path / "logs"
     source_dir.mkdir()
     (source_dir / "app.log").write_text("not a log line\n", encoding="utf-8")
@@ -222,6 +228,7 @@ def test_uncertain_xml_pattern_exits_before_creating_report(monkeypatch, capsys,
 
 
 def test_unsupported_xml_pattern_reports_candidate_error_before_analysis(monkeypatch, capsys, tmp_path):
+    """情境：全部 XML 候選不支援時應在分析前顯示候選錯誤。"""
     source_dir = tmp_path / "logs"
     source_dir.mkdir()
     (source_dir / "app.log").write_text("sample\n", encoding="utf-8")
@@ -258,6 +265,7 @@ def test_unsupported_xml_pattern_reports_candidate_error_before_analysis(monkeyp
 def test_main_rejects_empty_directory_without_expanding_to_parent(
     monkeypatch, capsys, tmp_path
 ):
+    """情境：空資料夾不得擴大到父目錄分析。"""
     parent_dir = tmp_path
     empty_dir = parent_dir / "empty"
     empty_dir.mkdir()
@@ -287,6 +295,7 @@ def test_main_rejects_empty_directory_without_expanding_to_parent(
 def test_main_rejects_missing_file_without_scanning_parent(
     monkeypatch, capsys, tmp_path
 ):
+    """情境：指定檔案遺失不得退回掃描父目錄。"""
     parent_dir = tmp_path
     missing_file = parent_dir / "missing.log"
     (parent_dir / "sibling.log").write_text("must not be selected\n", encoding="utf-8")

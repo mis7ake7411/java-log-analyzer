@@ -4,6 +4,7 @@ from log_analyzer.domain.timezone import to_local_timezone
 
 
 def test_to_local_timezone_assigns_local_timezone_to_naive_value():
+    """情境：無時區 datetime 應補上本地時區。"""
     result = to_local_timezone(datetime(2026, 6, 7, 18, 20))
 
     assert result.replace(tzinfo=None) == datetime(2026, 6, 7, 18, 20)
@@ -11,6 +12,7 @@ def test_to_local_timezone_assigns_local_timezone_to_naive_value():
 
 
 def test_to_local_timezone_converts_aware_value_to_local_timezone():
+    """情境：已有時區的 datetime 應轉為本地時區。"""
     value = datetime(2026, 6, 7, 10, 20, tzinfo=timezone.utc)
 
     result = to_local_timezone(value)

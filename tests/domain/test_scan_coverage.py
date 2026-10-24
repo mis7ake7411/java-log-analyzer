@@ -4,6 +4,7 @@ from log_analyzer.domain.parser import ParseOptions, parse_log_directory
 
 
 def test_scan_coverage_classifies_lines_without_counting_stacktraces_as_failures(tmp_path):
+    """情境：覆蓋診斷應正確分類各行且不把堆疊算作解析失敗。"""
     source = tmp_path / "app.log"
     source.write_text(
         "orphan before first event\n\n"
@@ -35,6 +36,7 @@ def test_scan_coverage_classifies_lines_without_counting_stacktraces_as_failures
 
 
 def test_coverage_is_before_filters_and_examples_are_bounded(tmp_path):
+    """情境：覆蓋計數應在篩選前建立且未知樣本數量受限。"""
     (tmp_path / "a.log").write_text("unknown\n" * 10, encoding="utf-8")
     (tmp_path / "b.log").write_text(
         "2026-10-24 10:00:00.000 [one] INFO Service - message\n"

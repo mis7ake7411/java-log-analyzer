@@ -43,6 +43,7 @@ def _assert_result_retained(app, result, store):
 
 
 def test_export_conflict_cancel_preserves_existing_file_and_retained_result(tmp_path, monkeypatch):
+    """情境：匯出衝突選取消應保留既有檔案及分析結果。"""
     logs, _ = _write_log(tmp_path, "captured before export")
     export_dir = tmp_path / "exports"
     export_dir.mkdir()
@@ -84,6 +85,7 @@ def test_export_conflict_cancel_preserves_existing_file_and_retained_result(tmp_
 
 
 def test_export_conflict_rename_selects_name_and_writes_only_after_user_retries(tmp_path, monkeypatch):
+    """情境：衝突選改名應選取名稱且等使用者再次執行才寫檔。"""
     logs, _ = _write_log(tmp_path, "captured before rename")
     export_dir = tmp_path / "exports"
     export_dir.mkdir()
@@ -126,6 +128,7 @@ def test_export_conflict_rename_selects_name_and_writes_only_after_user_retries(
 
 
 def test_export_conflict_overwrite_retries_the_frozen_request(tmp_path, monkeypatch):
+    """情境：衝突選覆蓋應重試原本固定的匯出請求。"""
     logs, source = _write_log(tmp_path, "captured before modal")
     export_dir = tmp_path / "exports"
     edited_dir = tmp_path / "edited-exports"
@@ -193,6 +196,7 @@ def test_export_conflict_overwrite_retries_the_frozen_request(tmp_path, monkeypa
 
 
 def test_manifest_only_conflict_lists_manifest_and_does_not_publish_report(tmp_path, monkeypatch):
+    """情境：只有 manifest 衝突時也應列出且不發布報表。"""
     logs, _ = _write_log(tmp_path, "must not be partially published")
     export_dir = tmp_path / "exports"
     export_dir.mkdir()
@@ -225,7 +229,8 @@ def test_manifest_only_conflict_lists_manifest_and_does_not_publish_report(tmp_p
     asyncio.run(run_check())
 
 
-def test_export_conflict_dialog_fits_narrow_and_wide_terminals_and_handles_escape(tmp_path, monkeypatch):
+def test_export_conflict_dialog_fits_narrow_and_wide_terminals_and_handles_escape(tmp_path, monkeypatch):  # noqa: PLR0915 - scenario docstring plus unchanged interaction steps
+    """情境：衝突視窗在寬窄終端都應完整呈現並可按 Escape 取消。"""
     logs = tmp_path / "logs"
     logs.mkdir()
     levels = ("ERROR", "WARN", "INFO", "DEBUG", "TRACE")

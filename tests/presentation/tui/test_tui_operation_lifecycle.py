@@ -27,6 +27,7 @@ def _result_fixture(tmp_path):
 
 
 def test_shutdown_defers_store_release_until_export_finishes(tmp_path, monkeypatch):
+    """情境：關閉 App 時應等正在進行的匯出結束才釋放明細。"""
     result = _result_fixture(tmp_path)
     store_path = Path(result.matched_logs.path)
     entered = threading.Event()
@@ -69,6 +70,7 @@ def test_shutdown_defers_store_release_until_export_finishes(tmp_path, monkeypat
 
 
 def test_shutdown_dismisses_pending_export_conflict_and_releases_result(tmp_path, monkeypatch):
+    """情境：關閉 App 應關閉等待中的匯出衝突視窗並釋放結果。"""
     result = _result_fixture(tmp_path)
     store_path = Path(result.matched_logs.path)
     export_dir = tmp_path / "exports"
@@ -104,6 +106,7 @@ def test_shutdown_dismisses_pending_export_conflict_and_releases_result(tmp_path
 
 
 def test_shutdown_releases_analysis_that_finishes_after_unmount(tmp_path, monkeypatch):
+    """情境：卸載後才完成的分析結果應被釋放。"""
     result = _result_fixture(tmp_path)
     store_path = Path(result.matched_logs.path)
     entered = threading.Event()
@@ -143,8 +146,9 @@ def test_shutdown_releases_analysis_that_finishes_after_unmount(tmp_path, monkey
     asyncio.run(run_check())
 
 
-@pytest.mark.parametrize("error_type", [ValueError, RuntimeError])
+@pytest.mark.parametrize("error_type", [ValueError, RuntimeError], ids=['error-type-valueerror', 'error-type-runtimeerror'])
 def test_shutdown_does_not_render_late_analysis_errors(tmp_path, monkeypatch, error_type):
+    """情境：關閉後晚到的已知或未知分析錯誤不得更新畫面。"""
     entered = threading.Event()
     finish = threading.Event()
 
@@ -177,8 +181,9 @@ def test_shutdown_does_not_render_late_analysis_errors(tmp_path, monkeypatch, er
     asyncio.run(run_check())
 
 
-@pytest.mark.parametrize("field_id", ["path", "output_path"])
+@pytest.mark.parametrize("field_id", ["path", "output_path"], ids=['field-id-path', 'field-id-output-path'])
 def test_shutdown_ignores_queued_path_input_changes(monkeypatch, field_id):
+    """情境：關閉後排隊的來源或輸出路徑變更事件應忽略。"""
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
 
     async def run_check():

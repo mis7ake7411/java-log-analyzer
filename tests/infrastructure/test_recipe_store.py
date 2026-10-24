@@ -7,6 +7,7 @@ from log_analyzer.infrastructure.recipe_store import RecipeStore, get_recipe_sto
 
 
 def test_saves_multiple_recipes_and_reads_them_after_restart(tmp_path):
+    """情境：多個配方儲存後重開應仍能讀取。"""
     path = tmp_path / "recipes.json"
     store = RecipeStore(path)
     first_state = {
@@ -63,6 +64,7 @@ def test_saves_multiple_recipes_and_reads_them_after_restart(tmp_path):
 
 
 def test_overwriting_a_recipe_preserves_other_recipes(tmp_path):
+    """情境：覆寫指定配方應保留其他配方。"""
     store = RecipeStore(tmp_path / "recipes.json")
     store.save("first", {"keyword": "old"})
     store.save("second", {"keyword": "keep"})
@@ -76,6 +78,7 @@ def test_overwriting_a_recipe_preserves_other_recipes(tmp_path):
 
 
 def test_delete_persists_and_only_removes_the_named_recipe(tmp_path):
+    """情境：刪除應持久保存且只移除指定配方。"""
     path = tmp_path / "recipes.json"
     store = RecipeStore(path)
     store.save("first", {"keyword": "remove"})
@@ -89,6 +92,7 @@ def test_delete_persists_and_only_removes_the_named_recipe(tmp_path):
 
 
 def test_missing_file_has_no_recipes_and_get_raises_key_error(tmp_path):
+    """情境：配方檔不存在時列空清單且取得名稱應拋 KeyError。"""
     store = RecipeStore(tmp_path / "missing.json")
 
     assert store.list_recipes() == {}
@@ -99,6 +103,7 @@ def test_missing_file_has_no_recipes_and_get_raises_key_error(tmp_path):
 
 
 def test_unknown_fields_are_ignored_even_when_their_values_are_not_json_values(tmp_path):
+    """情境：未知欄位應忽略即使其值無法 JSON 序列化。"""
     store = RecipeStore(tmp_path / "recipes.json")
     store.save(
         "safe",
@@ -125,8 +130,17 @@ def test_unknown_fields_are_ignored_even_when_their_values_are_not_json_values(t
         ({"levels": "ERROR"}, "levels"),
         ([], "mapping"),
     ],
+    ids=[
+        'path-not-string',
+        'ignore-case-not-bool',
+        'unrestricted-not-bool',
+        'mixed-level-types',
+        'levels-not-list',
+        'state-not-mapping',
+    ],
 )
 def test_save_rejects_invalid_state_types(tmp_path, state, field):
+    """情境：配方欄位型別不正確時應拒絕保存。"""
     store = RecipeStore(tmp_path / "recipes.json")
 
     with pytest.raises(ValueError) as error:
@@ -137,8 +151,9 @@ def test_save_rejects_invalid_state_types(tmp_path, state, field):
     assert not (tmp_path / "recipes.json").exists()
 
 
-@pytest.mark.parametrize("name", ["", "   ", None])
+@pytest.mark.parametrize("name", ["", "   ", None], ids=['empty-name', 'whitespace-name', 'none-name'])
 def test_save_rejects_empty_or_non_string_names(tmp_path, name):
+    """情境：空白或非字串配方名稱應拒絕。"""
     store = RecipeStore(tmp_path / "recipes.json")
 
     with pytest.raises(ValueError) as error:
@@ -158,8 +173,16 @@ def test_save_rejects_empty_or_non_string_names(tmp_path, name):
         ('{"schema_version": 1, "recipes": []}', "recipes"),
         ('{"schema_version": 1, "recipes": {"broken": {"ignore_case": "yes"}}}', "ignore_case"),
     ],
+    ids=[
+        'malformed-json',
+        'unsupported-schema',
+        'boolean-schema',
+        'recipes-not-mapping',
+        'invalid-recipe-field',
+    ],
 )
 def test_list_rejects_corrupt_or_invalid_recipe_files(tmp_path, content, message):
+    """情境：損壞 JSON、無效 schema 或欄位應回報明確錯誤。"""
     path = tmp_path / "recipes.json"
     path.write_text(content, encoding="utf-8")
 
@@ -174,10 +197,12 @@ def test_list_rejects_corrupt_or_invalid_recipe_files(tmp_path, content, message
         ("{broken", "save"),
         ('{"schema_version": 2, "recipes": {}}', "delete"),
     ],
+    ids=['save-malformed-json', 'delete-unsupported-schema'],
 )
 def test_failed_read_never_overwrites_corrupt_file_on_save_or_delete(
     tmp_path, content, operation
 ):
+    """情境：既有檔案讀取失敗後保存或刪除不得覆寫損壞檔。"""
     path = tmp_path / "recipes.json"
     original_bytes = content.encode("utf-8")
     path.write_bytes(original_bytes)
@@ -192,10 +217,11 @@ def test_failed_read_never_overwrites_corrupt_file_on_save_or_delete(
     assert path.read_bytes() == original_bytes
 
 
-@pytest.mark.parametrize("operation", ["list", "save", "delete"])
+@pytest.mark.parametrize("operation", ["list", "save", "delete"], ids=['operation-list', 'operation-save', 'operation-delete'])
 def test_unreadable_file_reports_access_failure_without_overwrite(
     tmp_path, monkeypatch, operation
 ):
+    """情境：配方不可讀時各操作應回報存取失敗且不覆蓋。"""
     path = tmp_path / "recipes.json"
     original_bytes = b'{"schema_version": 1, "recipes": {"existing": {}}}'
     path.write_bytes(original_bytes)
@@ -224,6 +250,7 @@ def test_unreadable_file_reports_access_failure_without_overwrite(
 
 
 def test_recipe_json_uses_utf8_and_preserves_unicode_values(tmp_path):
+    """情境：配方 JSON 應使用 UTF-8 並保留 Unicode。"""
     path = tmp_path / "recipes.json"
     store = RecipeStore(path)
 
@@ -235,6 +262,7 @@ def test_recipe_json_uses_utf8_and_preserves_unicode_values(tmp_path):
 
 
 def test_default_path_uses_appdata_on_windows(tmp_path, monkeypatch):
+    """情境：Windows 預設配方路徑應使用 APPDATA。"""
     appdata = tmp_path / "roaming"
     monkeypatch.setattr(recipe_store.sys, "platform", "win32")
     monkeypatch.setenv("APPDATA", str(appdata))
@@ -244,6 +272,7 @@ def test_default_path_uses_appdata_on_windows(tmp_path, monkeypatch):
 
 
 def test_default_path_uses_xdg_config_home_outside_windows(tmp_path, monkeypatch):
+    """情境：非 Windows 預設路徑應使用 XDG_CONFIG_HOME。"""
     xdg_home = tmp_path / "xdg"
     monkeypatch.setattr(recipe_store.sys, "platform", "linux")
     monkeypatch.setenv("APPDATA", str(tmp_path / "roaming"))
@@ -255,6 +284,7 @@ def test_default_path_uses_xdg_config_home_outside_windows(tmp_path, monkeypatch
 
 
 def test_default_path_falls_back_to_home_config_directory(tmp_path, monkeypatch):
+    """情境：沒有平台設定時應退回家目錄的 .config。"""
     home = tmp_path / "home"
     monkeypatch.setattr(recipe_store.sys, "platform", "linux")
     monkeypatch.delenv("APPDATA", raising=False)
@@ -267,6 +297,7 @@ def test_default_path_falls_back_to_home_config_directory(tmp_path, monkeypatch)
 def test_replace_failure_preserves_existing_file_and_cleans_temporary_file(
     tmp_path, monkeypatch
 ):
+    """情境：原子替換失敗應保留舊配方並清理暫存檔。"""
     path = tmp_path / "nested" / "recipes.json"
     store = RecipeStore(path)
     store.save("existing", {"keyword": "original"})
@@ -287,6 +318,7 @@ def test_replace_failure_preserves_existing_file_and_cleans_temporary_file(
 
 
 def test_recipe_file_has_versioned_public_schema(tmp_path):
+    """情境：配方檔應使用含版本號的公開 schema。"""
     path = tmp_path / "recipes.json"
 
     RecipeStore(path).save("named", {"keyword": "failure"})

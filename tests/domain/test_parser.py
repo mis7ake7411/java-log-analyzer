@@ -32,12 +32,14 @@ def temp_log_dir(tmp_path):
     return str(d)
 
 def test_parse_logs_counts(temp_log_dir):
+    """情境：不同 Level 的日誌應累計正確的事件次數。"""
     counts, _errors = parse_logs(temp_log_dir)
     assert counts['INFO'] == 2
     assert counts['ERROR'] == 1
 
 
 def test_parse_logs_matches_standard_logback_fixtures(tmp_path):
+    """情境：標準 Logback 測試日誌應解析出預期事件與訊息。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     (log_dir / "app.log").write_text(
@@ -58,6 +60,7 @@ def test_parse_logs_matches_standard_logback_fixtures(tmp_path):
 
 
 def test_iter_logs_discovers_supported_extensions_case_insensitively(tmp_path):
+    """情境：支援副檔名應忽略大小寫且不遞迴或讀取非一般檔案。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     for filename, message in (
@@ -92,6 +95,7 @@ def test_iter_logs_discovers_supported_extensions_case_insensitively(tmp_path):
 
 
 def test_iter_logs_uses_explicit_selection_without_expanding_it(tmp_path):
+    """情境：明確檔名選擇不得擴大且空選擇應回空結果。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     (log_dir / "chosen.txt").write_text(
@@ -126,6 +130,7 @@ def test_iter_logs_uses_explicit_selection_without_expanding_it(tmp_path):
 
 
 def test_iter_logs_accepts_a_single_file_without_reading_its_sibling(tmp_path):
+    """情境：指定單檔解析不得讀取同層其他日誌。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     selected_file = log_dir / "chosen.txt"
@@ -145,6 +150,7 @@ def test_iter_logs_accepts_a_single_file_without_reading_its_sibling(tmp_path):
 
 
 def test_parse_logs_filters_selected_levels(temp_log_dir):
+    """情境：選定 Level 後只應保留對應事件。"""
     counts, errors = parse_logs(temp_log_dir, levels=("ERROR",))
 
     assert counts["ERROR"] == 1
@@ -154,6 +160,7 @@ def test_parse_logs_filters_selected_levels(temp_log_dir):
 
 
 def test_parse_logs_compacts_single_line_numbers_and_expands_on_duplicates(tmp_path):
+    """情境：單次行號應緊湊保存並在事件重複時擴充。"""
     d = tmp_path / "logs"
     d.mkdir()
     log_file = d / "duplicate.log"
@@ -169,6 +176,7 @@ def test_parse_logs_compacts_single_line_numbers_and_expands_on_duplicates(tmp_p
 
 
 def test_cross_file_group_keeps_each_occurrence_coordinate(tmp_path):
+    """情境：跨檔相同事件合併後應保留每次出現的座標。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     (log_dir / "a.log").write_text(
@@ -204,6 +212,7 @@ def test_cross_file_group_keeps_each_occurrence_coordinate(tmp_path):
 
 def test_parse_logs_keyword(temp_log_dir):
     # Test keyword filtering
+    """情境：關鍵字篩選應保留符合條件的日誌。"""
     counts, errors = parse_logs(temp_log_dir, keyword="RuntimeException")
     assert counts['INFO'] == 0 # INFO lines don't have this keyword
     assert counts['ERROR'] == 1
@@ -211,6 +220,7 @@ def test_parse_logs_keyword(temp_log_dir):
 
 
 def test_parse_log_directory_matches_legacy_parse_logs(temp_log_dir):
+    """情境：ParseOptions 介面應與舊 parse_logs 介面結果一致。"""
     options = ParseOptions(
         start_time=datetime(2026, 6, 6, 10, 5),
         end_time=datetime(2026, 6, 6, 10, 15),
@@ -239,6 +249,7 @@ def test_parse_log_directory_matches_legacy_parse_logs(temp_log_dir):
 
 
 def test_parse_log_directory_reports_zero_result_scan_diagnostics(tmp_path):
+    """情境：零結果應回傳實際掃描階段計數。"""
     log_dir = tmp_path / "empty-logs"
     log_dir.mkdir()
 
@@ -254,6 +265,7 @@ def test_parse_log_directory_reports_zero_result_scan_diagnostics(tmp_path):
 
 
 def test_scan_diagnostics_appends_encoding_counts_without_reordering_existing_fields():
+    """情境：新增編碼計數欄位不得改變原診斷欄位順序。"""
     diagnostics = ScanDiagnostics(1, 2, 3, 4, 5, 6, 7)
 
     assert (
@@ -268,6 +280,7 @@ def test_scan_diagnostics_appends_encoding_counts_without_reordering_existing_fi
 
 
 def test_parser_replaces_invalid_utf8_in_matched_unmatched_and_stack_lines(tmp_path):
+    """情境：匹配行、未匹配行與堆疊中的無效 UTF-8 應保留替代字元。"""
     log_dir = tmp_path / "lossy-utf8"
     log_dir.mkdir()
     source = log_dir / "mixed.log"
@@ -295,6 +308,7 @@ def test_parser_replaces_invalid_utf8_in_matched_unmatched_and_stack_lines(tmp_p
 
 
 def test_parse_log_directory_counts_unparseable_log_files(tmp_path):
+    """情境：無法解析首行的日誌檔案仍應計入掃描檔數。"""
     log_dir = tmp_path / "unparseable-logs"
     log_dir.mkdir()
     (log_dir / "broken.log").write_text("not a log entry\n", encoding="utf-8")
@@ -315,6 +329,7 @@ def test_parse_log_directory_counts_unparseable_log_files(tmp_path):
 
 
 def test_parse_log_directory_counts_events_through_sequential_filters(tmp_path):
+    """情境：事件應依時間、層級與關鍵字順序累計階段計數。"""
     log_dir = tmp_path / "filtered-logs"
     log_dir.mkdir()
     (log_dir / "events.log").write_text(
@@ -353,6 +368,7 @@ def test_parse_log_directory_counts_events_through_sequential_filters(tmp_path):
 
 
 def test_parse_log_directory_preserves_diagnostics_across_group_spills(tmp_path, monkeypatch):
+    """情境：分組落盤後仍應保留完整掃描診斷。"""
     log_dir = tmp_path / "spilled-logs"
     log_dir.mkdir()
     (log_dir / "spill.log").write_text(
@@ -380,6 +396,7 @@ def test_parse_log_directory_preserves_diagnostics_across_group_spills(tmp_path,
 
 
 def test_matched_logs_store_diagnostics_are_independent_by_default():
+    """情境：不同磁碟儲存器的預設診斷物件不得共用。"""
     first = MatchedLogsStore("", 0)
     second = MatchedLogsStore("", 0)
 
@@ -389,6 +406,7 @@ def test_matched_logs_store_diagnostics_are_independent_by_default():
 
 
 def test_parse_log_directory_normalizes_naive_parse_options(temp_log_dir):
+    """情境：未帶時區的解析時間條件應正規化。"""
     counts, _logs = parse_log_directory(
         temp_log_dir,
         ParseOptions(start_time=datetime(2026, 6, 6, 10, 5)),
@@ -398,6 +416,7 @@ def test_parse_log_directory_normalizes_naive_parse_options(temp_log_dir):
 
 
 def test_parse_log_directory_accepts_aware_parse_options(temp_log_dir):
+    """情境：已帶時區的解析條件應可接受。"""
     local_timezone = datetime.now().astimezone().tzinfo
     start_time = datetime(2026, 6, 6, 10, 5, tzinfo=local_timezone).astimezone(timezone.utc)
 
@@ -410,12 +429,14 @@ def test_parse_log_directory_accepts_aware_parse_options(temp_log_dir):
 
 
 def test_parse_entry_time_assigns_system_local_timezone():
+    """情境：事件時間解析應補上系統本地時區。"""
     entry_time = parser_module._parse_entry_time("2026-06-06 10:05:00.123")
 
     assert entry_time.tzinfo == datetime.now().astimezone().tzinfo
 
 
 def test_parse_logs_separates_multiline_message_and_exception(tmp_path):
+    """情境：多行訊息與例外堆疊應分開保存。"""
     d = tmp_path / "logs"
     d.mkdir()
     log_file = d / "multiline.log"
@@ -443,6 +464,7 @@ def test_parse_logs_separates_multiline_message_and_exception(tmp_path):
 
 
 def test_iter_logs_yields_entries_in_parse_order(tmp_path):
+    """情境：逐筆讀取應依來源解析順序輸出。"""
     d = tmp_path / "logs"
     d.mkdir()
     log_file = d / "ordered.log"
@@ -460,6 +482,7 @@ def test_iter_logs_yields_entries_in_parse_order(tmp_path):
 
 
 def test_iter_logs_keeps_in_range_entries_and_discards_filtered_continuations(tmp_path):
+    """情境：時間篩選應保留範圍內事件並丟棄排除事件的續行。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     (log_dir / "range.log").write_text(
@@ -490,6 +513,7 @@ def test_iter_logs_keeps_in_range_entries_and_discards_filtered_continuations(tm
 
 
 def test_parse_logs_defaults_to_time_order(tmp_path):
+    """情境：未指定排序時應依時間排序。"""
     d = tmp_path / "logs"
     d.mkdir()
     log_file = d / "ordered.log"
@@ -509,6 +533,7 @@ def test_parse_logs_defaults_to_time_order(tmp_path):
 
 
 def test_parse_logs_can_sort_by_level_then_time(tmp_path):
+    """情境：Level 排序應先依層級再依時間。"""
     d = tmp_path / "logs"
     d.mkdir()
     log_file = d / "levels.log"
@@ -532,6 +557,7 @@ def test_parse_logs_can_sort_by_level_then_time(tmp_path):
 
 
 def test_parse_logs_uses_external_sort_when_entries_exceed_threshold(tmp_path, monkeypatch):
+    """情境：群組超過門檻時應走分塊合併排序。"""
     d = tmp_path / "logs"
     d.mkdir()
     log_file = d / "external-sort.log"
@@ -553,6 +579,7 @@ def test_parse_logs_uses_external_sort_when_entries_exceed_threshold(tmp_path, m
 
 
 def test_parse_logs_spills_grouped_logs_and_merges_across_spills(tmp_path, monkeypatch):
+    """情境：分組落盤後跨批次的重複事件應重新合併。"""
     d = tmp_path / "logs"
     d.mkdir()
     log_file = d / "spilled.log"
@@ -573,6 +600,7 @@ def test_parse_logs_spills_grouped_logs_and_merges_across_spills(tmp_path, monke
 
 
 def test_spilled_group_preserves_occurrence_order(tmp_path, monkeypatch):
+    """情境：分片合併後應保留事件出現順序。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     for filename, timestamp, thread in (
@@ -614,6 +642,7 @@ def test_spilled_group_preserves_occurrence_order(tmp_path, monkeypatch):
 
 
 def test_matched_log_pages_do_not_cache_all_groups(tmp_path):
+    """情境：讀取分頁不得把全部群組放進快取。"""
     store_path = tmp_path / "logs.pkl"
     with open(store_path, "wb") as file_handle:
         for index in range(6):
@@ -636,6 +665,7 @@ def test_matched_log_pages_do_not_cache_all_groups(tmp_path):
 
 
 def test_matched_logs_store_caches_index_access(tmp_path, monkeypatch):
+    """情境：索引存取應重用最近讀取的群組。"""
     store_path = tmp_path / "logs.pkl"
     with open(store_path, "wb") as file_handle:
         pickle.dump({"message": "first"}, file_handle, protocol=pickle.HIGHEST_PROTOCOL)
@@ -660,6 +690,7 @@ def test_matched_logs_store_caches_index_access(tmp_path, monkeypatch):
 
 
 def test_source_changed_during_scan_is_unstable(tmp_path, monkeypatch):
+    """情境：掃描途中來源改變時快照應標為不穩定。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     log_file = log_dir / "changed.log"
@@ -691,6 +722,7 @@ def test_source_changed_during_scan_is_unstable(tmp_path, monkeypatch):
 
 
 def test_parse_logs_with_custom_logback_pattern(tmp_path):
+    """情境：自訂 Logback Pattern 應可解析。"""
     d = tmp_path / "logs"
     d.mkdir()
     log_file = d / "custom.log"
@@ -714,6 +746,7 @@ def test_parse_logs_with_custom_logback_pattern(tmp_path):
 
 
 def test_parse_logs_with_logback_default_comma_millis_pattern(tmp_path):
+    """情境：逗號毫秒的 Logback Pattern 應可解析。"""
     d = tmp_path / "logs"
     d.mkdir()
     log_file = d / "logFile.2026-05-25.log"
@@ -741,6 +774,7 @@ def test_parse_logs_with_logback_default_comma_millis_pattern(tmp_path):
 
 
 def test_parse_logs_with_spring_boot_file_pattern_defaults(tmp_path):
+    """情境：含 Spring Boot 預設佔位值的 Pattern 應可解析。"""
     d = tmp_path / "logs"
     d.mkdir()
     log_file = d / "spring.log"
@@ -765,6 +799,7 @@ def test_parse_logs_with_spring_boot_file_pattern_defaults(tmp_path):
 
 
 def test_parse_logs_with_bracketed_level_thread_method_pattern(tmp_path):
+    """情境：含括號層級、Thread 與方法的 Pattern 應可解析。"""
     d = tmp_path / "logs"
     d.mkdir()
     log_file = d / "bracketed.log"
@@ -789,6 +824,7 @@ def test_parse_logs_with_bracketed_level_thread_method_pattern(tmp_path):
 
 
 def test_parse_logs_does_not_compile_regex_on_each_call(temp_log_dir, monkeypatch):
+    """情境：重複解析不應每次重新編譯內建正則。"""
     def fail_compile_logback_pattern(*_args, **_kwargs):
         raise AssertionError("default pattern should be compiled once at module import")
 

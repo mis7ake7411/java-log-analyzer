@@ -24,10 +24,12 @@ from log_analyzer.presentation.tui.views import build_dashboard_view
 
 
 def test_analysis_result_declares_matched_logs_contract():
+    """情境：分析結果型別應明確宣告可迭代明細的契約。"""
     assert get_type_hints(AnalysisResult)["matched_logs"] is MatchedLogs
 
 
 def test_analysis_result_defaults_scan_diagnostics():
+    """情境：新結果未提供診斷時應建立獨立的預設掃描診斷。"""
     result = AnalysisResult(
         input_path="",
         output_path="",
@@ -50,6 +52,7 @@ def test_analysis_result_defaults_scan_diagnostics():
 
 
 def test_export_preserves_replacement_for_invalid_utf8_source_bytes(tmp_path):
+    """情境：來源含無效 UTF-8 時匯出仍應保留替代字元。"""
     logs = tmp_path / "logs"
     logs.mkdir()
     (logs / "app.log").write_bytes(
@@ -78,6 +81,7 @@ def test_export_preserves_replacement_for_invalid_utf8_source_bytes(tmp_path):
 
 
 def test_analysis_options_pass_frozen_file_selection_to_analysis(tmp_path):
+    """情境：分析設定中的固定檔名選擇應完整傳給分析服務。"""
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     (logs_dir / "chosen.txt").write_text(
@@ -119,6 +123,7 @@ def test_analysis_options_pass_frozen_file_selection_to_analysis(tmp_path):
 
 
 def test_no_matches_carry_scan_diagnostics_and_real_scan_can_succeed_after_retry(tmp_path):
+    """情境：零結果應攜帶掃描診斷且修正條件後可重新分析成功。"""
     logs = tmp_path / "logs"
     logs.mkdir()
     (logs / "app.log").write_text(
@@ -161,6 +166,7 @@ def test_no_matches_carry_scan_diagnostics_and_real_scan_can_succeed_after_retry
 
 
 def test_no_matches_release_empty_matched_store_before_raising(tmp_path, monkeypatch):
+    """情境：零結果拋出例外前應釋放空的磁碟明細儲存器。"""
     class EmptyMatchedStore(list):
         diagnostics = ScanDiagnostics(1, 0, 0, 0, 0)
 
@@ -197,6 +203,7 @@ def test_no_matches_release_empty_matched_store_before_raising(tmp_path, monkeyp
 
 
 def test_run_analysis_can_skip_returning_full_details(tmp_path):
+    """情境：呼叫端不需要明細時應在匯出後釋放並回傳空集合。"""
     logs = tmp_path / "logs"
     logs.mkdir()
     (logs / "app.log").write_text(
@@ -233,6 +240,7 @@ def test_run_analysis_can_skip_returning_full_details(tmp_path):
 
 
 def test_run_analysis_without_details_keeps_dashboard_summaries(tmp_path):
+    """情境：不保留明細時仍應保存儀表板摘要。"""
     logs = tmp_path / "logs"
     logs.mkdir()
     (logs / "app.log").write_text(
@@ -269,6 +277,7 @@ def test_run_analysis_without_details_keeps_dashboard_summaries(tmp_path):
 
 
 def test_run_analysis_can_split_output_by_level(tmp_path):
+    """情境：完整分析流程應支援依 Level 分檔匯出。"""
     logs = tmp_path / "logs"
     logs.mkdir()
     (logs / "app.log").write_text(
@@ -300,6 +309,7 @@ def test_run_analysis_can_split_output_by_level(tmp_path):
 
 
 def test_run_analysis_with_options_matches_legacy_counts(tmp_path):
+    """情境：新設定物件介面與舊參數介面應得到相同計數。"""
     logs = tmp_path / "logs"
     logs.mkdir()
     (logs / "app.log").write_text(
@@ -338,6 +348,7 @@ def test_run_analysis_with_options_matches_legacy_counts(tmp_path):
 
 
 def test_legacy_run_analysis_accepts_keyword_only_overwrite(tmp_path):
+    """情境：舊分析介面應接受具名 overwrite 參數。"""
     logs = tmp_path / "logs"
     logs.mkdir()
     (logs / "app.log").write_text(
@@ -361,6 +372,7 @@ def test_legacy_run_analysis_accepts_keyword_only_overwrite(tmp_path):
 
 
 def test_export_analysis_result_never_overwrites_a_source_log_even_with_overwrite(tmp_path):
+    """情境：即使授權覆蓋也不得將報表寫到來源日誌。"""
     logs = tmp_path / "logs"
     logs.mkdir()
     source = logs / "app.log"

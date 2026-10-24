@@ -21,6 +21,7 @@ def _text(widget: Static) -> str:
 
 
 def test_source_scope_summary_separates_folder_hint_and_single_file(tmp_path):
+    """情境：來源摘要應區別資料夾提示與單檔資訊。"""
     folder = tmp_path / "logs"
     folder.mkdir()
     (folder / "first.log").write_text("", encoding="utf-8")
@@ -59,6 +60,7 @@ def test_source_scope_summary_separates_folder_hint_and_single_file(tmp_path):
 
 
 def test_source_scope_empty_and_invalid_states_are_explicit_and_clear_stale_data(tmp_path):
+    """情境：空與無效來源狀態應明確且清除過期資訊。"""
     empty_folder = tmp_path / "empty"
     empty_folder.mkdir()
     invalid_message = "[bold]missing.log"
@@ -98,8 +100,9 @@ def test_source_scope_empty_and_invalid_states_are_explicit_and_clear_stale_data
     asyncio.run(run_check())
 
 
-@pytest.mark.parametrize("size", ((80, 24), (120, 44), (160, 44)))
+@pytest.mark.parametrize("size", ((80, 24), (120, 44), (160, 44)), ids=['viewport-80x24', 'viewport-120x44', 'viewport-160x44'])
 def test_source_scope_panel_wraps_names_and_keeps_keyword_below_panel(tmp_path, size):
+    """情境：各寬度下來源檔名應換行並讓關鍵字保持在區塊下方。"""
     folder = tmp_path / "logs"
     folder.mkdir()
     long_filename = "[bold]" + "長" * 65 + ".log"
@@ -129,6 +132,7 @@ def test_source_scope_panel_wraps_names_and_keeps_keyword_below_panel(tmp_path, 
 
 
 def test_source_scope_list_is_focusable_only_when_it_scrolls_and_updates_after_resize(tmp_path):
+    """情境：來源清單僅在可捲動時可聚焦且視窗調整後應更新。"""
     folder = tmp_path / "logs"
     folder.mkdir()
     for index in range(3):

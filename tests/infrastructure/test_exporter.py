@@ -99,6 +99,7 @@ class _FailingHandle:
 
 
 def test_open_part_file_closes_handle_when_prefix_write_fails(monkeypatch, tmp_path):
+    """情境：分檔前綴寫入失敗時應關閉檔案。"""
     handle = _FailingHandle()
     monkeypatch.setattr(Path, "open", lambda *_args, **_kwargs: handle)
 
@@ -109,6 +110,7 @@ def test_open_part_file_closes_handle_when_prefix_write_fails(monkeypatch, tmp_p
 
 
 def test_close_part_file_closes_handle_when_suffix_write_fails():
+    """情境：分檔結尾寫入失敗時仍應關閉檔案。"""
     handle = _FailingHandle()
 
     with pytest.raises(OSError, match="disk full"):
@@ -118,6 +120,7 @@ def test_close_part_file_closes_handle_when_suffix_write_fails():
 
 
 def test_export_with_options_matches_legacy_wrapper(tmp_path):
+    """情境：ExportOptions 介面應與舊包裝器輸出一致。"""
     counts = {"ERROR": 2, "WARN": 1}
     logs = [
         _build_level_log(1, "ERROR", "X" * 900),
@@ -158,8 +161,9 @@ def test_export_with_options_matches_legacy_wrapper(tmp_path):
     ]
 
 
-@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")])
+@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")], ids=['format-csv', 'format-json', 'format-md'])
 def test_export_results_keeps_single_file_when_within_limit(tmp_path, monkeypatch, fmt, expected_suffix):
+    """情境：報表未超過大小門檻時各格式都應保留單檔。"""
     monkeypatch.setattr("log_analyzer.infrastructure.exporting.exporter.MAX_EXPORT_BYTES_PER_FILE", 10_000)
     output_path = tmp_path / f"report{expected_suffix}"
 
@@ -169,8 +173,9 @@ def test_export_results_keeps_single_file_when_within_limit(tmp_path, monkeypatc
     assert output_path.exists()
 
 
-@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")])
+@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")], ids=['format-csv', 'format-json', 'format-md'])
 def test_export_results_splits_large_reports(tmp_path, monkeypatch, fmt, expected_suffix):
+    """情境：各格式大型報表應自動分割。"""
     monkeypatch.setattr("log_analyzer.infrastructure.exporting.exporter.MAX_EXPORT_BYTES_PER_FILE", 5_000)
     output_path = tmp_path / f"report{expected_suffix}"
     payload = "X" * 900
@@ -271,11 +276,12 @@ def _assert_size_split_records(fmt, summary_path, report_paths, expected, levels
     assert sorted(actual) == sorted(expected)
 
 
-@pytest.mark.parametrize("fmt", ["csv", "json", "md"])
-@pytest.mark.parametrize("split_by_level", [False, True])
+@pytest.mark.parametrize("fmt", ["csv", "json", "md"], ids=['format-csv', 'format-json', 'format-md'])
+@pytest.mark.parametrize("split_by_level", [False, True], ids=['combined-levels', 'level-split'])
 def test_size_split_parts_stay_within_limit_and_preserve_records(
     tmp_path, fmt, split_by_level
 ):
+    """情境：分檔應符合大小門檻且完整保留事件。"""
     levels = ("ERROR", "WARN") if split_by_level else ("INFO",)
     logs = [
         _build_level_log(index, level, "payload")
@@ -313,6 +319,7 @@ def test_size_split_parts_stay_within_limit_and_preserve_records(
 
 
 def test_export_results_accepts_iterable_input(tmp_path, monkeypatch):
+    """情境：匯出應接受逐筆迭代輸入。"""
     monkeypatch.setattr("log_analyzer.infrastructure.exporting.exporter.MAX_EXPORT_BYTES_PER_FILE", 5_000)
     output_path = tmp_path / "report.csv"
     payload = "X" * 900
@@ -333,6 +340,7 @@ def test_export_results_accepts_iterable_input(tmp_path, monkeypatch):
 
 
 def test_export_results_keeps_single_file_when_level_split_disabled(tmp_path):
+    """情境：未啟用 Level 分檔時應保留單一串流。"""
     output_path = tmp_path / "report.csv"
 
     files = export_results(
@@ -350,6 +358,7 @@ def test_export_results_keeps_single_file_when_level_split_disabled(tmp_path):
 
 
 def test_export_results_keeps_single_file_when_only_one_level_has_data(tmp_path):
+    """情境：只有一個有效 Level 時不應額外分 Level。"""
     output_path = tmp_path / "report.csv"
 
     files = export_results(
@@ -365,8 +374,9 @@ def test_export_results_keeps_single_file_when_only_one_level_has_data(tmp_path)
     assert not (tmp_path / "report_ERROR.csv").exists()
 
 
-@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")])
+@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")], ids=['format-csv', 'format-json', 'format-md'])
 def test_export_results_splits_by_level_when_multiple_levels_have_data(tmp_path, fmt, expected_suffix):
+    """情境：多個有效 Level 時各格式應依層級分檔。"""
     output_path = tmp_path / f"report{expected_suffix}"
 
     files = export_results(
@@ -403,6 +413,7 @@ def test_export_results_splits_by_level_when_multiple_levels_have_data(tmp_path,
 
 
 def test_export_results_splits_by_level_and_size(tmp_path):
+    """情境：Level 分檔與大小分割應可一起使用。"""
     output_path = tmp_path / "report.csv"
     payload = "X" * 900
 
@@ -431,6 +442,7 @@ def test_export_results_splits_by_level_and_size(tmp_path):
 
 
 def test_export_results_splits_by_level_accepts_iterable_input(tmp_path):
+    """情境：Level 分檔應只需一次遍歷迭代輸入。"""
     output_path = tmp_path / "report.csv"
     yielded = []
 
@@ -456,6 +468,7 @@ def test_export_results_splits_by_level_accepts_iterable_input(tmp_path):
 
 
 def test_export_by_level_context_returns_summary_before_level_files(tmp_path):
+    """情境：依 Level 匯出回傳順序應先摘要再報表。"""
     context = exporter._LevelExportContext(
         counts={"ERROR": 1, "WARN": 1},
         matched_logs=[_build_level_log(1, "ERROR"), _build_level_log(2, "WARN")],
@@ -477,6 +490,7 @@ def test_export_by_level_context_returns_summary_before_level_files(tmp_path):
 
 
 def test_export_by_level_context_removes_created_files_when_summary_write_fails(tmp_path, monkeypatch):
+    """情境：摘要寫入失敗時應清除已建立的分檔。"""
     context = exporter._LevelExportContext(
         counts={"ERROR": 1, "WARN": 1},
         matched_logs=[_build_level_log(1, "ERROR"), _build_level_log(2, "WARN")],
@@ -500,6 +514,7 @@ def test_export_by_level_context_removes_created_files_when_summary_write_fails(
 def test_level_writer_construction_failure_closes_earlier_writer_and_cleans_stage(
     tmp_path, monkeypatch
 ):
+    """情境：後續 Level writer 建立失敗時應關閉先前 writer 並清理暫存。"""
     output_path = tmp_path / "report.csv"
     real_open = exporter._open_part_file
     handles = []
@@ -532,6 +547,7 @@ def test_level_writer_construction_failure_closes_earlier_writer_and_cleans_stag
 
 
 def test_interrupted_streaming_export_closes_writer_and_cleans_stage(tmp_path, monkeypatch):
+    """情境：串流匯出中斷時應關檔並清除暫存。"""
     output_path = tmp_path / "report.csv"
     real_open = exporter._open_part_file
     handles = []
@@ -558,6 +574,7 @@ def test_interrupted_streaming_export_closes_writer_and_cleans_stage(tmp_path, m
 def test_cleanup_error_reports_no_publication_and_keeps_render_error_context(
     tmp_path, monkeypatch
 ):
+    """情境：清理失敗應回報未發布並保留原始渲染例外脈絡。"""
     import log_analyzer.infrastructure.exporting.transaction as transaction_module
 
     output_path = tmp_path / "report.csv"
@@ -587,8 +604,9 @@ def test_cleanup_error_reports_no_publication_and_keeps_render_error_context(
     assert str(stage_dirs[0].resolve()) in str(error.value)
 
 
-@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")])
+@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")], ids=['format-csv', 'format-json', 'format-md'])
 def test_exports_include_cross_file_occurrences(tmp_path, fmt, expected_suffix):
+    """情境：各格式匯出應包含跨檔案出現位置。"""
     occurrences = [
         {
             "filename": "logs with spaces/服務.log",
@@ -641,9 +659,10 @@ def test_exports_include_cross_file_occurrences(tmp_path, fmt, expected_suffix):
         ) in report
 
 
-@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")])
-@pytest.mark.parametrize("split_by_level", [False, True])
+@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")], ids=['format-csv', 'format-json', 'format-md'])
+@pytest.mark.parametrize("split_by_level", [False, True], ids=['combined-levels', 'level-split'])
 def test_split_exports_keep_all_occurrences(tmp_path, fmt, expected_suffix, split_by_level):
+    """情境：大小或 Level 分檔後仍應保留所有出現位置。"""
     logs = [
         _build_occurrence_log(1, "ERROR", "x" * 3000),
         _build_occurrence_log(2, "ERROR", "x" * 3000),
@@ -689,8 +708,9 @@ def test_split_exports_keep_all_occurrences(tmp_path, fmt, expected_suffix, spli
     assert sorted(actual_coordinates) == sorted(expected_coordinates)
 
 
-@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")])
+@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")], ids=['format-csv', 'format-json', 'format-md'])
 def test_legacy_rows_without_occurrences_still_export(tmp_path, fmt, expected_suffix):
+    """情境：舊資料沒有 occurrences 欄位時仍應可匯出。"""
     log = _build_log(1, "legacy")
     output_path = tmp_path / f"report{expected_suffix}"
 
@@ -762,10 +782,11 @@ def _build_selectable_log() -> dict:
     return log
 
 
-@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")])
+@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")], ids=['format-csv', 'format-json', 'format-md'])
 def test_selected_export_fields_keep_only_requested_details_in_canonical_order(
     tmp_path, fmt, expected_suffix
 ):
+    """情境：選欄後僅輸出要求欄位並維持標準欄位順序。"""
     output_path = tmp_path / f"selected{expected_suffix}"
     log = _build_selectable_log()
 
@@ -855,8 +876,9 @@ def test_selected_export_fields_keep_only_requested_details_in_canonical_order(
             assert expected_value in report
 
 
-@pytest.mark.parametrize("fields", [(), ("unknown_field",)])
+@pytest.mark.parametrize("fields", [(), ("unknown_field",)], ids=['empty-fields', 'unknown-field'])
 def test_invalid_selected_fields_fail_before_split_export_creates_files(tmp_path, fields):
+    """情境：空欄位或未知欄位應在建立分檔前拒絕。"""
     output_path = tmp_path / "report.csv"
 
     with pytest.raises(ValueError):
@@ -872,6 +894,7 @@ def test_invalid_selected_fields_fail_before_split_export_creates_files(tmp_path
 
 
 def test_selected_fields_flow_through_level_and_size_split_writers(tmp_path):
+    """情境：選定欄位應傳到 Level 與大小分檔 writer。"""
     output_path = tmp_path / "split.csv"
     logs = [
         _build_level_log(1, "ERROR", "excluded"),
@@ -909,10 +932,11 @@ def test_selected_fields_flow_through_level_and_size_split_writers(tmp_path):
         assert "BODY-" in text
 
 
-@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")])
+@pytest.mark.parametrize("fmt, expected_suffix", [("csv", ".csv"), ("json", ".json"), ("md", ".md")], ids=['format-csv', 'format-json', 'format-md'])
 def test_default_export_preserves_all_detail_fields_and_legacy_layout(
     tmp_path, fmt, expected_suffix
 ):
+    """情境：預設匯出應保留全部明細與舊版版面。"""
     output_path = tmp_path / f"default{expected_suffix}"
     log = _build_log(1, "BODY-DEFAULT")
 
@@ -961,6 +985,7 @@ def test_default_export_preserves_all_detail_fields_and_legacy_layout(
 
 
 def test_export_field_normalization_returns_unique_canonical_selection():
+    """情境：欄位正規化應去重並回到標準順序。"""
     from log_analyzer.infrastructure.exporting.fields import (
         EXPORT_FIELDS,
         EXPORT_FIELD_LABELS,
@@ -995,8 +1020,9 @@ def test_export_field_normalization_returns_unique_canonical_selection():
         normalize_export_fields(("not_a_field",))
 
 
-@pytest.mark.parametrize("fmt", ["csv", "json", "md"])
+@pytest.mark.parametrize("fmt", ["csv", "json", "md"], ids=['format-csv', 'format-json', 'format-md'])
 def test_export_refuses_existing_target_without_overwrite(tmp_path, fmt):
+    """情境：未授權覆蓋時各格式都應拒絕既有目標。"""
     output_path = tmp_path / f"report.{fmt}"
     output_path.write_bytes(b"keep existing report")
 
@@ -1015,10 +1041,12 @@ def test_export_refuses_existing_target_without_overwrite(tmp_path, fmt):
         ("report_WARN.csv", True, None),
         ("report_part001.csv", False, 1),
     ],
+    ids=['existing-summary', 'existing-level-part', 'existing-size-part'],
 )
 def test_export_refuses_summary_and_split_part_collisions(
     tmp_path, target_name, split_by_level, max_export_bytes
 ):
+    """情境：摘要或較後分檔衝突時也應拒絕整組輸出。"""
     output_path = tmp_path / "report.csv"
     existing = tmp_path / target_name
     existing.write_bytes(b"existing output")
@@ -1039,8 +1067,9 @@ def test_export_refuses_summary_and_split_part_collisions(
     assert {path.name for path in tmp_path.iterdir()} == {target_name}
 
 
-@pytest.mark.parametrize("fmt", ["csv", "json", "md"])
+@pytest.mark.parametrize("fmt", ["csv", "json", "md"], ids=['format-csv', 'format-json', 'format-md'])
 def test_export_results_can_explicitly_overwrite_existing_target(tmp_path, fmt):
+    """情境：明確授權覆蓋時各格式應取代既有目標。"""
     output_path = tmp_path / f"report.{fmt}"
     output_path.write_text("old report", encoding="utf-8")
 
@@ -1057,8 +1086,9 @@ def test_export_results_can_explicitly_overwrite_existing_target(tmp_path, fmt):
     assert list(tmp_path.iterdir()) == [output_path]
 
 
-@pytest.mark.parametrize("fmt", ["csv", "json", "md"])
+@pytest.mark.parametrize("fmt", ["csv", "json", "md"], ids=['format-csv', 'format-json', 'format-md'])
 def test_split_summary_references_final_paths_and_never_staging_paths(tmp_path, fmt):
+    """情境：分檔摘要只能列正式路徑而非暫存路徑。"""
     output_path = tmp_path / f"report.{fmt}"
 
     files = export_results(
@@ -1079,6 +1109,7 @@ def test_split_summary_references_final_paths_and_never_staging_paths(tmp_path, 
 
 
 def test_export_render_failure_preserves_old_split_files(tmp_path, monkeypatch):
+    """情境：內容渲染失敗應保留舊分檔。"""
     output_path = tmp_path / "report.csv"
     old_files = {
         tmp_path / "report_summary.csv": b"old summary",
@@ -1107,8 +1138,9 @@ def test_export_render_failure_preserves_old_split_files(tmp_path, monkeypatch):
     assert set(tmp_path.iterdir()) == set(old_files)
 
 
-@pytest.mark.parametrize("failure_point", ["write", "close", "render"])
+@pytest.mark.parametrize("failure_point", ["write", "close", "render"], ids=['failure-point-write', 'failure-point-close', 'failure-point-render'])
 def test_export_failures_preserve_old_split_family(tmp_path, monkeypatch, failure_point):
+    """情境：寫入、關檔或渲染失敗應保留整組舊報表。"""
     output_path = tmp_path / "report.csv"
     old_files = {
         tmp_path / "report_summary.csv": b"old summary",

@@ -1,3 +1,10 @@
+"""連接介面與核心處理的應用服務：分析保留結果，匯出使用已保留的結果。
+
+TUI 分別呼叫 analyze_logs 與 export_analysis_result；CLI 使用
+run_analysis_with_options 串起兩者。閱讀時先看 AnalysisRequest / AnalysisResult，
+再看 analyze_logs，最後沿著 parse_log_directory 進入 domain 層。
+"""
+
 from __future__ import annotations
 
 import os
@@ -21,7 +28,12 @@ DEFAULT_SELECTED_LEVELS = ("ERROR", "WARN", "INFO")
 
 @dataclass(frozen=True, slots=True)
 class AnalysisRequest:
-    """描述一次來源日誌分析所需的條件。"""
+    """一次分析的輸入條件；不包含匯出路徑或格式。
+
+    dataclass 自動產生初始化方法；frozen=True 禁止直接改寫欄位，
+    slots=True 限定實例欄位。TUI 因而能保留按下分析當時的設定。
+    型別中的 ``| None`` 表示可不提供；selected_files=None 表示依來源列出檔案。
+    """
 
     path: str
     start_dt: datetime | None = None
@@ -36,7 +48,11 @@ class AnalysisRequest:
 
 @dataclass(frozen=True, slots=True)
 class ResultExportOptions:
-    """描述如何匯出已分析完成的結果。"""
+    """已保存結果的匯出設定；更改它不需要重新掃描日誌。
+
+    fields=None 使用預設欄位，max_export_bytes=None 使用匯出器的預設門檻；
+    overwrite 只授權本次覆蓋，不會改變分析條件。
+    """
 
     output_path: str
     fmt: str = "csv"
@@ -48,7 +64,11 @@ class ResultExportOptions:
 
 @dataclass(frozen=True, slots=True)
 class AnalysisOptions:
-    """分析執行所需的設定。"""
+    """CLI 等一次完成分析及匯出的設定，合併兩階段所需欄位。
+
+    include_details=False 會在匯出完成後釋放明細，只保留摘要供呼叫者顯示。
+    TUI 需要稍後瀏覽或重複匯出，因此使用分開的 Request / ExportOptions。
+    """
 
     path: str
     output_path: str
@@ -69,7 +89,13 @@ class AnalysisOptions:
 
 @dataclass(slots=True)
 class AnalysisResult:
-    """一次分析執行的完整結果"""
+    """一次分析的摘要、明細、來源快照與當次固定條件。
+
+    matched_groups 是合併後的事件群組數；matched_occurrences 是出現總次數。
+    matched_logs 可能是磁碟暫存儲存器，不一定是 list，使用完須釋放。
+    field(default_factory=...) 會替每個實例建立自己的 dict / 診斷物件，避免共用。
+    此類別未 frozen，成功匯出後可更新 output_path 與 exported_files。
+    """
 
     input_path: str
     output_path: str
@@ -95,12 +121,35 @@ class NoMatchingLogsError(ValueError):
     """沒有符合分析條件的 Log，並保留掃描階段的診斷資訊。"""
 
     def __init__(self, diagnostics: ScanDiagnostics) -> None:
+        """保留掃描診斷，讓介面能解釋零結果，而不是只顯示找不到資料。
+
+        Args:
+            diagnostics: 掃描診斷物件；傳入後可能被原地更新。
+
+        Returns:
+            None: 初始化帶掃描診斷的零結果例外。
+        """
         self.diagnostics = diagnostics
         super().__init__("找不到符合條件的 log請確認目錄、關鍵字或資料內容")
 
 
 def build_output_path(output_dir: str, output_name: str, fmt: str) -> str:
-    """把輸出資料夾與檔名組合成完整輸出路徑"""
+    """驗證輸出資料夾可寫入，清理檔名並依 fmt 補上副檔名。
+
+    空白檔名改用時間戳；basename 去掉使用者輸入的目錄部分，
+    讓結果留在 output_dir。資料夾無法使用時會拋出對應的檔案系統錯誤。
+
+    Args:
+        output_dir: 報表目的資料夾，必須可寫入。
+        output_name: 使用者輸入的檔名；空白時產生時間戳檔名。
+        fmt: 輸出格式：csv、json 或 md。
+
+    Returns:
+        str: 清理後的完整報表路徑。
+
+    Raises:
+        OSError: 輸出資料夾無法建立或不可寫入。
+    """
     normalized_dir = ensure_writable_directory(output_dir)
     cleaned = output_name.strip()
     if not cleaned:
@@ -130,7 +179,34 @@ def run_analysis(  # noqa: PLR0913 - public legacy API retained for backward com
     *,
     overwrite: bool = False,
 ) -> AnalysisResult:
-    """公開相容性包裝器，保留既有呼叫介面。"""
+    """公開相容性包裝器，保留既有呼叫介面。
+
+    Args:
+        path: 來源檔案或資料夾路徑。
+        output_path: 預計發布的主要報表路徑。
+        start_dt: 分析起點，含邊界；None 表示不限制。
+        end_dt: 分析終點，含邊界；None 表示不限制。
+        keyword: 關鍵字；None 或空字串表示不限制。
+        ignore_case: 是否忽略關鍵字比對的大小寫。
+        sort_by: 排序方式：time 或 level。
+        fmt: 輸出格式：csv、json 或 md。
+        log_pattern: 支援的 Logback Pattern；None 使用內建格式。
+        max_export_bytes: 每個分檔的位元組門檻；None 使用匯出器預設。
+        include_details: 匯出後是否保留可供再次讀取的明細。
+        levels: 選定層級；None 表示不限，空集合表示不選任何層級。
+        split_by_level: 是否在有多個有效層級時分開輸出。
+        overwrite: 是否明確允許覆蓋這次輸出的同名一般檔案。
+
+    Returns:
+        AnalysisResult: 分析及匯出後的結果；明細是否保留由 include_details 決定。
+
+    Raises:
+        OSError: 目的路徑不安全、寫入或發布／還原失敗。
+        AnalysisCancelled: control 觀察到取消要求時停止處理。
+        ValueError: 指定欄位等匯出設定無效。
+        ExportConflictError: 目標已存在且未授權覆蓋。
+        NoMatchingLogsError: 沒有符合條件的事件。
+    """
     return run_analysis_with_options(
         AnalysisOptions(
             path=path,
@@ -152,7 +228,24 @@ def run_analysis(  # noqa: PLR0913 - public legacy API retained for backward com
 
 
 def run_analysis_with_options(options: AnalysisOptions) -> AnalysisResult:
-    """依分析設定執行分析、匯出，並回傳摘要結果。"""
+    """CLI 的完整流程：分析 → 匯出 → 依 include_details 決定是否保留明細。
+
+    匯出失敗會釋放本次建立的明細暫存，再用 raise 將原例外傳回介面。
+    成功且保留明細時，呼叫者接手其生命週期，應在不用時釋放。
+
+    Args:
+        options: AnalysisOptions，合併分析與匯出設定。
+
+    Returns:
+        AnalysisResult: 完成匯出後的結果與摘要。
+
+    Raises:
+        OSError: 目的路徑不安全、寫入或發布／還原失敗。
+        AnalysisCancelled: control 觀察到取消要求時停止處理。
+        ValueError: 指定欄位等匯出設定無效。
+        ExportConflictError: 目標已存在且未授權覆蓋。
+        NoMatchingLogsError: 沒有符合條件的事件。
+    """
     result = analyze_logs(
         AnalysisRequest(
             path=options.path,
@@ -192,10 +285,29 @@ def analyze_logs(
     *,
     control: AnalysisControl | None = None,
 ) -> AnalysisResult:
-    """掃描來源日誌並保留可供後續匯出的分析結果。"""
+    """固定來源與條件、解析分組，再組成摘要與可重複讀取的分析結果。
+
+    request 是輸入；control 可回報進度與要求取消。回傳 AnalysisResult，
+    此時不寫報表。沒有符合資料時拋出 NoMatchingLogsError 並附診斷資訊；
+    若建立摘要途中失敗或取消，會釋放明細暫存，成功時由呼叫者接手。
+
+    Args:
+        request: 本輪固定的 AnalysisRequest，包含來源與篩選條件。
+        control: 可選 AnalysisControl；用於取消檢查及進度回報。
+
+    Returns:
+        AnalysisResult: 尚未匯出、可重複瀏覽及匯出的結果。
+
+    Raises:
+        OSError: 來源或暫存檔案無法讀寫時向上傳遞。
+        AnalysisCancelled: control 觀察到取消要求時停止處理。
+        ValueError: 來源範圍無效或 Pattern 不受支援時停止處理。
+        NoMatchingLogsError: 所有條件套用後沒有資料；例外附掃描診斷。
+    """
     if control is not None:
         control.raise_if_cancelled()
     source = select_log_source(request.path, selected_files=request.selected_files)
+    # 將實際選到的檔名寫進新請求，避免畫面後續編輯改變這一輪分析的意義。
     normalized_levels = None if request.levels is None else tuple(request.levels)
     normalized_request = AnalysisRequest(
         path=source.path,
@@ -270,7 +382,23 @@ def export_analysis_result(
     result: AnalysisResult,
     options: ResultExportOptions,
 ) -> list[str]:
-    """將保留的分析結果匯出，不重新讀取來源日誌。"""
+    """使用 result 中保留的統計與明細產生報表，回傳實際輸出檔案清單。
+
+    不重新分析來源；來源路徑會列為禁止覆寫的目標。只有成功產生檔案後
+    才更新 result 的匯出資訊。明細已釋放時無法重建報表，必須重新分析。
+
+    Args:
+        result: 保留的 AnalysisResult；其明細尚未釋放。
+        options: ResultExportOptions，只包含本次匯出設定。
+
+    Returns:
+        list[str]: 已發布報表的絕對路徑清單。
+
+    Raises:
+        ExportConflictError: 目標已存在且未授權覆蓋。
+        OSError: 目的路徑不安全、寫入或發布／還原失敗。
+        ValueError: 指定欄位等匯出設定無效。
+    """
     if result.matched_groups > 0 and len(result.matched_logs) == 0:
         raise ValueError("匹配日誌明細已釋放，無法再次匯出；請重新分析後再試。")
 
@@ -301,7 +429,23 @@ def export_analysis_bundle(
     result: AnalysisResult,
     options: ResultExportOptions,
 ) -> tuple[list[str], str]:
-    """將報表與證據清單放在同一個匯出交易中準備並發布。"""
+    """把報表與證據清單一起暫存及發布，回傳（報表路徑清單，清單路徑）。
+
+    先完成所有檔案才呼叫 publish；finally 無論成功或失敗都要求清理暫存。
+    這裡的交易是檔案發布保護，不是資料庫交易，也不保證斷電時整組原子性。
+
+    Args:
+        result: 保留的 AnalysisResult；其明細尚未釋放。
+        options: ResultExportOptions，套用至報表與清單。
+
+    Returns:
+        tuple[list[str], str]: 報表絕對路徑清單與證據清單絕對路徑。
+
+    Raises:
+        ExportConflictError: 目標已存在且未授權覆蓋。
+        OSError: 目的路徑不安全、寫入或發布／還原失敗。
+        ValueError: 指定欄位等匯出設定無效。
+    """
     if result.matched_groups > 0 and len(result.matched_logs) == 0:
         raise ValueError("匹配日誌明細已釋放，無法再次匯出；請重新分析後再試。")
 
@@ -345,6 +489,14 @@ def export_analysis_bundle(
 
 
 def _source_paths(result: AnalysisResult) -> tuple[Path, ...]:
+    """從來源快照還原需保護的路徑，避免匯出時覆蓋原始日誌。
+
+    Args:
+        result: 保留的 AnalysisResult；其明細尚未釋放。
+
+    Returns:
+        tuple[Path, ...]: 本輪輸出不可覆蓋的來源路徑。
+    """
     root = Path(result.input_path)
     sources: list[Path] = []
     if root.is_file():
@@ -356,6 +508,14 @@ def _source_paths(result: AnalysisResult) -> tuple[Path, ...]:
 
 
 def _release_matched_logs(matched_logs: MatchedLogs) -> None:
+    """有 release 方法才清理，讓 list 與磁碟儲存器可使用相同呼叫流程。
+
+    Args:
+        matched_logs: 可迭代的分析明細，可能為 list 或磁碟結果儲存器。
+
+    Returns:
+        None: 有 release 方法時執行清理。
+    """
     release = getattr(matched_logs, "release", None)
     if callable(release):
         release()

@@ -11,8 +11,9 @@ from log_analyzer.presentation.tui.recent_state import save_recent_tui_state
 from log_analyzer.presentation.tui import LogAnalyzerApp
 
 
-@pytest.mark.parametrize("size", [(70, 18), (150, 60)])
+@pytest.mark.parametrize("size", [(70, 18), (150, 60)], ids=['viewport-70x18', 'viewport-150x60'])
 def test_display_mode_control_is_absent_and_other_search_controls_remain(size, tmp_path, monkeypatch):
+    """情境：寬窄視窗都不應出現已移除的顯示模式控制且保留其他搜尋控制。"""
     monkeypatch.chdir(tmp_path)
 
     async def run_check() -> None:
@@ -29,6 +30,7 @@ def test_display_mode_control_is_absent_and_other_search_controls_remain(size, t
 
 
 def test_legacy_recent_display_modes_restore_the_same_form_without_running_analysis(tmp_path, monkeypatch):
+    """情境：舊最近設定的顯示模式應還原相同表單而不啟動分析。"""
     monkeypatch.chdir(tmp_path)
 
     async def restore(mode: str) -> tuple[object, ...]:
@@ -75,10 +77,11 @@ def test_legacy_recent_display_modes_restore_the_same_form_without_running_analy
     assert full_snapshot == summary_snapshot
 
 
-@pytest.mark.parametrize("legacy_mode", ["full", "summary", "unknown"])
+@pytest.mark.parametrize("legacy_mode", ["full", "summary", "unknown"], ids=['legacy-mode-full', 'legacy-mode-summary', 'legacy-mode-unknown'])
 def test_legacy_recipe_display_mode_is_ignored_without_replacing_result_or_rewriting_recipe(
     legacy_mode, tmp_path, monkeypatch
 ):
+    """情境：舊配方顯示模式應忽略且不替換結果或重寫配方。"""
     monkeypatch.chdir(tmp_path)
     logs = tmp_path / "logs"
     logs.mkdir()

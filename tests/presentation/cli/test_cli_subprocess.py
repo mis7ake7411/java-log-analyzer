@@ -49,6 +49,7 @@ def _write_cli_log(source, message):
 
 
 def test_cli_single_file_xml_sampling_and_json_export_exclude_siblings(tmp_path):
+    """情境：真實 CLI 單檔 XML 抽樣與 JSON 匯出不得混入同層日誌。"""
     selected_file = tmp_path / "chosen.log"
     sibling_file = tmp_path / "sibling.txt"
     xml_file = tmp_path / "logback.xml"
@@ -117,6 +118,7 @@ def test_cli_single_file_xml_sampling_and_json_export_exclude_siblings(tmp_path)
 
 
 def test_cli_default_export_conflict_preserves_existing_report(tmp_path):
+    """情境：真實 CLI 預設同名衝突應保留既有報表。"""
     source = tmp_path / "application.log"
     output = tmp_path / "report.json"
     _write_cli_log(source, "original report contents")
@@ -136,6 +138,7 @@ def test_cli_default_export_conflict_preserves_existing_report(tmp_path):
 
 
 def test_cli_overwrite_replaces_existing_report_when_explicitly_requested(tmp_path):
+    """情境：真實 CLI 明確 overwrite 應取代既有報表。"""
     source = tmp_path / "application.log"
     output = tmp_path / "report.json"
     _write_cli_log(source, "original report contents")
@@ -153,6 +156,7 @@ def test_cli_overwrite_replaces_existing_report_when_explicitly_requested(tmp_pa
 
 
 def test_cli_summary_conflict_reports_path_without_creating_level_reports(tmp_path):
+    """情境：摘要衝突應列出路徑且不建立各 Level 報表。"""
     logs = tmp_path / "logs"
     logs.mkdir()
     (logs / "error.log").write_text(
@@ -179,6 +183,7 @@ def test_cli_summary_conflict_reports_path_without_creating_level_reports(tmp_pa
 
 
 def test_cli_late_part_conflict_preserves_output_family(tmp_path):
+    """情境：較後分檔衝突也應保留整組舊輸出。"""
     logs = tmp_path / "logs"
     logs.mkdir()
     source = logs / "large.log"

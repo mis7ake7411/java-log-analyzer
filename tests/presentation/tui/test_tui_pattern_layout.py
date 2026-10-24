@@ -13,6 +13,7 @@ def _disable_recent_state(monkeypatch):
 
 
 def test_manual_override_shows_only_input_and_one_hint(monkeypatch):
+    """情境：手動覆寫應只顯示輸入與一則必要提示。"""
     _disable_recent_state(monkeypatch)
 
     async def run_check() -> None:
@@ -35,6 +36,7 @@ def test_manual_override_shows_only_input_and_one_hint(monkeypatch):
 
 
 def test_automatic_pattern_preview_is_collapsed_and_can_be_expanded(monkeypatch):
+    """情境：自動 Pattern 預覽應預設收合且能展開。"""
     _disable_recent_state(monkeypatch)
 
     async def run_check() -> None:
@@ -59,6 +61,7 @@ def test_automatic_pattern_preview_is_collapsed_and_can_be_expanded(monkeypatch)
 
 
 def test_long_pattern_wraps_without_overlapping_actions_at_common_sizes(monkeypatch):
+    """情境：長 Pattern 在常用寬窄尺寸應換行且不遮蓋操作按鈕。"""
     _disable_recent_state(monkeypatch)
     long_pattern = "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n " * 8
 

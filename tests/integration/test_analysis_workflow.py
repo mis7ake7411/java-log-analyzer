@@ -30,8 +30,9 @@ def _release(result):
     result.matched_logs.release()
 
 
-@pytest.mark.parametrize("sort_by", ["time", "level"])
+@pytest.mark.parametrize("sort_by", ["time", "level"], ids=['sort-by-time', 'sort-by-level'])
 def test_dashboard_distributions_follow_occurrences_across_files(tmp_path, sort_by):
+    """情境：不同排序下儀表板分布都應依跨檔出現位置統計。"""
     (tmp_path / "first.log").write_text(
         "2026-10-24 10:59:59.999 [worker-a] ERROR Service - Request failed\n"
         "2026-10-24 11:00:00.000 [worker-b] ERROR Service - Request failed\n",
@@ -57,6 +58,7 @@ def test_dashboard_distributions_follow_occurrences_across_files(tmp_path, sort_
 
 
 def test_analyze_logs_does_not_validate_or_create_export_paths(tmp_path, monkeypatch):
+    """情境：單純分析不得驗證或建立匯出路徑。"""
     logs_dir = tmp_path / "logs"
     _write_log(logs_dir)
     missing_output_dir = tmp_path / "missing-output"
@@ -79,6 +81,7 @@ def test_analyze_logs_does_not_validate_or_create_export_paths(tmp_path, monkeyp
 
 
 def test_analysis_request_levels_are_copied_to_an_immutable_tuple(tmp_path):
+    """情境：分析請求中的 Level 應複製為不可變 tuple。"""
     logs_dir = tmp_path / "logs"
     _write_log(logs_dir)
     levels = ["ERROR"]
@@ -94,6 +97,7 @@ def test_analysis_request_levels_are_copied_to_an_immutable_tuple(tmp_path):
 
 
 def test_analyze_logs_uses_only_a_selected_file_and_keeps_the_preview_root(tmp_path):
+    """情境：單檔分析只讀該檔並保留正確原文根目錄。"""
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     selected_file = logs_dir / "chosen.LOG"
@@ -135,6 +139,7 @@ def test_analyze_logs_uses_only_a_selected_file_and_keeps_the_preview_root(tmp_p
 def test_analyze_logs_does_not_expand_frozen_selection_after_new_file_arrives(
     tmp_path, monkeypatch
 ):
+    """情境：開始分析後新增檔案不得擴大固定選取範圍。"""
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     (logs_dir / "chosen.log").write_text(
@@ -175,6 +180,7 @@ def test_analyze_logs_does_not_expand_frozen_selection_after_new_file_arrives(
 
 
 def test_captured_logs_can_be_exported_repeatedly_after_source_is_removed(tmp_path, monkeypatch):
+    """情境：來源移除後仍應能重複匯出已保存分析。"""
     logs_dir = tmp_path / "logs"
     source = _write_log(logs_dir)
     real_parse = analysis_service.parse_log_directory
@@ -222,6 +228,7 @@ def test_captured_logs_can_be_exported_repeatedly_after_source_is_removed(tmp_pa
 
 
 def test_failed_export_preserves_store_and_metadata_for_retry(tmp_path):
+    """情境：匯出失敗應保留明細與結果資訊供重試。"""
     logs_dir = tmp_path / "logs"
     _write_log(logs_dir)
     result = analysis_service.analyze_logs(_request(logs_dir))
@@ -251,6 +258,7 @@ def test_failed_export_preserves_store_and_metadata_for_retry(tmp_path):
 
 
 def test_export_rejects_legacy_result_after_details_are_released(tmp_path, monkeypatch):
+    """情境：舊結果明細已釋放時應拒絕再次匯出。"""
     logs_dir = tmp_path / "logs"
     _write_log(logs_dir)
     result = analysis_service.run_analysis(
@@ -289,6 +297,7 @@ def test_export_rejects_legacy_result_after_details_are_released(tmp_path, monke
 
 
 def test_legacy_wrapper_releases_store_when_export_fails(tmp_path, monkeypatch):
+    """情境：舊一次性分析包裝器匯出失敗時應釋放儲存器。"""
     logs_dir = tmp_path / "logs"
     _write_log(logs_dir)
     real_parse = analysis_service.parse_log_directory
@@ -326,6 +335,7 @@ def test_legacy_wrapper_releases_store_when_export_fails(tmp_path, monkeypatch):
 
 
 def test_analyze_logs_releases_store_when_summary_computation_fails(tmp_path, monkeypatch):
+    """情境：摘要計算失敗時分析服務應釋放儲存器。"""
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
 

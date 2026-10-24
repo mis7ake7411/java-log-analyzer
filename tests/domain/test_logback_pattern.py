@@ -46,12 +46,20 @@ from log_analyzer.domain.logback_pattern import (
             ("2026-06-07 12:34:56.789", "main", "ERROR", "com.test.App", "Failed"),
         ),
     ],
+    ids=[
+        'standard-pattern',
+        'spring-property-defaults',
+        'wrapped-converters',
+        'file-and-line-tokens',
+        'throwable-suffix',
+    ],
 )
 def test_compile_logback_pattern_matches_supported_pattern_shapes(
     pattern: str,
     sample: str,
     expected: tuple[str, str, str, str, str],
 ):
+    """情境：支援的各種 Pattern 形狀應解析出預期的具名欄位。"""
     match = compile_logback_pattern(pattern).match(sample)
 
     assert match is not None
@@ -65,6 +73,7 @@ def test_compile_logback_pattern_matches_supported_pattern_shapes(
 
 
 def test_compile_logback_pattern_matches_default_logback_shape():
+    """情境：預設 Logback Pattern 應匹配標準日誌首行。"""
     compiled = compile_logback_pattern(
         "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
     )
@@ -80,6 +89,7 @@ def test_compile_logback_pattern_matches_default_logback_shape():
 
 
 def test_compile_logback_pattern_matches_logback_default_comma_millis():
+    """情境：逗號毫秒的預設 Logback 格式應可匹配。"""
     compiled = compile_logback_pattern("%d %-5level [%thread] %logger{0}: %msg%n")
 
     match = compiled.match(
@@ -103,6 +113,7 @@ def test_compile_logback_pattern_matches_logback_default_comma_millis():
 
 
 def test_compile_logback_pattern_allows_file_and_line_before_message_separator():
+    """情境：訊息分隔前的檔名與行號 token 應可接受。"""
     compiled = compile_logback_pattern(
         "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} %file:%line - %msg%n"
     )
@@ -115,6 +126,7 @@ def test_compile_logback_pattern_allows_file_and_line_before_message_separator()
 
 
 def test_compile_logback_pattern_rejects_unsupported_token():
+    """情境：不支援的 token 應明確拒絕。"""
     with pytest.raises(UnsupportedLogbackPatternError) as exc:
         compile_logback_pattern("%d{yyyy-MM-dd HH:mm:ss.SSS} %foo %n")
 
@@ -122,6 +134,7 @@ def test_compile_logback_pattern_rejects_unsupported_token():
 
 
 def test_compile_logback_pattern_expands_spring_boot_file_pattern_defaults():
+    """情境：Spring Boot 檔案 Pattern 的預設佔位值應可展開。"""
     compiled = compile_logback_pattern(
         "${FILE_LOG_PATTERN:-%d{${LOG_DATEFORMAT_PATTERN:-yyyy-MM-dd HH:mm:ss.SSS}} "
         "${LOG_LEVEL_PATTERN:-%5p}[%t][pid-${PID:- }][line-%line] "
@@ -142,6 +155,7 @@ def test_compile_logback_pattern_expands_spring_boot_file_pattern_defaults():
 
 
 def test_compile_logback_pattern_allows_spring_boot_throwable_tokens():
+    """情境：Spring Boot 堆疊例外 token 應可接受。"""
     compiled = compile_logback_pattern(
         "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n%wex"
     )
@@ -153,6 +167,7 @@ def test_compile_logback_pattern_allows_spring_boot_throwable_tokens():
 
 
 def test_compile_logback_pattern_matches_bracketed_level_thread_method_shape():
+    """情境：括號包住層級、執行緒與方法的格式應可匹配。"""
     compiled = compile_logback_pattern(
         "[%d{yyyy-MM-dd HH:mm:ss.SSS}] [%-5level] [%thread] %logger.%method(%line) - %msg%n"
     )
@@ -182,6 +197,7 @@ def test_compile_logback_pattern_matches_bracketed_level_thread_method_shape():
 
 
 def test_compile_logback_pattern_supports_class_token_and_wrapper_converters():
+    """情境：class token 與支援的包裝轉換器應可解析。"""
     compiled = compile_logback_pattern(
         "%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) [%thread] %C{36} - %replace(%msg){'x','y'}%n"
     )

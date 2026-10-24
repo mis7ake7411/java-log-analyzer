@@ -1,3 +1,10 @@
+"""TUI 的分析生命週期：固定表單、必要時確認 Pattern、執行、顯示與收尾。
+
+從 action_run_analysis / _schedule_analysis_start 進入 _run_analysis_lifecycle。
+async def 定義協程，await 等待非同步工作完成；create_task 則排入事件迴圈，
+讓按鈕事件能先返回。真正的資料解析交給應用服務，不放在畫面事件裡。
+"""
+
 from __future__ import annotations
 import asyncio
 import logging
@@ -33,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class _PendingPatternAnalysis:
+    """暫存等待使用者確認 Pattern 的請求，防止確認後套用到已修改的表單。"""
     assessment: LogbackPatternAssessment
     request: AnalysisRequest
     display_mode: str
@@ -41,7 +49,21 @@ class _PendingPatternAnalysis:
 
 
 class AnalysisLifecycleMixin:
+    """為 LogAnalyzerApp 提供分析操作；依賴 App 的元件、狀態及其他 mixin。
+
+    Mixin 是由主類別繼承的一組方法，不是可單獨啟動的 App；
+    因此 self.query_one、self._last_result 等成員是在主 App 中提供。
+    """
     def _handle_unexpected_error(self, result_box: RichLog, exc: Exception) -> None:
+        """記錄完整錯誤堆疊；有舊結果則還原，否則顯示失敗畫面。
+
+        Args:
+            result_box: 用來顯示摘要或錯誤的 RichLog 元件。
+            exc: 要記錄或呈現的例外物件。
+
+        Returns:
+            None: 記錄失敗並恢復舊結果或顯示錯誤。
+        """
         logger.exception("TUI 分析發生未預期錯誤", exc_info=exc)
         if not self.is_running:
             return
@@ -56,6 +78,15 @@ class AnalysisLifecycleMixin:
         self._set_result_status("failed")
 
     def _handle_analysis_error(self, result_box: RichLog, exc: Exception) -> None:
+        """將已知例外轉成畫面訊息；本次失敗或零結果不覆蓋上次成功結果。
+
+        Args:
+            result_box: 用來顯示摘要或錯誤的 RichLog 元件。
+            exc: 要記錄或呈現的例外物件。
+
+        Returns:
+            None: 呈現已知錯誤並保留上次成功結果。
+        """
         if not self.is_running:
             return
 
@@ -106,6 +137,14 @@ class AnalysisLifecycleMixin:
         self._set_result_status(status)
 
     def _handle_analysis_cancelled(self, result_box: RichLog) -> None:
+        """取消後恢復上次結果；若沒有舊結果，顯示已取消而非一般失敗。
+
+        Args:
+            result_box: 用來顯示摘要或錯誤的 RichLog 元件。
+
+        Returns:
+            None: 恢復舊結果或顯示已取消。
+        """
         if not self.is_running:
             return
         if self._restore_previous_result(
@@ -117,6 +156,10 @@ class AnalysisLifecycleMixin:
         self._set_result_status("cancelled")
 
     async def action_run_analysis(self) -> None:
+        """非同步操作入口：匯出區焦點走匯出，其餘情況開始分析並防止重入。
+        Returns:
+            None: 分流操作並等待本輪生命週期結束。
+        """
         if getattr(self, "_operation_in_progress", False):
             return
         if self._focused_inside_export_settings():
@@ -128,9 +171,19 @@ class AnalysisLifecycleMixin:
         await self._run_analysis_lifecycle()
 
     def action_schedule_analysis(self) -> None:
+        """供同步動作入口排程分析；實際防重入與建立 task 交給下一層。
+        Returns:
+            None: 轉交排程入口。
+        """
         self._schedule_analysis_start()
 
     def _schedule_analysis_start(self) -> None:
+        """先鎖定操作狀態，再建立背景協程，避免連續按鍵排入多次分析。
+
+        保存 task 可供測試或其他流程追蹤；create_task 只排程，不等於工作完成。
+        Returns:
+            None: 工作已排程，或因忙碌而忽略；不表示分析已完成。
+        """
         if getattr(self, "_operation_in_progress", False):
             return
         if self._focused_inside_export_settings():
@@ -144,6 +197,13 @@ class AnalysisLifecycleMixin:
         )
 
     async def _run_analysis_lifecycle(self) -> None:
+        """固定來源與表單請求，選擇直接執行或開啟 Pattern 確認視窗。
+
+        replace 是 dataclasses 的複製工具：產生新的 request，保留其他欄位。
+        若等待確認，執行責任交給回呼；其餘路徑由 finally 統一恢復操作狀態。
+        Returns:
+            None: 分析完成，或責任已交給 Pattern 確認回呼。
+        """
         self._restored_encoding_warning = None
         run_button = self.query_one("#run", Button)
         result_box = self.query_one("#result-box", RichLog)
@@ -218,6 +278,17 @@ class AnalysisLifecycleMixin:
     def _on_pattern_confirmation(
         self, candidate: LogbackPatternCandidate | None
     ) -> None:
+        """接收確認視窗結果，驗證候選來源後，用先前固定的請求續跑。
+
+        candidate=None 表示取消；候選必須是這輪 assessment 中的同一個物件，
+        再以 create_task 啟動續跑，避免同步視窗回呼直接等待長時間分析。
+
+        Args:
+            candidate: 本輪 XML 評估中的候選；None 表示取消。
+
+        Returns:
+            None: 驗證候選後排程續跑；取消或過期候選不執行。
+        """
         pending = self._pending_pattern_analysis
         self._pending_pattern_analysis = None
         if pending is None:
@@ -259,6 +330,17 @@ class AnalysisLifecycleMixin:
         result_box: RichLog,
         original_focused: object | None,
     ) -> None:
+        """執行已確認的請求，無論成功或失敗都恢復按鈕與焦點。
+
+        Args:
+            request: 本輪固定的 AnalysisRequest，包含來源與篩選條件。
+            display_mode: 既有流程保留的顯示模式值。
+            result_box: 用來顯示摘要或錯誤的 RichLog 元件。
+            original_focused: 分析前的焦點元件；None 表示沒有可還原焦點。
+
+        Returns:
+            None: 續跑完成後恢復操作狀態。
+        """
         run_button: Button | None = None
         try:
             if not self.is_running:
@@ -277,6 +359,20 @@ class AnalysisLifecycleMixin:
         result_box: RichLog,
         original_focused: object | None,
     ) -> None:
+        """切換執行畫面、建立控制器並等待分析；成功才顯示新的結果。
+
+        請求已固定，不再讀表單條件。舊結果保留供失敗／取消時恢復；
+        進度由工作執行緒送回事件迴圈，operation_id 用來識別是否仍為這輪工作。
+
+        Args:
+            request: 本輪固定的 AnalysisRequest，包含來源與篩選條件。
+            display_mode: 既有流程保留的顯示模式值。
+            result_box: 用來顯示摘要或錯誤的 RichLog 元件。
+            original_focused: 分析前的焦點元件；None 表示沒有可還原焦點。
+
+        Returns:
+            None: 顯示成功、取消或錯誤狀態，不回傳分析結果。
+        """
         run_button = self.query_one("#run", Button)
         self._set_export_settings_visible(False)
         self.query_one("#export-status", Static).update("")
@@ -301,12 +397,20 @@ class AnalysisLifecycleMixin:
         operation_id = object()
 
         def queue_progress(progress: AnalysisProgress) -> None:
+            """把工作執行緒的進度排回 UI 迴圈，避免跨執行緒直接更新元件。
+
+            Args:
+                progress: 不可變的 AnalysisProgress 快照。
+
+            Returns:
+                None: 將進度排回 UI 迴圈；迴圈已關閉時忽略。
+            """
             try:
                 loop.call_soon_threadsafe(
                     self._apply_analysis_progress, operation_id, progress
                 )
             except RuntimeError:
-                # The event loop may already be closed while a worker finishes its last callback.
+                # App 關閉時，工作執行緒最後的回報可能晚於事件迴圈關閉。
                 return
 
         control = AnalysisControl(progress_callback=queue_progress)
@@ -338,6 +442,15 @@ class AnalysisLifecycleMixin:
         original_focused: object | None,
         run_button: Button | None,
     ) -> None:
+        """清除本輪控制狀態、恢復可用焦點，並處理延後到工作完成的結果清理。
+
+        Args:
+            original_focused: 分析前的焦點元件；None 表示沒有可還原焦點。
+            run_button: 本輪開始分析按鈕；元件不可用時可為 None。
+
+        Returns:
+            None: 恢復按鈕／焦點並執行延後清理。
+        """
         self._operation_in_progress = False
         if getattr(self, "_active_analysis_operation_id", None) is not None:
             self._active_analysis_operation_id = None
@@ -359,20 +472,40 @@ class AnalysisLifecycleMixin:
             self.call_after_refresh(self._sync_result_context_notice)
 
     async def action_retry_without_time(self) -> None:
+        """清空時間條件後重新分析，用於零結果畫面的快速修正操作。
+        Returns:
+            None: 移除時間條件後等待重新分析。
+        """
         for field_id in ("start_date", "start_time", "end_date", "end_time"):
             self.query_one(f"#{field_id}", Input).value = ""
         await self.action_run_analysis()
 
     async def action_retry_without_level(self) -> None:
+        """改為不限 Level 並同步選項狀態，再重新分析。
+        Returns:
+            None: 取消層級限制後等待重新分析。
+        """
         self.query_one("#level_unrestricted", Checkbox).value = True
         self._sync_level_controls()
         await self.action_run_analysis()
 
     async def action_retry_without_keyword(self) -> None:
+        """移除關鍵字條件後重新分析，其餘條件沿用目前表單。
+        Returns:
+            None: 清空關鍵字後等待重新分析。
+        """
         self.query_one("#keyword", Input).value = ""
         await self.action_run_analysis()
 
     def _set_analysis_cancel_button(self, visible: bool) -> None:
+        """依分析狀態顯示／停用取消按鈕，並還原下一輪可用的按鈕文字。
+
+        Args:
+            visible: 是否顯示並啟用取消按鈕。
+
+        Returns:
+            None: 更新取消按鈕的可見性與可用狀態。
+        """
         if not self.is_running:
             return
         button = self.query_one("#cancel-analysis", Button)
@@ -381,6 +514,10 @@ class AnalysisLifecycleMixin:
         button.label = "取消分析"
 
     def action_cancel_analysis(self) -> None:
+        """送出合作式取消要求並顯示取消中；必須等解析器檢查訊號後才真正結束。
+        Returns:
+            None: 送出取消要求，實際停止由工作檢查點決定。
+        """
         control = getattr(self, "_analysis_control", None)
         if control is None or not getattr(self, "_operation_in_progress", False):
             return
@@ -400,6 +537,15 @@ class AnalysisLifecycleMixin:
         operation_id: object,
         progress: AnalysisProgress,
     ) -> None:
+        """只呈現仍有效的這輪進度，忽略 App 關閉、取消或上一輪晚到的通知。
+
+        Args:
+            operation_id: 本輪工作識別物件，用於排除晚到的舊進度。
+            progress: 不可變的 AnalysisProgress 快照。
+
+        Returns:
+            None: 有效的本輪進度才送入畫面。
+        """
         control = getattr(self, "_analysis_control", None)
         if (
             not self.is_running
@@ -411,6 +557,14 @@ class AnalysisLifecycleMixin:
         self._set_analysis_progress(progress)
 
     def _set_analysis_progress(self, progress: AnalysisProgress) -> None:
+        """把進度快照轉成階段、檔名及行數文字；Rich Text 避免檔名被當成標記。
+
+        Args:
+            progress: 不可變的 AnalysisProgress 快照。
+
+        Returns:
+            None: 更新進度文字。
+        """
         phase_names = {
             "starting": "準備",
             "scanning": "掃描",

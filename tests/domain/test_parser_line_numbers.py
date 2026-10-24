@@ -5,14 +5,18 @@ from log_analyzer.domain.parser_aggregation import GroupedLog, _append_line_numb
 
 @pytest.mark.parametrize("numbers, expected", [
     ((1, 2), [1, 2, 3]), ([1, 2], [1, 2, 3]), (None, [3]), (1, [1, 3]),
-])
+],
+    ids=['tuple-lines', 'list-lines', 'no-lines', 'single-line'],
+)
 def test_line_number_append_preserves_legacy_values(numbers, expected):
+    """情境：追加行號應保留 tuple、list、None 與單一數字的舊值語意。"""
     group = GroupedLog(1, numbers, "time", "time", "ERROR", "thread", "logger", "app.log", [], "message", "", "")
     _append_line_number(group, 3)
     assert normalize_line_numbers(group.line_numbers) == expected
 
 
 def test_serialized_line_numbers_do_not_alias_the_mutable_accumulator():
+    """情境：序列化行號不得與可變的累積清單共用容器。"""
     group = GroupedLog(1, [1], "time", "time", "ERROR", "thread", "logger", "app.log", [], "message", "", "")
     serialized = group.to_dict()
     _append_line_number(group, 2)

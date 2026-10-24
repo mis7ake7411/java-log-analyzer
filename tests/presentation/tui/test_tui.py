@@ -52,6 +52,7 @@ class _FakeSourceScopePreview:
 
 
 def test_tui_loads_structured_responsive_stylesheets():
+    """情境：TUI 應載入拆分的響應式樣式表。"""
     css_paths = [Path(path).name for path in LogAnalyzerApp.CSS_PATH]
 
     assert css_paths == [
@@ -66,6 +67,7 @@ def test_tui_loads_structured_responsive_stylesheets():
 
 
 def test_handle_unexpected_error_logs_and_displays_error(caplog):
+    """情境：非預期錯誤應記錄堆疊並顯示訊息。"""
     status_states = []
     app = SimpleNamespace(
         _last_result=None,
@@ -86,12 +88,14 @@ def test_handle_unexpected_error_logs_and_displays_error(caplog):
 
 
 def test_get_system_root_path_returns_current_drive_root():
+    """情境：系統根路徑應對應目前磁碟根目錄。"""
     expected_root = Path(Path.cwd().anchor or "/")
 
     assert get_system_root_path() == expected_root
 
 
 def test_directory_picker_root_starts_from_system_root():
+    """情境：資料夾選擇器應從系統根目錄開始。"""
     screen = DirectoryPickerScreen(
         initial_path=r"C:\not-used",
         title="選擇 Log 目錄",
@@ -106,6 +110,7 @@ def test_directory_picker_root_starts_from_system_root():
 
 
 def test_file_picker_root_starts_from_system_root():
+    """情境：檔案選擇器應從系統根目錄開始。"""
     screen = FilePickerScreen(
         initial_path=r"C:\not-used.xml",
         title="選擇 Logback XML",
@@ -120,6 +125,7 @@ def test_file_picker_root_starts_from_system_root():
 
 
 def test_clear_keyword_action_empties_keyword_input():
+    """情境：清除關鍵字操作應清空欄位。"""
     class FakeInput:
         def __init__(self) -> None:
             self.value = "RuntimeException"
@@ -139,6 +145,7 @@ def test_clear_keyword_action_empties_keyword_input():
 
 
 def test_ctrl_a_selects_focused_input_text():
+    """情境：Ctrl+A 應選取焦點輸入框的全部文字。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test() as pilot:
@@ -155,6 +162,7 @@ def test_ctrl_a_selects_focused_input_text():
 
 
 def test_ctrl_u_clears_focused_input_text():
+    """情境：Ctrl+U 應清空焦點輸入框。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test() as pilot:
@@ -171,6 +179,7 @@ def test_ctrl_u_clears_focused_input_text():
 
 
 def test_get_package_version_matches_project_version():
+    """情境：畫面版本應與專案版號一致。"""
     project_toml = Path(__file__).parents[3] / "pyproject.toml"
     version_match = re.search(
         r'(?m)^version\s*=\s*"([^"]+)"\s*$',
@@ -182,6 +191,7 @@ def test_get_package_version_matches_project_version():
 
 
 def test_default_datetime_field_texts():
+    """情境：日期時間欄位應有預期的預設文字。"""
     assert get_default_start_date_text() == ""
     assert get_default_start_time_text() == ""
     assert get_default_end_date_text() == ""
@@ -189,10 +199,12 @@ def test_default_datetime_field_texts():
 
 
 def test_default_output_name_text_uses_timestamp_prefix():
+    """情境：預設輸出名稱應帶時間戳前綴。"""
     assert get_default_output_name_text().startswith("analysis_")
 
 
 def test_composed_ui_preserves_key_widget_contracts(tmp_path, monkeypatch):
+    """情境：組裝畫面應保留關鍵元件契約。"""
     monkeypatch.chdir(tmp_path)
 
     async def run_check() -> None:
@@ -218,6 +230,7 @@ def test_composed_ui_preserves_key_widget_contracts(tmp_path, monkeypatch):
 
 
 def test_parse_datetime_range_inputs_allows_blank_end():
+    """情境：時間區間應允許留空終點。"""
     start_dt, end_dt = parse_datetime_range_inputs(
         "2026-06-07",
         "00:00",
@@ -230,6 +243,7 @@ def test_parse_datetime_range_inputs_allows_blank_end():
 
 
 def test_parse_datetime_range_inputs_allows_start_date_only():
+    """情境：時間區間應允許只填開始日期。"""
     start_dt, end_dt = parse_datetime_range_inputs(
         "2026-06-07",
         "",
@@ -243,6 +257,7 @@ def test_parse_datetime_range_inputs_allows_start_date_only():
 
 
 def test_parse_datetime_range_inputs_allows_end_date_only():
+    """情境：時間區間應允許只填結束日期。"""
     start_dt, end_dt = parse_datetime_range_inputs(
         "",
         "",
@@ -256,6 +271,7 @@ def test_parse_datetime_range_inputs_allows_end_date_only():
 
 
 def test_parse_datetime_range_inputs_allows_blank_start_and_end():
+    """情境：時間起訖皆空白時應表示不限制。"""
     start_dt, end_dt = parse_datetime_range_inputs(
         "",
         "",
@@ -268,6 +284,7 @@ def test_parse_datetime_range_inputs_allows_blank_start_and_end():
 
 
 def test_parse_datetime_range_inputs_allows_end_only():
+    """情境：只填終點時應可建立有效時間區間。"""
     start_dt, end_dt = parse_datetime_range_inputs(
         "",
         "",
@@ -281,6 +298,7 @@ def test_parse_datetime_range_inputs_allows_end_only():
 
 
 def test_parse_datetime_range_inputs_accepts_compact_numeric_values():
+    """情境：日期時間欄位應接受緊湊數字格式。"""
     start_dt, end_dt = parse_datetime_range_inputs(
         "20260607",
         "1820",
@@ -295,6 +313,7 @@ def test_parse_datetime_range_inputs_accepts_compact_numeric_values():
 
 
 def test_parse_datetime_range_inputs_accepts_compact_numeric_date_only():
+    """情境：只填緊湊數字日期時應可解析。"""
     start_dt, end_dt = parse_datetime_range_inputs(
         "",
         "",
@@ -308,6 +327,7 @@ def test_parse_datetime_range_inputs_accepts_compact_numeric_date_only():
 
 
 def test_parse_datetime_range_inputs_assigns_system_local_timezone():
+    """情境：時間區間應補上系統本地時區。"""
     start_dt, end_dt = parse_datetime_range_inputs(
         "2026-06-07",
         "10:00",
@@ -320,6 +340,7 @@ def test_parse_datetime_range_inputs_assigns_system_local_timezone():
 
 
 def test_parse_datetime_range_inputs_rejects_start_time_without_date():
+    """情境：只有開始時間沒有日期時應拒絕。"""
     try:
         parse_datetime_range_inputs(
             "",
@@ -334,6 +355,7 @@ def test_parse_datetime_range_inputs_rejects_start_time_without_date():
 
 
 def test_parse_datetime_range_inputs_rejects_end_time_without_date():
+    """情境：只有結束時間沒有日期時應拒絕。"""
     try:
         parse_datetime_range_inputs(
             "",
@@ -348,6 +370,7 @@ def test_parse_datetime_range_inputs_rejects_end_time_without_date():
 
 
 def test_collect_form_values_includes_time_fields():
+    """情境：收集表單應包含日期與時間欄位。"""
     class FakeInput:
         def __init__(self, value: str) -> None:
             self.value = value
@@ -399,6 +422,7 @@ def test_collect_form_values_includes_time_fields():
 
 
 def test_display_settings_rows_follow_current_field_grouping():
+    """情境：設定列應符合目前欄位分組。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test() as pilot:
@@ -441,6 +465,7 @@ def test_display_settings_rows_follow_current_field_grouping():
 
 
 def test_recent_tui_state_round_trip_only_keeps_selected_fields(tmp_path, monkeypatch):
+    """情境：最近設定往返只應保存允許欄位。"""
     monkeypatch.chdir(tmp_path)
 
     save_recent_tui_state(
@@ -484,6 +509,7 @@ def test_recent_tui_state_round_trip_only_keeps_selected_fields(tmp_path, monkey
 
 
 def test_recent_tui_state_missing_file_returns_empty_state(tmp_path, monkeypatch):
+    """情境：最近設定檔不存在時應回空設定。"""
     monkeypatch.chdir(tmp_path)
 
     state = load_recent_tui_state()
@@ -492,6 +518,7 @@ def test_recent_tui_state_missing_file_returns_empty_state(tmp_path, monkeypatch
 
 
 def test_tui_restores_recent_state_on_mount(tmp_path, monkeypatch):
+    """情境：掛載 TUI 時應還原最近設定。"""
     monkeypatch.chdir(tmp_path)
     save_recent_tui_state(
         {
@@ -540,6 +567,7 @@ def test_tui_restores_recent_state_on_mount(tmp_path, monkeypatch):
 
 
 def test_tui_does_not_focus_input_on_startup():
+    """情境：啟動時不應自動將焦點放到輸入框。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test() as pilot:
@@ -552,6 +580,7 @@ def test_tui_does_not_focus_input_on_startup():
 
 
 def test_tui_shortcut_works_without_input_focus():
+    """情境：沒有輸入焦點時快捷鍵仍應可用。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test() as pilot:
@@ -567,6 +596,7 @@ def test_tui_shortcut_works_without_input_focus():
 
 
 def test_time_range_rows_have_two_inputs_each():
+    """情境：起訖時間列都應包含日期與時間兩個輸入。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test() as pilot:
@@ -581,6 +611,7 @@ def test_time_range_rows_have_two_inputs_each():
 
 
 def test_log_pattern_controls_show_auto_source_and_manual_override():
+    """情境：Pattern 區應提供自動來源與手動覆寫。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test() as pilot:
@@ -596,6 +627,7 @@ def test_log_pattern_controls_show_auto_source_and_manual_override():
 
 
 def test_manual_pattern_field_is_hidden_until_override_is_enabled():
+    """情境：未啟用覆寫時應隱藏手動 Pattern 輸入。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(140, 80)) as pilot:
@@ -615,6 +647,7 @@ def test_manual_pattern_field_is_hidden_until_override_is_enabled():
 
 
 def test_advanced_settings_title_stays_at_top_of_panel():
+    """情境：進階設定標題應留在面板頂端。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(1400, 980)) as pilot:
@@ -634,6 +667,7 @@ def test_advanced_settings_title_stays_at_top_of_panel():
 
 
 def test_advanced_settings_logback_browse_button_keeps_right_edge_aligned():
+    """情境：寬版進階設定的 XML 瀏覽按鈕右緣應對齊。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(1606, 979)) as pilot:
@@ -665,6 +699,7 @@ def test_advanced_settings_logback_browse_button_keeps_right_edge_aligned():
 
 
 def test_advanced_toggle_aligns_with_action_buttons():
+    """情境：進階設定切換應與操作按鈕對齊。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(1606, 979)) as pilot:
@@ -679,6 +714,7 @@ def test_advanced_toggle_aligns_with_action_buttons():
 
 
 def test_sort_control_exists():
+    """情境：表單應包含排序控制。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test() as pilot:
@@ -690,6 +726,7 @@ def test_sort_control_exists():
 
 
 def test_level_filter_defaults_to_common_levels(tmp_path, monkeypatch):
+    """情境：預設 Level 應為常用層級。"""
     monkeypatch.chdir(tmp_path)
 
     async def run_check() -> None:
@@ -707,6 +744,7 @@ def test_level_filter_defaults_to_common_levels(tmp_path, monkeypatch):
 
 
 def test_level_filter_select_all_and_clear_actions():
+    """情境：Level 全選與清除應更新選項。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test() as pilot:
@@ -724,6 +762,7 @@ def test_level_filter_select_all_and_clear_actions():
 
 
 def test_level_filter_controls_use_full_field_body_width_in_wide_layout():
+    """情境：寬版 Level 控制應使用欄位本文可用寬度。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(184, 90)) as pilot:
@@ -756,6 +795,7 @@ def test_level_filter_controls_use_full_field_body_width_in_wide_layout():
 
 
 def test_level_filter_controls_reflow_in_compact_layout():
+    """情境：窄版 Level 控制應重新分配版面。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(70, 40)) as pilot:
@@ -778,6 +818,7 @@ def test_level_filter_controls_reflow_in_compact_layout():
 
 
 def test_logback_xml_controls_exist():
+    """情境：表單應提供 Logback XML 控制元件。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test() as pilot:
@@ -790,6 +831,7 @@ def test_logback_xml_controls_exist():
 
 
 def test_load_logback_xml_action_updates_preview_without_enabling_override(monkeypatch, tmp_path):
+    """情境：載入 XML 應更新預覽但不啟用手動覆寫。"""
     xml_file = tmp_path / "logback.xml"
     xml_file.write_text(
         '<configuration><property name="FILE_LOG_PATTERN" value="%d %-5level [%thread] %logger{0}: %msg%n"/></configuration>',
@@ -823,6 +865,7 @@ def test_load_logback_xml_action_updates_preview_without_enabling_override(monke
 
 
 def test_apply_selected_logback_xml_updates_input():
+    """情境：選取 XML 應更新來源欄位。"""
     class FakeInput:
         def __init__(self) -> None:
             self.value = ""
@@ -858,6 +901,7 @@ def test_apply_selected_logback_xml_updates_input():
 
 
 def test_paste_invalid_path_keeps_focused_input_value(tmp_path):
+    """情境：貼上無效路徑應保留焦點欄位的文字。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test() as pilot:
@@ -883,6 +927,7 @@ def test_paste_invalid_path_keeps_focused_input_value(tmp_path):
 
 
 def test_paste_invalid_output_path_keeps_value_and_displays_error(tmp_path):
+    """情境：貼上無效輸出路徑應保留文字並顯示錯誤。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test() as pilot:
@@ -913,6 +958,7 @@ def test_paste_invalid_output_path_keeps_value_and_displays_error(tmp_path):
 
 
 def test_paste_log_file_preserves_focused_log_file(tmp_path):
+    """情境：貼上日誌檔案應保留單檔來源。"""
     log_file = tmp_path / "application.log"
     log_file.touch()
 
@@ -938,6 +984,7 @@ def test_paste_log_file_preserves_focused_log_file(tmp_path):
 
 
 def test_apply_and_load_logback_xml_updates_preview_without_changing_manual_pattern(tmp_path):
+    """情境：載入 XML 應更新自動預覽而不改寫手動 Pattern。"""
     xml_file = tmp_path / "logback.xml"
     xml_file.write_text(
         '<configuration><property name="FILE_LOG_PATTERN" value="%d %-5level [%thread] %logger{0}: %msg%n"/></configuration>',
@@ -969,12 +1016,13 @@ def test_apply_and_load_logback_xml_updates_preview_without_changing_manual_patt
     asyncio.run(run_check())
 
 
-@pytest.mark.parametrize("submit_via", ["run_button", "xml_input"])
-@pytest.mark.parametrize("quote_path", [False, True])
-@pytest.mark.parametrize("recipe_guard", [False, True])
+@pytest.mark.parametrize("submit_via", ["run_button", "xml_input"], ids=['submit-via-run-button', 'submit-via-xml-input'])
+@pytest.mark.parametrize("quote_path", [False, True], ids=['unquoted-path', 'quoted-path'])
+@pytest.mark.parametrize("recipe_guard", [False, True], ids=['recipe-guard-off', 'recipe-guard-on'])
 def test_pasted_logback_xml_path_loads_pattern_before_analysis(
     monkeypatch, tmp_path, submit_via, quote_path, recipe_guard
 ):
+    """情境：不同提交方式、引號與配方狀態下貼上 XML 都應先載入 Pattern 再分析。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     (log_dir / "app.log").write_text(
@@ -1045,6 +1093,7 @@ def test_pasted_logback_xml_path_loads_pattern_before_analysis(
 
 
 def test_analysis_preserves_nonempty_manual_logback_pattern(monkeypatch, tmp_path):
+    """情境：已填寫的手動 Pattern 應在分析時保留。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     (log_dir / "app.log").write_text(
@@ -1092,6 +1141,7 @@ def test_analysis_preserves_nonempty_manual_logback_pattern(monkeypatch, tmp_pat
 
 
 def test_manual_pattern_override_ignores_invalid_xml_and_uses_manual_pattern(monkeypatch, tmp_path):
+    """情境：手動覆寫啟用時應忽略無效 XML 並使用手動 Pattern。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     (log_dir / "app.log").write_text(
@@ -1133,6 +1183,7 @@ def test_manual_pattern_override_ignores_invalid_xml_and_uses_manual_pattern(mon
 
 
 def test_explicit_xml_outside_log_directory_is_not_replaced_by_autodiscovery(monkeypatch, tmp_path):
+    """情境：明確選定來源目錄外 XML 時不得被自動探索取代。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     (log_dir / "app.log").write_text(
@@ -1177,6 +1228,7 @@ def test_explicit_xml_outside_log_directory_is_not_replaced_by_autodiscovery(mon
 
 
 def test_empty_manual_pattern_fails_before_analysis(monkeypatch, tmp_path):
+    """情境：手動 Pattern 空白時應在分析前失敗。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     (log_dir / "app.log").write_text(
@@ -1210,6 +1262,7 @@ def test_empty_manual_pattern_fails_before_analysis(monkeypatch, tmp_path):
 
 
 def test_manual_text_is_ignored_when_override_is_off(monkeypatch, tmp_path):
+    """情境：覆寫關閉時應忽略保留的手動文字。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     (log_dir / "app.log").write_text(
@@ -1247,6 +1300,7 @@ def test_manual_text_is_ignored_when_override_is_off(monkeypatch, tmp_path):
 
 
 def test_clearing_selected_xml_uses_default_on_next_analysis(monkeypatch, tmp_path):
+    """情境：清除指定 XML 後下次分析應回到內建格式。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     (log_dir / "app.log").write_text(
@@ -1293,6 +1347,7 @@ def test_clearing_selected_xml_uses_default_on_next_analysis(monkeypatch, tmp_pa
 
 
 def test_pasted_logback_xml_replaces_previous_autofilled_pattern(monkeypatch, tmp_path):
+    """情境：新貼上的 XML 應取代前次自動帶入的 Pattern。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     (log_dir / "app.log").write_text(
@@ -1352,6 +1407,7 @@ def test_pasted_logback_xml_replaces_previous_autofilled_pattern(monkeypatch, tm
 
 
 def test_default_recipe_guard_suppresses_directory_xml_discovery(monkeypatch, tmp_path):
+    """情境：預設格式配方保護應阻止資料夾 XML 自動探索。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     (log_dir / "app.log").write_text(
@@ -1402,8 +1458,10 @@ def test_default_recipe_guard_suppresses_directory_xml_discovery(monkeypatch, tm
         ("malformed", "無法解析 Logback XML"),
         ("no_pattern", "找不到可用的 Logback pattern"),
     ],
+    ids=['missing-xml', 'malformed-xml', 'xml-without-pattern'],
 )
 def test_analysis_reports_invalid_selected_logback_xml(monkeypatch, tmp_path, xml_kind, status_message):
+    """情境：指定 XML 遺失、損壞或沒有 Pattern 時應顯示對應錯誤。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     (log_dir / "app.log").write_text(
@@ -1451,6 +1509,7 @@ def test_analysis_reports_invalid_selected_logback_xml(monkeypatch, tmp_path, xm
 
 
 def test_loading_view_explains_processing_state():
+    """情境：載入畫面應說明處理中的狀態。"""
     panel = build_loading_view()
     lines = [str(renderable) for renderable in panel.renderable.renderables]
 
@@ -1461,6 +1520,7 @@ def test_loading_view_explains_processing_state():
 
 
 def test_error_view_includes_next_step_hint():
+    """情境：錯誤畫面應提供下一步提示。"""
     panel = build_error_view("找不到資料夾", "路徑不存在：/tmp/missing")
     lines = [str(renderable) for renderable in panel.renderable.renderables]
 
@@ -1471,6 +1531,7 @@ def test_error_view_includes_next_step_hint():
 
 
 def test_error_hint_reflects_datetime_format_errors():
+    """情境：日期格式錯誤應得到對應修正提示。"""
     hint = get_error_hint("輸入錯誤", "開始日期時間格式不正確。")
 
     assert "日期" in hint
@@ -1478,6 +1539,7 @@ def test_error_hint_reflects_datetime_format_errors():
 
 
 def test_error_hint_reflects_logback_pattern_errors():
+    """情境：Pattern 錯誤應得到對應修正提示。"""
     hint = get_error_hint("執行失敗", "不支援的 Logback pattern token：%replace")
 
     assert "Logback pattern" in hint
@@ -1485,6 +1547,7 @@ def test_error_hint_reflects_logback_pattern_errors():
 
 
 def test_set_result_uses_scrollable_content_width():
+    """情境：結果渲染寬度應取自可捲動內容區。"""
     class FakeBox:
         def __init__(self) -> None:
             self.scrollable_content_region = SimpleNamespace(width=88)
@@ -1510,6 +1573,7 @@ def test_set_result_uses_scrollable_content_width():
 
 
 def test_analyze_dashboard_collects_all_summaries_in_sorted_order():
+    """情境：儀表板各摘要應依指定順序整理。"""
     result = SimpleNamespace(
         matched_logs=[
             {
@@ -1573,6 +1637,7 @@ def test_analyze_dashboard_collects_all_summaries_in_sorted_order():
 
 
 def test_analyze_dashboard_returns_empty_summaries_without_matched_logs():
+    """情境：沒有匹配明細時儀表板摘要應為空。"""
     analysis = analyze_dashboard(SimpleNamespace(matched_logs=[]))
 
     assert analysis.exception_summary == ()
@@ -1582,6 +1647,7 @@ def test_analyze_dashboard_returns_empty_summaries_without_matched_logs():
 
 
 def test_dashboard_view_includes_exception_group_summary():
+    """情境：儀表板應包含例外群組摘要。"""
     result = SimpleNamespace(
         total_logs=9,
         matched_groups=3,
@@ -1627,6 +1693,7 @@ def test_dashboard_view_includes_exception_group_summary():
 
 
 def test_dashboard_view_includes_time_hotspot_summary():
+    """情境：儀表板應包含時間熱點摘要。"""
     result = SimpleNamespace(
         total_logs=12,
         matched_groups=4,
@@ -1676,6 +1743,7 @@ def test_dashboard_view_includes_time_hotspot_summary():
 
 
 def test_dashboard_view_includes_logger_thread_distribution():
+    """情境：儀表板應包含 Logger 與 Thread 分布。"""
     result = SimpleNamespace(
         total_logs=8,
         matched_groups=3,
@@ -1732,6 +1800,7 @@ def test_dashboard_view_includes_logger_thread_distribution():
 
 
 def test_dashboard_view_shows_summary_before_detail_panels():
+    """情境：儀表板應先呈現摘要再呈現細節。"""
     result = SimpleNamespace(
         total_logs=8,
         matched_groups=3,
@@ -1775,6 +1844,7 @@ def test_dashboard_view_shows_summary_before_detail_panels():
 
 
 def test_dashboard_view_renders_all_sections_in_order_for_both_layouts(monkeypatch):
+    """情境：兩種舊版面旗標下儀表板各區順序應一致。"""
     result = SimpleNamespace(
         total_logs=8,
         matched_groups=3,
@@ -1834,6 +1904,7 @@ def test_dashboard_view_renders_all_sections_in_order_for_both_layouts(monkeypat
 
 
 def test_apply_selected_directory_autofills_logback_settings(monkeypatch, tmp_path):
+    """情境：選取資料夾應自動帶入 Logback 設定。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     (log_dir / "app.log").write_text(
@@ -1896,6 +1967,7 @@ def test_apply_selected_directory_autofills_logback_settings(monkeypatch, tmp_pa
 
 
 def test_apply_selected_directory_does_not_override_manual_logback_values(monkeypatch, tmp_path):
+    """情境：選取資料夾不得覆蓋手動 Logback 設定。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     (log_dir / "app.log").write_text(
@@ -1948,6 +2020,7 @@ def test_apply_selected_directory_does_not_override_manual_logback_values(monkey
 
 
 def test_main_panels_have_equal_width_in_wide_layout():
+    """情境：寬視窗下輸入與結果面板應等寬。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(1920, 980)) as pilot:
@@ -1964,6 +2037,7 @@ def test_main_panels_have_equal_width_in_wide_layout():
 
 
 def test_main_panels_switch_to_compact_before_either_panel_is_too_narrow():
+    """情境：任何面板過窄前應切換成直向排列。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(110, 40)) as pilot:
@@ -1979,6 +2053,7 @@ def test_main_panels_switch_to_compact_before_either_panel_is_too_narrow():
 
 
 def test_run_button_stays_below_form_scroll_area():
+    """情境：表單捲動後開始分析按鈕仍應位於捲動區之外。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(1400, 40)) as pilot:
@@ -1999,6 +2074,7 @@ def test_run_button_stays_below_form_scroll_area():
 
 
 def test_clear_button_is_in_output_panel_bottom_actions():
+    """情境：清除結果按鈕應在輸出面板底部操作區。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(1400, 980)) as pilot:
@@ -2013,6 +2089,7 @@ def test_clear_button_is_in_output_panel_bottom_actions():
 
 
 def test_run_and_clear_buttons_share_the_same_row_in_wide_layout():
+    """情境：寬版開始分析與清除結果應位於同一列。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(1400, 980)) as pilot:
@@ -2027,6 +2104,7 @@ def test_run_and_clear_buttons_share_the_same_row_in_wide_layout():
 
 
 def test_compact_form_actions_stay_above_output_panel_and_align_with_form_controls():
+    """情境：窄版表單操作應在結果面板上方並與欄位對齊。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(110, 40)) as pilot:
@@ -2046,6 +2124,7 @@ def test_compact_form_actions_stay_above_output_panel_and_align_with_form_contro
 
 
 def test_compact_output_panel_keeps_result_box_visible_with_bottom_actions():
+    """情境：窄版結果面板應保留結果區與底部按鈕可見。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(110, 40)) as pilot:
@@ -2059,6 +2138,7 @@ def test_compact_output_panel_keeps_result_box_visible_with_bottom_actions():
 
 
 def test_result_status_starts_idle_and_disables_clear():
+    """情境：初始結果狀態應為閒置且停用清除。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test() as pilot:
@@ -2071,6 +2151,7 @@ def test_result_status_starts_idle_and_disables_clear():
 
 
 def test_result_status_shows_completion_summary_and_clear_returns_to_idle(tmp_path):
+    """情境：分析完成應顯示摘要而清除後回到閒置。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test() as pilot:
@@ -2092,6 +2173,7 @@ def test_result_status_shows_completion_summary_and_clear_returns_to_idle(tmp_pa
 
 
 def test_result_status_marks_failure_and_removes_duplicate_helper_text():
+    """情境：分析失敗應標記失敗並移除重複說明。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test() as pilot:
@@ -2144,6 +2226,7 @@ def _event_group() -> dict[str, object]:
 
 
 def test_dashboard_browse_button_opens_event_browser():
+    """情境：查看原文操作應開啟事件瀏覽。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(1400, 980)) as pilot:
@@ -2169,6 +2252,7 @@ def test_dashboard_browse_button_opens_event_browser():
 
 
 def test_result_replacement_clear_and_unmount_release_stores(tmp_path: Path, monkeypatch) -> None:
+    """情境：替換、清除結果與卸載 App 時應釋放明細儲存器。"""
     old_path = tmp_path / "old-groups.pickle"
     new_path = tmp_path / "new-groups.pickle"
     failed_path = tmp_path / "failed-groups.pickle"
@@ -2234,6 +2318,7 @@ def test_result_replacement_clear_and_unmount_release_stores(tmp_path: Path, mon
 
 
 def test_time_range_inputs_are_not_collapsed_in_wide_layout():
+    """情境：寬版時間區間欄位不應塌縮。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(1920, 980)) as pilot:
@@ -2267,6 +2352,7 @@ def test_time_range_inputs_are_not_collapsed_in_wide_layout():
 
 
 def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(monkeypatch):
+    """情境：隱藏進階設定時 Tab 順序應依畫面由上而下。"""
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
 
@@ -2303,6 +2389,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(
 
 
 def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible():
+    """情境：顯示進階設定時 Tab 順序應依畫面由上而下。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(1400, 980)) as pilot:
@@ -2343,6 +2430,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
 
 
 def test_form_panel_scroll_area_reaches_right_edge():
+    """情境：表單捲動區應延伸至面板右緣。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(1900, 1024)) as pilot:
@@ -2358,6 +2446,7 @@ def test_form_panel_scroll_area_reaches_right_edge():
 
 
 def test_form_controls_keep_gap_from_scrollbar(tmp_path):
+    """情境：表單控制元件應與捲軸保持間距。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(1292, 797)) as pilot:
@@ -2381,6 +2470,7 @@ def test_form_controls_keep_gap_from_scrollbar(tmp_path):
 
 
 def test_refresh_output_name_default_updates_only_auto_value(monkeypatch):
+    """情境：更新預設輸出名稱只應改動仍由系統自動命名的值。"""
     class FakeInput:
         def __init__(self, value: str) -> None:
             self.value = value
@@ -2408,6 +2498,7 @@ def test_refresh_output_name_default_updates_only_auto_value(monkeypatch):
 
 
 def test_advanced_settings_toggle_changes_visibility_and_label():
+    """情境：進階設定切換應同步顯示狀態與按鈕文字。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test():
