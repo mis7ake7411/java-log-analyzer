@@ -30,6 +30,17 @@ async def _wait_for_ui_state(pilot, predicate, message: str) -> None:
         raise AssertionError(message) from exc
 
 
+async def _wait_for_scheduled_analysis(app, pilot) -> None:
+    await _wait_for_ui_state(
+        pilot,
+        lambda: getattr(app, "_scheduled_analysis_task", None) is not None,
+        "analysis task was not scheduled",
+    )
+    analysis_task = app._scheduled_analysis_task
+    assert analysis_task is not None
+    await asyncio.wait_for(analysis_task, timeout=5)
+
+
 async def _wait_for_layout_to_settle(pilot, widgets) -> None:
     previous_layout = None
     stable_layouts = 0
@@ -430,6 +441,7 @@ def test_analysis_freezes_directory_file_list_when_execution_starts(tmp_path, mo
             monkeypatch.setattr(app, "_analyze_request", add_file_after_selection)
             await pilot.click("#run")
             await pilot.pause()
+            await _wait_for_scheduled_analysis(app, pilot)
 
             assert len(submitted_requests) == 1
             assert submitted_requests[0].selected_files == ("first.log",)
@@ -479,9 +491,7 @@ def test_single_file_xml_autofill_ignores_conflicting_sibling_samples(tmp_path, 
             monkeypatch.setattr(app, "_analyze_request", capture_request)
             await pilot.click("#run")
             await pilot.pause()
-            analysis_task = app._scheduled_analysis_task
-            assert analysis_task is not None
-            await asyncio.wait_for(analysis_task, timeout=5)
+            await _wait_for_scheduled_analysis(app, pilot)
 
             assert len(submitted_requests) == 1
             assert submitted_requests[0].selected_files == (selected_file.name,)

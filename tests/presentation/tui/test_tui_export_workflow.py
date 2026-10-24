@@ -70,11 +70,11 @@ async def _submit_empty_export_selection(app, pilot) -> str:
     confirm = app.query_one("#confirm-export")
     assert settings.display is True
     assert confirm.display is True
-    assert confirm.region.width > 0
-    assert confirm.region.height > 0
     assert confirm.disabled is False
     _select_export_fields(app, ())
     await _wait_for_export_confirmation_layout(app, pilot)
+    assert confirm.region.width > 0
+    assert confirm.region.height > 0
     assert confirm.region.y >= 0
     assert confirm.region.y + confirm.region.height <= app.size.height
     confirm_click_reached_button = await pilot.click("#confirm-export", offset=(1, 1))
@@ -138,7 +138,9 @@ def test_enter_from_export_controls_exports_retained_analysis_after_source_chang
 
             await pilot.click("#export-result")
             await pilot.pause()
-            assert app.query_one("#export-settings").display is True
+            settings = app.query_one("#export-settings")
+            assert settings.display is True
+            await _wait_for_export_confirmation_layout(app, pilot)
             assert list(export_dir.iterdir()) == []
 
             app.query_one("#keyword").value = "changed after scan"
@@ -308,6 +310,7 @@ def test_export_controls_are_reachable_in_narrow_and_wide_layouts():
             settings = app.query_one("#export-settings")
             confirm = app.query_one("#confirm-export")
             assert settings.display is True
+            await _wait_for_export_confirmation_layout(app, pilot)
             assert confirm.region.height > 0
             assert confirm.region.width > 0
             assert confirm.region.y >= 0
