@@ -1,8 +1,11 @@
 import asyncio
+
+from textual.css.query import NoMatches
 from textual.containers import VerticalScroll
 from textual.events import Paste
 from textual.widgets import Input, Static
 
+from log_analyzer.domain.log_sources import select_log_source
 from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui import LogAnalyzerApp
 
@@ -14,6 +17,97 @@ def _disable_recent_state(monkeypatch):
 
 def _static_text(widget: Static) -> str:
     return widget.render().plain
+
+
+async def _wait_for_ui_state(pilot, predicate, message: str) -> None:
+    async def wait_until_ready() -> None:
+        while not predicate():
+            await asyncio.sleep(0.01)
+
+    try:
+        await asyncio.wait_for(wait_until_ready(), timeout=5)
+    except asyncio.TimeoutError as exc:
+        raise AssertionError(message) from exc
+
+
+async def _wait_for_layout_to_settle(pilot, widgets) -> None:
+    previous_layout = None
+    stable_layouts = 0
+    for _ in range(10):
+        await pilot.pause()
+        layout = tuple(
+            (
+                widget.region.x,
+                widget.region.y,
+                widget.region.width,
+                widget.region.height,
+                widget.display,
+                getattr(widget, "max_scroll_y", None),
+            )
+            for widget in widgets
+        )
+        if layout == previous_layout:
+            stable_layouts += 1
+            if stable_layouts == 1:
+                return
+        else:
+            previous_layout = layout
+            stable_layouts = 0
+    raise AssertionError("source preview layout did not settle")
+
+
+async def _wait_for_source_preview(app, pilot, path) -> None:
+    source = select_log_source(str(path))
+    source_type = "單一檔案" if source.is_file else "資料夾"
+    expected_summary = f"{source_type} · {len(source.filenames)} 個檔案"
+    expected_filenames = "\n".join(source.filenames)
+
+    await _wait_for_ui_state(
+        pilot,
+        lambda: (
+            _static_text(app.query_one("#source-scope-summary", Static)) == expected_summary
+            and _static_text(app.query_one("#source-scope-filenames", Static)) == expected_filenames
+        ),
+        f"source preview did not refresh for {path}",
+    )
+    await _wait_for_layout_to_settle(
+        pilot,
+        (
+            app.query_one("#form-panel"),
+            app.query_one("#source-scope-preview"),
+            app.query_one("#source-scope-summary", Static),
+            app.query_one("#source-scope-list", VerticalScroll),
+            app.query_one("#source-scope-filenames", Static),
+            app.query_one("#keyword", Input),
+        ),
+    )
+
+
+async def _wait_for_picker_path(picker, pilot) -> Input:
+    async def wait_until_mounted() -> Input:
+        while True:
+            try:
+                path_input = picker.query_one("#picker-path", Input)
+            except NoMatches:
+                await asyncio.sleep(0.01)
+                continue
+            if path_input.is_mounted:
+                return path_input
+            await asyncio.sleep(0.01)
+
+    try:
+        return await asyncio.wait_for(wait_until_mounted(), timeout=5)
+    except asyncio.TimeoutError as exc:
+        raise AssertionError("source picker input did not mount") from exc
+
+
+async def _wait_for_source_picker(app, pilot):
+    await _wait_for_ui_state(
+        pilot,
+        lambda: app.screen.__class__.__name__ == "SourcePickerScreen",
+        "source picker screen did not open",
+    )
+    return app.screen
 
 
 def test_tui_previews_supported_directory_and_single_file_before_analysis(tmp_path, monkeypatch):
@@ -35,7 +129,7 @@ def test_tui_previews_supported_directory_and_single_file_before_analysis(tmp_pa
             await pilot.pause()
             path_input = app.query_one("#path", Input)
             path_input.value = str(log_dir)
-            await pilot.pause()
+            await _wait_for_source_preview(app, pilot, log_dir)
 
             summary = _static_text(app.query_one("#source-scope-summary", Static))
             hint = _static_text(app.query_one("#source-scope-hint", Static))
@@ -48,7 +142,7 @@ def test_tui_previews_supported_directory_and_single_file_before_analysis(tmp_pa
 
             selected_file = log_dir / "audit.LOG"
             path_input.value = str(selected_file)
-            await pilot.pause()
+            await _wait_for_source_preview(app, pilot, selected_file)
 
             summary = _static_text(app.query_one("#source-scope-summary", Static))
             filenames = _static_text(app.query_one("#source-scope-filenames", Static))
@@ -74,11 +168,19 @@ def test_tui_invalid_source_clears_previous_scope_preview(tmp_path, monkeypatch)
             await pilot.pause()
             path_input = app.query_one("#path", Input)
             path_input.value = str(log_dir)
-            await pilot.pause()
+            await _wait_for_source_preview(app, pilot, log_dir)
             assert "current.log" in _static_text(app.query_one("#source-scope-filenames", Static))
 
-            path_input.value = str(tmp_path / "missing.log")
-            await pilot.pause()
+            invalid_path = tmp_path / "missing.log"
+            path_input.value = str(invalid_path)
+            await _wait_for_ui_state(
+                pilot,
+                lambda: (
+                    "無效" in _static_text(app.query_one("#source-scope-summary", Static))
+                    and _static_text(app.query_one("#source-scope-filenames", Static)) == ""
+                ),
+                "invalid source preview did not refresh",
+            )
 
             summary = _static_text(app.query_one("#source-scope-summary", Static))
             filenames = _static_text(app.query_one("#source-scope-filenames", Static))
@@ -99,7 +201,11 @@ def test_tui_invalid_source_summary_keeps_markup_like_path_literal(tmp_path, mon
         async with app.run_test() as pilot:
             await pilot.pause()
             app.query_one("#path", Input).value = str(invalid_path)
-            await pilot.pause()
+            await _wait_for_ui_state(
+                pilot,
+                lambda: "[bold]" in _static_text(app.query_one("#source-scope-summary", Static)),
+                "invalid source summary did not refresh",
+            )
 
             summary = app.query_one("#source-scope-summary", Static)
             assert "[bold]" in summary.render().plain
@@ -118,31 +224,41 @@ def test_tui_browse_source_accepts_a_file_and_a_directory(tmp_path, monkeypatch)
         app = LogAnalyzerApp()
         async with app.run_test(size=(110, 40)) as pilot:
             await pilot.pause()
-            await pilot.click("#browse_path")
-            picker = app.screen
+            assert await pilot.click("#browse_path")
+            picker = await _wait_for_source_picker(app, pilot)
             assert picker.__class__.__name__ == "SourcePickerScreen"
-            picker.query_one("#picker-path", Input).value = str(log_file)
+            picker_path = await _wait_for_picker_path(picker, pilot)
+            picker_path.value = str(log_file)
             confirm = picker.query_one("#picker-confirm")
             assert confirm.region.y + confirm.region.height <= 40, (
                 confirm.region,
                 picker.query_one("#picker-card").region,
             )
-            await pilot.click("#picker-confirm")
-            await pilot.pause()
-            assert app.query_one("#path", Input).value == str(log_file)
+            assert await pilot.click("#picker-confirm")
+            await _wait_for_ui_state(
+                pilot,
+                lambda: app.query_one("#path", Input).value == str(log_file),
+                "selected file path was not returned to the form",
+            )
+            await _wait_for_source_preview(app, pilot, log_file)
 
-            await pilot.click("#browse_path")
-            picker = app.screen
+            assert await pilot.click("#browse_path")
+            picker = await _wait_for_source_picker(app, pilot)
             assert picker.__class__.__name__ == "SourcePickerScreen"
-            picker.query_one("#picker-path", Input).value = str(log_dir)
+            picker_path = await _wait_for_picker_path(picker, pilot)
+            picker_path.value = str(log_dir)
             confirm = picker.query_one("#picker-confirm")
             assert confirm.region.y + confirm.region.height <= 40, (
                 confirm.region,
                 picker.query_one("#picker-card").region,
             )
-            await pilot.click("#picker-confirm")
-            await pilot.pause()
-            assert app.query_one("#path", Input).value == str(log_dir)
+            assert await pilot.click("#picker-confirm")
+            await _wait_for_ui_state(
+                pilot,
+                lambda: app.query_one("#path", Input).value == str(log_dir),
+                "selected directory path was not returned to the form",
+            )
+            await _wait_for_source_preview(app, pilot, log_dir)
             assert "資料夾" in _static_text(app.query_one("#source-scope-summary", Static))
 
     asyncio.run(run_check())
@@ -161,7 +277,7 @@ def test_tui_source_scope_list_is_literal_bounded_and_scrollable(tmp_path, monke
         async with app.run_test(size=size) as pilot:
             await pilot.pause()
             app.query_one("#path", Input).value = str(log_dir)
-            await pilot.pause()
+            await _wait_for_source_preview(app, pilot, log_dir)
 
             scope_list = app.query_one("#source-scope-list", VerticalScroll)
             filenames = _static_text(app.query_one("#source-scope-filenames", Static))
@@ -180,8 +296,9 @@ def test_tui_source_scope_list_is_literal_bounded_and_scrollable(tmp_path, monke
 
 
 async def _select_scope(pilot, scope_list, path, *, scrollable, displayed=True):
-    scope_list.app.query_one("#path", Input).value = str(path)
-    await pilot.pause()
+    app = scope_list.app
+    app.query_one("#path", Input).value = str(path)
+    await _wait_for_source_preview(app, pilot, path)
     assert scope_list.display is displayed
     assert scope_list.focusable is scrollable
     assert (scope_list.max_scroll_y > 0) is scrollable
@@ -264,7 +381,7 @@ def test_tui_paste_of_file_uri_keeps_file_scope_visible(tmp_path, monkeypatch):
             await pilot.pause()
 
             path_input.post_message(Paste(log_file.as_uri()))
-            await pilot.pause()
+            await _wait_for_source_preview(app, pilot, log_file)
 
             assert path_input.value == str(log_file)
             assert "單一檔案" in _static_text(app.query_one("#source-scope-summary", Static))
@@ -379,7 +496,7 @@ def test_scope_preview_wraps_empty_single_and_many_files_without_overlap(tmp_pat
             await pilot.pause()
             for source_dir, file_count in sources:
                 app.query_one("#path", Input).value = str(source_dir)
-                await pilot.pause()
+                await _wait_for_source_preview(app, pilot, source_dir)
 
                 preview = app.query_one("#source-scope-preview")
                 summary = app.query_one("#source-scope-summary")

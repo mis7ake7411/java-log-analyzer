@@ -40,6 +40,50 @@ from log_analyzer.presentation.tui.views import analyze_dashboard
 from log_analyzer.version import get_package_version
 
 
+async def _wait_for_ui_state(pilot, predicate, message: str) -> None:
+    async def wait_until_ready() -> None:
+        while not predicate():
+            await asyncio.sleep(0.01)
+
+    try:
+        await asyncio.wait_for(wait_until_ready(), timeout=5)
+    except asyncio.TimeoutError as exc:
+        raise AssertionError(message) from exc
+
+
+async def _wait_for_scheduled_analysis(app) -> None:
+    async def wait_until_scheduled() -> asyncio.Task:
+        while (task := getattr(app, "_scheduled_analysis_task", None)) is None:
+            await asyncio.sleep(0.01)
+        return task
+
+    task = await asyncio.wait_for(wait_until_scheduled(), timeout=5)
+    await asyncio.wait_for(task, timeout=10)
+
+
+async def _wait_for_layout_to_settle(pilot, widgets) -> None:
+    previous_layout = None
+    for _ in range(10):
+        await pilot.pause()
+        layout = tuple(
+            (
+                widget.region.x,
+                widget.region.y,
+                widget.region.width,
+                widget.region.height,
+                widget.display,
+                tuple(sorted(widget.classes)),
+                getattr(widget, "content_size", None),
+                getattr(widget, "max_scroll_y", None),
+            )
+            for widget in widgets
+        )
+        if layout == previous_layout:
+            return
+        previous_layout = layout
+    raise AssertionError("advanced layout did not settle")
+
+
 class _FakeSourceScopePreview:
     def show_source(self, _source: object) -> None:
         pass
@@ -724,6 +768,10 @@ def test_level_filter_controls_use_full_field_body_width_in_wide_layout():
             trace_checkbox = app.query_one("#level_TRACE")
             select_all = app.query_one("#select_all_levels")
             clear_levels = app.query_one("#clear_levels")
+            await _wait_for_layout_to_settle(
+                pilot,
+                (level_row, actions, error_checkbox, info_checkbox, debug_checkbox, trace_checkbox, select_all, clear_levels),
+            )
 
             assert level_row.region.width >= 40
             assert actions.region.width == level_row.region.width
@@ -848,8 +896,14 @@ def test_paste_invalid_path_keeps_focused_input_value(tmp_path):
             path_input.focus()
             await pilot.pause()
 
-            path_input.post_message(Paste("/tmp/not-a-real-log-directory"))
-            await pilot.pause()
+            invalid_path = tmp_path / "not-a-real-log-directory"
+            assert not invalid_path.exists()
+            path_input.post_message(Paste(str(invalid_path)))
+            await _wait_for_ui_state(
+                pilot,
+                lambda: "路徑不存在" in str(app.query_one("#path-status").render()),
+                "invalid source path status did not refresh",
+            )
 
             assert path_input.value == str(tmp_path)
             assert "路徑不存在" in str(app.query_one("#path-status").render())
@@ -872,8 +926,14 @@ def test_paste_invalid_output_path_keeps_value_and_displays_error(tmp_path):
             output_input.focus()
             await pilot.pause()
 
-            output_input.post_message(Paste("/tmp/not-a-real-output-directory"))
-            await pilot.pause()
+            invalid_path = tmp_path / "not-a-real-output-directory"
+            assert not invalid_path.exists()
+            output_input.post_message(Paste(str(invalid_path)))
+            await _wait_for_ui_state(
+                pilot,
+                lambda: "路徑不存在" in str(app.query_one("#output-path-status").render()),
+                "invalid output path status did not refresh",
+            )
 
             assert output_input.value == str(tmp_path)
             assert "路徑不存在" in str(app.query_one("#output-path-status").render())
@@ -992,11 +1052,12 @@ def test_pasted_logback_xml_path_loads_pattern_before_analysis(
             if submit_via == "run_button":
                 app.query_one("#run").scroll_visible(animate=False)
                 await pilot.pause()
-                await pilot.click("#run")
+                clicked = await pilot.click("#run")
+                assert clicked, "#run click did not hit its button"
             else:
                 xml_input.focus()
                 await pilot.press("enter")
-            await pilot.pause()
+            await _wait_for_scheduled_analysis(app)
 
             assert len(analyzed_requests) == 1
             assert analyzed_requests[0].path == str(log_dir)
@@ -2218,11 +2279,19 @@ def test_time_range_inputs_are_not_collapsed_in_wide_layout():
     asyncio.run(run_check())
 
 
-def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden():
+def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(monkeypatch):
+    monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
+    monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
+
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(1400, 980)) as pilot:
             await pilot.pause()
+            await _wait_for_ui_state(
+                pilot,
+                lambda: app.focused is None,
+                "initial focus reset did not complete",
+            )
 
             sequence = []
             for _ in range(8):

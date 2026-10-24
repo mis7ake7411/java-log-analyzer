@@ -44,6 +44,40 @@ def _overlap(first, second) -> bool:
     )
 
 
+async def _wait_for_ui_state(pilot, predicate, message: str) -> None:
+    async def wait_until_ready() -> None:
+        while not predicate():
+            await asyncio.sleep(0.01)
+
+    try:
+        await asyncio.wait_for(wait_until_ready(), timeout=5)
+    except asyncio.TimeoutError as exc:
+        raise AssertionError(message) from exc
+
+
+async def _wait_for_layout_to_settle(pilot, widgets) -> None:
+    previous_layout = None
+    for _ in range(10):
+        await pilot.pause()
+        layout = tuple(
+            (
+                widget.region.x,
+                widget.region.y,
+                widget.region.width,
+                widget.region.height,
+                widget.display,
+                tuple(sorted(widget.classes)),
+                getattr(widget, "content_size", None),
+                getattr(widget, "max_scroll_y", None),
+            )
+            for widget in widgets
+        )
+        if layout == previous_layout:
+            return
+        previous_layout = layout
+    raise AssertionError("advanced controls did not reach a stable layout")
+
+
 @pytest.mark.parametrize("size", SIZES)
 def test_advanced_controls_fit_form_content_and_reflow(size, monkeypatch):
     _disable_recent_state(monkeypatch)
@@ -54,18 +88,25 @@ def test_advanced_controls_fit_form_content_and_reflow(size, monkeypatch):
             await pilot.pause()
             app._set_advanced_settings_visible(True)
             app.query_one("#manual_pattern_override").value = True
-            await pilot.pause()
-
             panel = app.query_one("#form-panel")
             advanced = app.query_one("#advanced-settings")
+            controls = [app.query_one(f"#{control_id}") for control_id in ADVANCED_CONTROL_IDS]
+            controls.extend(app.query_one(f"#{control_id}") for control_id in ("path", "browse_path", "keyword"))
+            await _wait_for_ui_state(
+                pilot,
+                lambda: (
+                    app.query_one("#logback_xml_path").region.width > 0
+                ),
+                f"advanced controls did not finish reflowing at {size}",
+            )
+            await _wait_for_layout_to_settle(pilot, (panel, advanced, *controls))
+
             content = panel.content_region
             assert content.width > 0
             assert content.height >= 3, (size, panel.region, content, app.query_one("#form-actions").region)
             assert advanced.has_class("advanced-wide") is (advanced.content_size.width >= 72)
             assert advanced.has_class("advanced-compact") is (advanced.content_size.width < 72)
 
-            controls = [app.query_one(f"#{control_id}") for control_id in ADVANCED_CONTROL_IDS]
-            controls.extend(app.query_one(f"#{control_id}") for control_id in ("path", "browse_path", "keyword"))
             regions = []
             for control in controls:
                 region = control.region

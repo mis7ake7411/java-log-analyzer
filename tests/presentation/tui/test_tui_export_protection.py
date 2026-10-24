@@ -32,12 +32,15 @@ async def _analyze_and_open_export(app, pilot, logs, output_dir):
     return result
 
 
-async def _wait_for_export_to_finish(app, pilot):
-    for _ in range(300):
-        if not app._operation_in_progress:
-            return
-        await pilot.pause(0.01)
-    raise AssertionError("export operation did not finish")
+async def _wait_for_export_to_finish(app, pilot, completion_condition):
+    async def wait_until_finished() -> None:
+        while app._operation_in_progress or not completion_condition():
+            await asyncio.sleep(0.01)
+
+    try:
+        await asyncio.wait_for(wait_until_finished(), timeout=10)
+    except asyncio.TimeoutError as exc:
+        raise AssertionError("export operation did not finish") from exc
 
 
 def _assert_result_retained(app, result, store):
@@ -166,10 +169,18 @@ def test_export_conflict_overwrite_retries_the_frozen_request(tmp_path, monkeypa
             await pilot.resize_terminal(110, 45)
             await pilot.pause()
 
-            await pilot.click("#export-conflict-overwrite")
-            await _wait_for_export_to_finish(app, pilot)
-
+            overwrite_clicked = await pilot.click("#export-conflict-overwrite")
+            assert overwrite_clicked, "overwrite click did not hit its button"
             manifest_path = export_dir / "captured_manifest.json"
+            await _wait_for_export_to_finish(
+                app,
+                pilot,
+                lambda: (
+                    report_path.read_bytes() != b"previous report bytes"
+                    and manifest_path.is_file()
+                ),
+            )
+
             assert app.screen is base_screen
             exported_results = json.loads(
                 report_path.read_text(encoding="utf-8")

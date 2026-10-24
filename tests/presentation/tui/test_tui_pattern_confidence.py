@@ -47,6 +47,16 @@ async def _wait_for_run_button_ready(app, pilot):
     await asyncio.wait_for(wait_until_ready(), timeout=1)
 
 
+async def _wait_for_scheduled_analysis(app, previous_task=None) -> None:
+    async def wait_until_scheduled() -> asyncio.Task:
+        while (task := getattr(app, "_scheduled_analysis_task", None)) is None or task is previous_task:
+            await asyncio.sleep(0.01)
+        return task
+
+    task = await asyncio.wait_for(wait_until_scheduled(), timeout=5)
+    await asyncio.wait_for(task, timeout=10)
+
+
 def _set_log_filters(app, keyword, *levels):
     app.query_one("#keyword", Input).value = keyword
     app.query_one("#level_unrestricted").value = False
@@ -73,7 +83,8 @@ def test_canceling_pattern_confirmation_preserves_the_previous_result(tmp_path, 
             app.query_one("#path", Input).value = str(log_dir)
             first_click = await asyncio.wait_for(pilot.click("#run"), timeout=5)
             assert first_click, "initial #run click did not hit its button"
-            assert app._last_result is not None
+            await _wait_for_scheduled_analysis(app)
+            assert app._last_result is not None, f"analysis state={app._result_state}"
             previous_result = app._last_result
             assert not app._operation_in_progress
             assert not app.query_one("#run").disabled
@@ -201,7 +212,9 @@ def test_auto_discovered_unsupported_xml_does_not_fall_back_to_default(tmp_path,
         async with app.run_test(size=(90, 34)) as pilot:
             await pilot.pause()
             app.query_one("#path", Input).value = str(log_dir)
-            await asyncio.wait_for(pilot.click("#run"), timeout=5)
+            first_click = await asyncio.wait_for(pilot.click("#run"), timeout=5)
+            assert first_click, "initial #run click did not hit its button"
+            await _wait_for_scheduled_analysis(app)
 
             assert not requests
             assert app.query_one("#logback_xml_path", Input).value == str(xml_path)
@@ -234,15 +247,19 @@ def test_auto_discovery_refreshes_xml_candidates_before_each_analysis(tmp_path, 
         async with app.run_test(size=(90, 34)) as pilot:
             await pilot.pause()
             app.query_one("#path", Input).value = str(log_dir)
-            await asyncio.wait_for(pilot.click("#run"), timeout=5)
-            await pilot.pause()
+            first_click = await asyncio.wait_for(pilot.click("#run"), timeout=5)
+            assert first_click, "initial #run click did not hit its button"
+            await _wait_for_scheduled_analysis(app)
 
             assert len(submitted) == 1
             assert submitted[0].log_pattern == PATTERN
             assert app._auto_logback_xml_paths == (str(first_xml),)
 
             second_xml = _write_xml(log_dir / "logback-spring.xml", "SECOND_PATTERN", TIED_PATTERN)
-            await asyncio.wait_for(pilot.click("#run"), timeout=5)
+            previous_task = app._scheduled_analysis_task
+            second_click = await asyncio.wait_for(pilot.click("#run"), timeout=5)
+            assert second_click, "second #run click did not hit its button"
+            await _wait_for_scheduled_analysis(app, previous_task)
             await pilot.pause()
 
             assert app.screen.__class__.__name__ == "LogbackPatternConfirmationScreen"
