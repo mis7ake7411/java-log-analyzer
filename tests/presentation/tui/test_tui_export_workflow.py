@@ -4,6 +4,8 @@ import io
 import json
 from types import SimpleNamespace
 
+from textual.errors import NoWidget
+
 from log_analyzer.infrastructure.exporting.csv import render_csv_prefix
 from log_analyzer.infrastructure.exporting.fields import EXPORT_FIELDS
 from log_analyzer.presentation.tui import app as tui_module
@@ -42,14 +44,24 @@ async def _wait_for_export_confirmation_layout(app, pilot) -> None:
         await pilot.pause()
         region = confirm.region
         layout = (region, form_panel.scroll_offset)
-        hit_widget, _ = app.screen.get_widget_at(region.x + 1, region.y + 1)
+        hit_x, hit_y = region.x + 1, region.y + 1
+        screen_size = app.screen.size
+        hit_widget = None
+        if 0 <= hit_x < screen_size.width and 0 <= hit_y < screen_size.height:
+            try:
+                hit_widget, _ = app.screen.get_widget_at(hit_x, hit_y)
+            except NoWidget:
+                pass
         if layout == previous_layout and hit_widget is confirm:
             return
         previous_layout = layout
+    hit_widget_name = (
+        "none" if hit_widget is None else f"{type(hit_widget).__name__}#{hit_widget.id}"
+    )
     raise AssertionError(
         "Confirmation button layout did not stabilize at a clickable position: "
         f"region={confirm.region}, form_scroll={form_panel.scroll_offset}, "
-        f"hit_widget={type(hit_widget).__name__}#{hit_widget.id}"
+        f"hit_widget={hit_widget_name}"
     )
 
 

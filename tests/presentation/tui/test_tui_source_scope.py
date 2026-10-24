@@ -479,6 +479,9 @@ def test_single_file_xml_autofill_ignores_conflicting_sibling_samples(tmp_path, 
             monkeypatch.setattr(app, "_analyze_request", capture_request)
             await pilot.click("#run")
             await pilot.pause()
+            analysis_task = app._scheduled_analysis_task
+            assert analysis_task is not None
+            await asyncio.wait_for(analysis_task, timeout=5)
 
             assert len(submitted_requests) == 1
             assert submitted_requests[0].selected_files == (selected_file.name,)
