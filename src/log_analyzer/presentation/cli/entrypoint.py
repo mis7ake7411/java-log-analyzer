@@ -18,6 +18,7 @@ from .runtime import (
 )
 from ..error_messages import get_error_hint
 from ..encoding_warnings import format_encoding_warning
+from log_analyzer.presentation.scan_diagnostics import format_scan_coverage
 from ...version import get_package_version
 
 logger = logging.getLogger(__name__)
@@ -93,6 +94,9 @@ def _print_analysis_result(result, args) -> None:
     encoding_warning = format_encoding_warning(getattr(result, "diagnostics", None))
     if encoding_warning:
         print(encoding_warning)
+    coverage = format_scan_coverage(getattr(result, "diagnostics", None))
+    if coverage:
+        print(coverage)
 
 
 def _print_source_scope(source: LogSourceSelection) -> None:
@@ -159,6 +163,9 @@ def _handle_cli_error(exc: Exception) -> None:
         encoding_warning = format_encoding_warning(exc.diagnostics)
         if encoding_warning:
             print(encoding_warning)
+        coverage = format_scan_coverage(exc.diagnostics)
+        if coverage:
+            print(coverage)
     if isinstance(exc, ExportConflictError):
         paths = "\n".join(f"  - {path}" for path in exc.paths)
         _print_error(

@@ -1,3 +1,4 @@
+from log_analyzer.presentation.tui.controllers import exporting as exporting_module
 import asyncio
 import threading
 from pathlib import Path
@@ -12,7 +13,7 @@ from tui_waits import (
 from log_analyzer.application.analysis_service import AnalysisRequest, analyze_logs
 from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui import LogAnalyzerApp
-from log_analyzer.presentation.tui.dialogs import ExportConflictScreen
+from log_analyzer.presentation.tui.screens.export_conflict import ExportConflictScreen
 
 
 def _result_fixture(tmp_path):
@@ -30,7 +31,7 @@ def test_shutdown_defers_store_release_until_export_finishes(tmp_path, monkeypat
     store_path = Path(result.matched_logs.path)
     entered = threading.Event()
     finish = threading.Event()
-    real_export = tui_module.export_analysis_result
+    real_export = exporting_module.export_analysis_result
 
     def delayed_export(retained_result, options):
         entered.set()
@@ -38,7 +39,7 @@ def test_shutdown_defers_store_release_until_export_finishes(tmp_path, monkeypat
             raise TimeoutError("test did not release export")
         return real_export(retained_result, options)
 
-    monkeypatch.setattr(tui_module, "export_analysis_result", delayed_export)
+    monkeypatch.setattr(exporting_module, "export_analysis_result", delayed_export)
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
 

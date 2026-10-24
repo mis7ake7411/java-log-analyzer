@@ -1,15 +1,12 @@
 from __future__ import annotations
-
 from collections.abc import Callable, Mapping
-
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Container, ScrollableContainer
 from textual.events import Key
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Select, Static
-
-from ...infrastructure.recipe_store import RecipeStore
+from log_analyzer.infrastructure.recipe_store import RecipeStore
 
 
 class RecipeManagerScreen(ModalScreen[None]):

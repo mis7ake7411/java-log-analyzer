@@ -1,10 +1,12 @@
+from log_analyzer.presentation.tui.controllers import exporting as exporting_module
+from tui_fixtures import make_analysis_result
 import asyncio
 import csv
 import io
 import json
-from types import SimpleNamespace
 
 from tui_waits import (
+    wait_for_button_ready,
     wait_for_scheduled_analysis as _wait_for_scheduled_analysis,
     wait_for_export_to_finish,
     wait_for_export_confirmation_layout as _wait_for_export_confirmation_layout,
@@ -12,7 +14,6 @@ from tui_waits import (
 
 from log_analyzer.infrastructure.exporting.csv import render_csv_prefix
 from log_analyzer.infrastructure.exporting.fields import EXPORT_FIELDS
-from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui.recent_state import load_recent_tui_state
 from log_analyzer.presentation.tui import LogAnalyzerApp
 
@@ -143,13 +144,13 @@ def test_default_export_keeps_legacy_all_fields_report_layout(tmp_path, monkeypa
     export_dir.mkdir()
     monkeypatch.chdir(tmp_path)
     captured_options = []
-    real_export = tui_module.export_analysis_result
+    real_export = exporting_module.export_analysis_result
 
     def capture_export(result, options):
         captured_options.append(options)
         return real_export(result, options)
 
-    monkeypatch.setattr(tui_module, "export_analysis_result", capture_export)
+    monkeypatch.setattr(exporting_module, "export_analysis_result", capture_export)
 
     async def run_check() -> None:
         app = LogAnalyzerApp()
@@ -260,15 +261,16 @@ def test_export_validation_failure_keeps_result_for_retry(tmp_path, monkeypatch)
     asyncio.run(run_check())
 
 
-def test_export_controls_are_reachable_in_narrow_and_wide_layouts():
+def test_export_controls_are_reachable_in_narrow_and_wide_layouts(tmp_path):
     async def run_check(size: tuple[int, int]) -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=size) as pilot:
             await pilot.pause()
-            result = SimpleNamespace(total_logs=1, matched_occurrences=1)
+            result = make_analysis_result(tmp_path)
             app._last_result = result
             app._set_result_status("complete", result)
 
+            await wait_for_button_ready(app, pilot, "#export-result")
             await pilot.click("#export-result")
             await pilot.pause()
 

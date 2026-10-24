@@ -27,6 +27,48 @@ def _write_logs(directory: Path, *lines: str) -> Path:
     return directory
 
 
+def test_multifile_assessment_samples_beyond_the_first_large_file(tmp_path):
+    xml_path = _write_xml(tmp_path / "logback.xml", ("LOG_PATTERN", PATTERN))
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / "a.log").write_text((MATCHING_LINE + "\n") * 100, encoding="utf-8")
+    (logs / "b.log").write_text("different format\n" * 100, encoding="utf-8")
+    assessment = assess_logback_patterns([str(xml_path)], str(logs))
+    assert assessment.checked == 50
+    assert assessment.candidates[0].matches == 25
+    assert assessment.status == "uncertain"
+    assert assessment.selected is None
+    assert [(item.filename, item.matches, item.checked)
+            for item in assessment.candidates[0].file_scores] == [
+        ("a.log", 25, 25), ("b.log", 0, 25),
+    ]
+
+
+def test_multifile_sampling_reuses_unused_budget_for_later_files(tmp_path):
+    xml_path = _write_xml(tmp_path / "logback.xml", ("LOG_PATTERN", PATTERN))
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / "a.log").write_text("\n\n", encoding="utf-8")
+    (logs / "b.log").write_text((MATCHING_LINE + "\n") * 60, encoding="utf-8")
+    assessment = assess_logback_patterns([str(xml_path)], str(logs))
+    assert assessment.checked == 50
+    assert assessment.candidates[0].matches == 50
+    assert assessment.status == "ready"
+
+
+def test_good_total_score_does_not_hide_one_incompatible_file(tmp_path):
+    xml_path = _write_xml(tmp_path / "logback.xml", ("LOG_PATTERN", PATTERN))
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    for index in range(10):
+        content = MATCHING_LINE if index < 9 else "different format"
+        (logs / f"{index}.log").write_text((content + "\n") * 10, encoding="utf-8")
+    assessment = assess_logback_patterns([str(xml_path)], str(logs))
+    assert assessment.candidates[0].score == pytest.approx(0.9)
+    assert assessment.status == "uncertain"
+    assert "9.log" in assessment.reason
+
+
 def test_assessment_selects_unique_pattern_at_exact_confidence_boundary(tmp_path):
     xml_path = _write_xml(tmp_path / "logback.xml", ("LOG_PATTERN", PATTERN))
     log_dir = _write_logs(tmp_path / "logs", *(MATCHING_LINE for _ in range(4)), "not a log line")

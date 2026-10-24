@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 
 from tui_waits import (
+    wait_for_button_ready,
+    wait_for_scheduled_analysis,
     wait_until as _wait_until,
 )
 
@@ -260,6 +262,8 @@ def test_pilot_can_cancel_a_background_analysis_without_blocking_the_event_pump(
             cancel_buttons = list(app.query("#cancel-analysis"))
             assert cancel_buttons, "a cancellation button should be available in the TUI"
 
+            await wait_for_button_ready(app, pilot)
+
             if start_method == "button":
                 await asyncio.wait_for(pilot.click("#run"), timeout=1)
             else:
@@ -276,6 +280,7 @@ def test_pilot_can_cancel_a_background_analysis_without_blocking_the_event_pump(
                 _assert_region_inside(cancel_button, app.query_one("#form-actions"))
 
             if cancel_method == "button":
+                await wait_for_button_ready(app, pilot, "#cancel-analysis")
                 await asyncio.wait_for(pilot.click(cancel_button), timeout=1)
             else:
                 await asyncio.wait_for(pilot.press("ctrl+x"), timeout=1)
@@ -311,6 +316,7 @@ def test_queued_progress_after_cancel_does_not_overwrite_cancelling_status(tmp_p
         async with app.run_test(size=(80, 24)) as pilot:
             await pilot.pause()
             app.query_one("#path").value = str(tmp_path)
+            await wait_for_button_ready(app, pilot)
             await asyncio.wait_for(pilot.click("#run"), timeout=1)
             await _wait_until(entered.is_set)
 
@@ -345,8 +351,9 @@ def test_late_progress_callback_from_completed_operation_is_ignored(tmp_path, mo
         async with app.run_test() as pilot:
             await pilot.pause()
             app.query_one("#path").value = result.input_path
+            await wait_for_button_ready(app, pilot)
             await asyncio.wait_for(pilot.click("#run"), timeout=1)
-            await _wait_until(lambda: not app._operation_in_progress)
+            await wait_for_scheduled_analysis(app)
             previous_status = str(app.query_one("#result-status").render())
 
             controls[0].report_progress(

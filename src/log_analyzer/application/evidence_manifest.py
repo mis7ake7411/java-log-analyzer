@@ -109,7 +109,7 @@ def _build_evidence_manifest(
             "total_logs": result.total_logs,
             "matched_groups": result.matched_groups,
             "matched_occurrences": result.matched_occurrences,
-            "diagnostics": asdict(result.diagnostics),
+            "diagnostics": _manifest_diagnostics(result),
         },
         "export": {
             "fields": list(normalize_export_fields(options.fields)),
@@ -122,6 +122,13 @@ def _build_evidence_manifest(
         "limitations": _VERIFICATION_LIMITATION,
     }
     return manifest
+
+
+def _manifest_diagnostics(result: AnalysisResult) -> dict:
+    diagnostics = asdict(result.diagnostics)
+    # schema v1 的診斷契約不含逐檔本文範例；只供本地結果畫面使用。
+    diagnostics.pop("file_coverage", None)
+    return diagnostics
 
 
 def _datetime_string(value: datetime | None) -> str | None:

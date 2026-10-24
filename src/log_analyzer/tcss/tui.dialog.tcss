@@ -224,6 +224,60 @@
     background: #111827;
 }
 
+#browser-controls {
+    height: 6;
+    layout: vertical;
+}
+
+#browser-query {
+    width: 1fr;
+    height: 3;
+}
+
+#browser-query-toolbar {
+    height: 3;
+    layout: horizontal;
+}
+
+#browser-query-toolbar Select {
+    width: 1fr;
+}
+
+#browser-query-toolbar Button {
+    width: 9;
+    min-width: 0;
+    margin-left: 1;
+}
+
+#browser-controls.wide {
+    height: 3;
+    layout: horizontal;
+}
+
+#browser-controls.wide #browser-query-toolbar {
+    width: 42;
+}
+
+#browser-query-status {
+    height: auto;
+    max-height: 2;
+    overflow-y: auto;
+    color: #fbbf24;
+}
+
+#event-browser-card.short {
+    height: 100%;
+    padding: 0 1;
+}
+
+#event-browser-card.short #event-options {
+    min-height: 1;
+}
+
+#event-browser-card.short #event-browser-actions {
+    margin-top: 0;
+}
+
 #browser-preview-content {
     display: none;
     height: 1fr;
@@ -270,6 +324,7 @@
 }
 
 #event-browser-actions {
+    dock: bottom;
     height: auto;
     margin-top: 1;
     layout: grid;

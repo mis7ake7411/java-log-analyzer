@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from ..domain.analysis_control import AnalysisControl
-from ..domain.log_types import LogEntry
+from log_analyzer.domain.log_types import LogEntry, OccurrenceCoordinate
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,23 +49,16 @@ def aggregate_dashboard_summary(
             exception_occurrences,
             exception_groups,
         )
-        _add_summary_value(
-            _extract_time_bucket(log),
-            occurrence_count,
-            time_occurrences,
-            time_groups,
-        )
+        times, threads = _occurrence_distributions(log, occurrence_count, control)
+        for value, count in times.items():
+            _add_summary_value(value, count, time_occurrences, time_groups)
+        for value, count in threads.items():
+            _add_summary_value(value, count, thread_occurrences, thread_groups)
         _add_summary_value(
             str(log.get("logger", "") or "").strip(),
             occurrence_count,
             logger_occurrences,
             logger_groups,
-        )
-        _add_summary_value(
-            str(log.get("thread", "") or "").strip(),
-            occurrence_count,
-            thread_occurrences,
-            thread_groups,
         )
 
     if control is not None:
@@ -80,6 +73,26 @@ def aggregate_dashboard_summary(
         ),
         matched_occurrences,
     )
+
+
+def _occurrence_distributions(
+    log: LogEntry, occurrence_count: int, control: AnalysisControl | None
+) -> tuple[Counter[str], Counter[str]]:
+    """先在群組內計次，讓跨時段／Thread 的群組在各分類只計一組。"""
+    times: Counter[str] = Counter()
+    threads: Counter[str] = Counter()
+    occurrences = log.get("occurrences")
+    if not occurrences:
+        # 舊資料未保留逐次座標時，維持代表欄位的加權統計。
+        times[_extract_time_bucket(log)] = occurrence_count
+        threads[str(log.get("thread", "") or "").strip()] = occurrence_count
+        return times, threads
+    for occurrence in occurrences:
+        if control is not None:
+            control.raise_if_cancelled()
+        times[_extract_time_bucket(occurrence)] += 1
+        threads[str(occurrence.get("thread", "") or "").strip()] += 1
+    return times, threads
 
 
 def _add_summary_value(
@@ -109,7 +122,7 @@ def _build_summary(
     )
 
 
-def _extract_time_bucket(log: LogEntry) -> str:
+def _extract_time_bucket(log: LogEntry | OccurrenceCoordinate) -> str:
     timestamp = str(log.get("timestamp", "") or "").strip()
     if not timestamp:
         return ""

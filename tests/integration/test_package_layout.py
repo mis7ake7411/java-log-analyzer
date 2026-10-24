@@ -34,9 +34,9 @@ def test_cli_package_reexports_main_and_canonical_helpers_are_available():
 def test_tui_package_exports_app_and_canonical_helpers_are_available():
     tui = importlib.import_module("log_analyzer.presentation.tui")
     app = importlib.import_module("log_analyzer.presentation.tui.app")
-    dialogs = importlib.import_module("log_analyzer.presentation.tui.dialogs")
+    dialogs = importlib.import_module("log_analyzer.presentation.tui.screens.path_picker")
     views = importlib.import_module("log_analyzer.presentation.tui.views")
-    inputs = importlib.import_module("log_analyzer.presentation.tui.inputs")
+    inputs = importlib.import_module("log_analyzer.presentation.tui.form_values")
     paths = importlib.import_module("log_analyzer.infrastructure.paths")
 
     assert tui.__all__ == ["LogAnalyzerApp"]
@@ -63,6 +63,13 @@ def test_tui_package_exports_app_and_canonical_helpers_are_available():
     assert callable(paths.get_system_root_path)
     assert not Path(app.__file__).parents[1].joinpath("tui.py").exists()
     _assert_legacy_flat_modules_are_absent(
+        "presentation/tui/dialogs.py",
+        "presentation/tui/inputs.py",
+        "presentation/tui/event_browser.py",
+        "presentation/tui/recipes.py",
+        "presentation/tui/source_scope.py",
+        "presentation/tui/source_selection.py",
+        "presentation/tui/result_context.py",
         "presentation/recent_form_state.py",
         "presentation/tui_dialogs.py",
         "presentation/tui_event_browser.py",

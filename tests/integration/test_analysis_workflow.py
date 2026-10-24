@@ -30,6 +30,32 @@ def _release(result):
     result.matched_logs.release()
 
 
+@pytest.mark.parametrize("sort_by", ["time", "level"])
+def test_dashboard_distributions_follow_occurrences_across_files(tmp_path, sort_by):
+    (tmp_path / "first.log").write_text(
+        "2026-10-24 10:59:59.999 [worker-a] ERROR Service - Request failed\n"
+        "2026-10-24 11:00:00.000 [worker-b] ERROR Service - Request failed\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "second.log").write_text(
+        "2026-10-24 11:01:00.000 [worker-b] ERROR Service - Request failed\n"
+        "2026-10-24 11:02:00.000 [worker-a] ERROR Service - Other failure\n",
+        encoding="utf-8",
+    )
+    result = analysis_service.analyze_logs(_request(tmp_path, sort_by=sort_by))
+    try:
+        assert result.matched_groups == 2
+        assert result.matched_occurrences == 4
+        assert result.dashboard_summary.time_hotspots == (
+            ("2026-10-24 11:00", 2, 3), ("2026-10-24 10:00", 1, 1),
+        )
+        assert result.dashboard_summary.thread_summary == (
+            ("worker-a", 2, 2), ("worker-b", 1, 2),
+        )
+    finally:
+        _release(result)
+
+
 def test_analyze_logs_does_not_validate_or_create_export_paths(tmp_path, monkeypatch):
     logs_dir = tmp_path / "logs"
     _write_log(logs_dir)

@@ -1,10 +1,11 @@
 from __future__ import annotations
-
 from datetime import datetime
-
-from ...domain.timezone import to_local_timezone
-from ..datetime_text import normalize_date_text, normalize_time_text
-from ...infrastructure.naming import build_timestamped_name
+from log_analyzer.domain.timezone import to_local_timezone
+from log_analyzer.presentation.datetime_text import (
+    normalize_date_text,
+    normalize_time_text,
+)
+from log_analyzer.infrastructure.naming import build_timestamped_name
 
 
 def get_default_start_date_text() -> str:
@@ -74,7 +75,11 @@ def parse_datetime_range_inputs(
 
 def _parse_datetime_pair(date_text: str, time_text: str, label: str) -> datetime:
     """依時間是否含秒數，解析日期與時間組合"""
-    fmt = "%Y-%m-%d %H:%M:%S" if ":" in time_text and time_text.count(":") == 2 else "%Y-%m-%d %H:%M"
+    fmt = (
+        "%Y-%m-%d %H:%M:%S"
+        if ":" in time_text and time_text.count(":") == 2
+        else "%Y-%m-%d %H:%M"
+    )
     try:
         return to_local_timezone(datetime.strptime(f"{date_text} {time_text}", fmt))
     except ValueError as exc:

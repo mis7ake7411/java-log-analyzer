@@ -1,3 +1,4 @@
+from log_analyzer.presentation.tui.controllers import patterns as patterns_module
 import asyncio
 
 from textual.widgets import Button, Input, Static
@@ -10,7 +11,7 @@ from tui_waits import (
 from log_analyzer.domain.logback_xml import assess_logback_patterns
 from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui import LogAnalyzerApp
-from log_analyzer.presentation.tui.dialogs import LogbackPatternConfirmationScreen
+from log_analyzer.presentation.tui.screens.pattern_confirmation import LogbackPatternConfirmationScreen
 
 
 PATTERN = "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger - %msg%n"
@@ -303,7 +304,7 @@ def test_cancel_retry_reassesses_and_confirm_uses_frozen_source_and_filters(tmp_
     )
     assessments = []
     submitted = []
-    original_assessment = tui_module.assess_logback_patterns
+    original_assessment = patterns_module.assess_logback_patterns
     original_analyze_request = LogAnalyzerApp._analyze_request
 
     def count_assessment(*args, **kwargs):
@@ -314,7 +315,7 @@ def test_cancel_retry_reassesses_and_confirm_uses_frozen_source_and_filters(tmp_
         submitted.append(request)
         return await original_analyze_request(app, request)
 
-    monkeypatch.setattr(tui_module, "assess_logback_patterns", count_assessment)
+    monkeypatch.setattr(patterns_module, "assess_logback_patterns", count_assessment)
     monkeypatch.setattr(LogAnalyzerApp, "_analyze_request", capture_request)
     asyncio.run(_exercise_cancel_retry_frozen_request(log_dir, xml_path, tmp_path, assessments, submitted))
 
