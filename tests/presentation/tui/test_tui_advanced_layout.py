@@ -3,6 +3,11 @@ from itertools import combinations
 
 import pytest
 
+from tui_waits import (
+    wait_for_ui_state as _wait_for_ui_state,
+    wait_for_layout_to_settle as _wait_for_layout_to_settle,
+)
+
 from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui import LogAnalyzerApp
 
@@ -42,40 +47,6 @@ def _overlap(first, second) -> bool:
         and first.y < second.y + second.height
         and second.y < first.y + first.height
     )
-
-
-async def _wait_for_ui_state(pilot, predicate, message: str) -> None:
-    async def wait_until_ready() -> None:
-        while not predicate():
-            await asyncio.sleep(0.01)
-
-    try:
-        await asyncio.wait_for(wait_until_ready(), timeout=5)
-    except asyncio.TimeoutError as exc:
-        raise AssertionError(message) from exc
-
-
-async def _wait_for_layout_to_settle(pilot, widgets) -> None:
-    previous_layout = None
-    for _ in range(10):
-        await pilot.pause()
-        layout = tuple(
-            (
-                widget.region.x,
-                widget.region.y,
-                widget.region.width,
-                widget.region.height,
-                widget.display,
-                tuple(sorted(widget.classes)),
-                getattr(widget, "content_size", None),
-                getattr(widget, "max_scroll_y", None),
-            )
-            for widget in widgets
-        )
-        if layout == previous_layout:
-            return
-        previous_layout = layout
-    raise AssertionError("advanced controls did not reach a stable layout")
 
 
 @pytest.mark.parametrize("size", SIZES)

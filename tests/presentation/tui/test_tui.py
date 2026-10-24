@@ -10,6 +10,12 @@ import pytest
 from rich.console import Console
 from textual.events import Paste
 
+from tui_waits import (
+    wait_for_ui_state as _wait_for_ui_state,
+    wait_for_scheduled_analysis as _wait_for_scheduled_analysis,
+    wait_for_layout_to_settle as _wait_for_layout_to_settle,
+)
+
 from log_analyzer.application.analysis_service import AnalysisRequest
 from log_analyzer.infrastructure.paths import get_system_root_path
 from log_analyzer.presentation.tui import LogAnalyzerApp
@@ -38,50 +44,6 @@ from log_analyzer.presentation.tui.recent_state import (
 )
 from log_analyzer.presentation.tui.views import analyze_dashboard
 from log_analyzer.version import get_package_version
-
-
-async def _wait_for_ui_state(pilot, predicate, message: str) -> None:
-    async def wait_until_ready() -> None:
-        while not predicate():
-            await asyncio.sleep(0.01)
-
-    try:
-        await asyncio.wait_for(wait_until_ready(), timeout=5)
-    except asyncio.TimeoutError as exc:
-        raise AssertionError(message) from exc
-
-
-async def _wait_for_scheduled_analysis(app) -> None:
-    async def wait_until_scheduled() -> asyncio.Task:
-        while (task := getattr(app, "_scheduled_analysis_task", None)) is None:
-            await asyncio.sleep(0.01)
-        return task
-
-    task = await asyncio.wait_for(wait_until_scheduled(), timeout=5)
-    await asyncio.wait_for(task, timeout=10)
-
-
-async def _wait_for_layout_to_settle(pilot, widgets) -> None:
-    previous_layout = None
-    for _ in range(10):
-        await pilot.pause()
-        layout = tuple(
-            (
-                widget.region.x,
-                widget.region.y,
-                widget.region.width,
-                widget.region.height,
-                widget.display,
-                tuple(sorted(widget.classes)),
-                getattr(widget, "content_size", None),
-                getattr(widget, "max_scroll_y", None),
-            )
-            for widget in widgets
-        )
-        if layout == previous_layout:
-            return
-        previous_layout = layout
-    raise AssertionError("advanced layout did not settle")
 
 
 class _FakeSourceScopePreview:

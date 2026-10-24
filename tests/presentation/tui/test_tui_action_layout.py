@@ -7,6 +7,10 @@ from unittest.mock import patch
 import pytest
 from textual.widgets import RichLog
 
+from tui_waits import (
+    wait_for_layout_to_settle as _wait_for_layout_to_settle,
+)
+
 from log_analyzer.presentation.tui import app as tui
 
 
@@ -50,31 +54,6 @@ def _assert_form_actions_fit(app: tui.LogAnalyzerApp) -> None:
     assert manage_button.region.y == run_button.region.y
     assert run_button.region.x - manage_button.region.right >= 1
     assert run_button.region.width > 0
-
-
-async def _wait_for_layout_to_settle(pilot, widgets, ready) -> None:
-    previous_layout = None
-    for _ in range(10):
-        await pilot.pause()
-        if not ready():
-            previous_layout = None
-            continue
-        layout = tuple(
-            (
-                widget.region.x,
-                widget.region.y,
-                widget.region.width,
-                widget.region.height,
-                widget.display,
-                tuple(sorted(widget.classes)),
-                getattr(widget, "content_size", None),
-            )
-            for widget in widgets
-        )
-        if layout == previous_layout:
-            return
-        previous_layout = layout
-    raise AssertionError("form action layout did not settle")
 
 
 def _dashboard_result() -> SimpleNamespace:
