@@ -196,6 +196,8 @@ def test_default_export_keeps_legacy_all_fields_report_layout(tmp_path, monkeypa
                 if captured_options and not app._operation_in_progress:
                     break
 
+            assert captured_options
+            assert app._operation_in_progress is False
             assert app._last_result is not None
             assert len(captured_options) == 1
             assert captured_options[0].fields is None
