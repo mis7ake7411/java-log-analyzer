@@ -25,7 +25,10 @@ from log_analyzer.application.analysis_service import (
     analyze_logs,
 )
 from log_analyzer.infrastructure.recipe_store import RECIPE_FIELDS, RecipeStore
-from log_analyzer.presentation.tui.screens.recipe_manager import RecipeManagerScreen
+from log_analyzer.presentation.tui.screens.recipe_manager import (
+    RecipeManagerScreen,
+    RecipeTrackingContext,
+)
 from log_analyzer.presentation.tui.recent_state import (
     load_recent_tui_state,
     save_recent_tui_state,
@@ -43,6 +46,33 @@ from log_analyzer.presentation.tui.controllers.results import ResultStateMixin
 from log_analyzer.presentation.tui.composition import ViewCompositionMixin
 from log_analyzer.presentation.tui.controllers.analysis import _PendingPatternAnalysis
 from log_analyzer.infrastructure.paths import get_system_root_path
+
+
+_RECIPE_INPUT_IDS = frozenset(
+    {
+        "path",
+        "log_pattern",
+        "logback_xml_path",
+        "start_date",
+        "start_time",
+        "end_date",
+        "end_time",
+        "keyword",
+    }
+)
+_RECIPE_CHECKBOX_IDS = frozenset(
+    {
+        "manual_pattern_override",
+        "ignore_case",
+        "level_unrestricted",
+        "level_ERROR",
+        "level_WARN",
+        "level_INFO",
+        "level_DEBUG",
+        "level_TRACE",
+    }
+)
+
 
 logger = logging.getLogger(__name__)
 __all__ = ["get_system_root_path"]
@@ -223,6 +253,8 @@ class LogAnalyzerApp(
     def on_input_changed(self, event: Input.Changed) -> None:
         if not self.is_running:
             return
+        if event.input.id in _RECIPE_INPUT_IDS:
+            self._schedule_recipe_feedback_refresh()
         self.call_after_refresh(self._sync_result_context_notice)
         self.call_after_refresh(self._refresh_condition_overview)
         if event.input.id == "path":
@@ -260,6 +292,8 @@ class LogAnalyzerApp(
                 self._sync_pattern_preview_for_current_selection()
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        if event.checkbox.id in _RECIPE_CHECKBOX_IDS:
+            self._schedule_recipe_feedback_refresh()
         self.call_after_refresh(self._sync_result_context_notice)
         self.call_after_refresh(self._refresh_condition_overview)
         if event.checkbox.id == "manual_pattern_override":
@@ -275,6 +309,7 @@ class LogAnalyzerApp(
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "sort_by":
+            self._schedule_recipe_feedback_refresh()
             self.call_after_refresh(self._sync_result_context_notice)
 
     def on_paste(self, event: Paste) -> None:
@@ -404,7 +439,14 @@ class LogAnalyzerApp(
             return
         self.push_screen(
             RecipeManagerScreen(
-                RecipeStore(), self._capture_recipe_state, self._apply_recipe_state
+                RecipeStore(),
+                self._capture_recipe_state,
+                self._apply_recipe_state,
+                tracking=RecipeTrackingContext(
+                    active_recipe_name=getattr(self, "_active_recipe_name", None),
+                    on_saved=self._on_recipe_saved,
+                    on_deleted=self._on_recipe_deleted,
+                ),
             )
         )
 
@@ -495,10 +537,92 @@ class LogAnalyzerApp(
             message = f"{message} 舊版預設模式中未啟用的 XML 與 Pattern 已清除。"
         if warnings:
             message = f"{message} 已忽略不支援的欄位值：{', '.join(warnings)}。"
-        feedback = self.query_one("#recipe-feedback", Static)
-        feedback.update(message)
-        feedback.display = True
+        self._recipe_feedback_message = message
+        self._track_recipe_snapshot(name)
+        self._refresh_recipe_feedback()
         return message
+
+    def _schedule_recipe_feedback_refresh(self) -> None:
+        """在表單變更後安排配方差異更新。
+
+        Returns:
+            None: 安排一次刷新；目前沒有追蹤的配方時不執行。
+        """
+        if getattr(self, "_active_recipe_name", None):
+            self.call_after_refresh(self._refresh_recipe_feedback)
+
+    def _track_recipe_snapshot(
+        self, name: str, state: Mapping[str, object] | None = None
+    ) -> None:
+        """將已載入或成功儲存的配方條件設為比較基準。
+
+        Args:
+            name: 配方名稱。
+            state: 成功儲存的條件；省略時擷取目前表單。
+
+        Returns:
+            None: 更新目前配方名稱與條件快照。
+        """
+        current = state if state is not None else self._capture_recipe_state()
+        self._active_recipe_name = name
+        self._active_recipe_snapshot = {
+            field: list(current[field]) if field == "levels" else current[field]
+            for field in RECIPE_FIELDS
+            if field in current
+        }
+
+    def _refresh_recipe_feedback(self) -> None:
+        """依照目前表單與已追蹤快照更新主畫面配方提示。
+
+        Returns:
+            None: 顯示配方名稱與表單是否已修改。
+        """
+        feedback = self.query_one("#recipe-feedback", Static)
+        message = getattr(self, "_recipe_feedback_message", "")
+        name = getattr(self, "_active_recipe_name", None)
+        snapshot = getattr(self, "_active_recipe_snapshot", None)
+        if name and snapshot is not None:
+            current = self._capture_recipe_state()
+            status = f"目前配方：「{name}」"
+            if current != snapshot:
+                status += " · 已修改"
+            message = f"{message}\n{status}" if message else status
+        feedback.update(message)
+        feedback.display = bool(message)
+
+    def _on_recipe_saved(
+        self, name: str, state: Mapping[str, object]
+    ) -> None:
+        """在配方成功儲存後更新追蹤基準。
+
+        Args:
+            name: 已儲存的配方名稱。
+            state: 實際寫入儲存區的條件。
+
+        Returns:
+            None: 將目前表單標記為已儲存狀態。
+        """
+        self._recipe_feedback_message = f"已儲存配方「{name}」。"
+        self._track_recipe_snapshot(name, state)
+        self._refresh_recipe_feedback()
+
+    def _on_recipe_deleted(self, name: str) -> None:
+        """解除已刪除配方的追蹤，避免提示仍指向已不存在的檔案。
+
+        Args:
+            name: 已刪除的配方名稱。
+
+        Returns:
+            None: 只在刪除目前追蹤配方時清除其快照。
+        """
+        if getattr(self, "_active_recipe_name", None) != name:
+            return
+        self._active_recipe_name = None
+        self._active_recipe_snapshot = None
+        self._recipe_feedback_message = (
+            f"配方「{name}」已刪除；目前表單條件尚未儲存。"
+        )
+        self._refresh_recipe_feedback()
 
     def _apply_recipe_enums(self, recipe: Mapping[str, object]) -> list[str]:
         warnings: list[str] = []
