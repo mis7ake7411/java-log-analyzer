@@ -2368,7 +2368,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(
             )
 
             sequence = []
-            for _ in range(10):
+            for _ in range(11):
                 focused = app.focused
                 sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
                 await pilot.press("tab")
@@ -2378,6 +2378,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(
                 None,
                 "path",
                 "browse_path",
+                "preview-format",
                 "clear-condition-levels",
                 "select-source-files",
                 "keyword",
@@ -2405,7 +2406,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
             await pilot.pause()
 
             sequence = []
-            for _ in range(19):
+            for _ in range(20):
                 focused = app.focused
                 sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
                 await pilot.press("tab")
@@ -2415,6 +2416,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
                 None,
                 "path",
                 "browse_path",
+                "preview-format",
                 "clear-condition-levels",
                 "clear-condition-pattern",
                 "select-source-files",

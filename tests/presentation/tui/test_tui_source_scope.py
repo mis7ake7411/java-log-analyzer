@@ -314,10 +314,9 @@ def test_source_scope_list_is_keyboard_focusable_only_when_scrollable(tmp_path, 
 
             path_input = app.query_one("#path", Input)
             path_input.focus()
-            await pilot.press("tab")
-            assert app.focused is app.query_one("#browse_path")
-            await pilot.press("tab")
-            assert app.focused is app.query_one("#select-source-files")
+            for target in ("browse_path", "preview-format", "clear-condition-levels", "select-source-files"):
+                await pilot.press("tab")
+                assert app.focused is app.query_one(f"#{target}")
             await pilot.press("tab")
             assert app.focused is scope_list
 
@@ -326,9 +325,9 @@ def test_source_scope_list_is_keyboard_focusable_only_when_scrollable(tmp_path, 
             assert app.focused is not scope_list
             await _select_scope(pilot, scope_list, many_files, scrollable=True)
             path_input.focus()
-            await pilot.press("tab")
-            await pilot.press("tab")
-            assert app.focused is app.query_one("#select-source-files")
+            for target in ("browse_path", "preview-format", "clear-condition-levels", "select-source-files"):
+                await pilot.press("tab")
+                assert app.focused is app.query_one(f"#{target}")
             await pilot.press("tab")
             assert app.focused is scope_list
 

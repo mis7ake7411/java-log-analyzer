@@ -228,13 +228,15 @@ Button.-primary:focus {
 }
 
 /* Compact overview actions retain a single line in every interaction state. */
-#condition-overview .condition-clear {
+#condition-overview .condition-clear,
+#condition-overview #preview-format {
     border: none;
     padding: 0;
     height: 1;
 }
 
-#condition-overview .condition-clear:focus {
+#condition-overview .condition-clear:focus,
+#condition-overview #preview-format:focus {
     text-style: bold underline;
     background: #263c55;
 }

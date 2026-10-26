@@ -311,6 +311,7 @@ class LogAnalyzerApp(
             return
 
         actions = {
+            "preview-format": self.action_preview_format,
             "cancel-analysis": self.action_cancel_analysis,
             "browse-events": self.action_browse_events,
             "export-result": self.action_show_export_settings,

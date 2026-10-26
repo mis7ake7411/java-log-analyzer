@@ -64,6 +64,9 @@ class ConditionsOverview(Container):
         text-style: bold;
     }
 
+    #condition-heading { width: 1fr; height: 1; layout: horizontal; }
+    #preview-format { width: 10; min-width: 0; height: 1; padding: 0; border: none; }
+
     #condition-rows {
         width: 1fr;
         height: auto;
@@ -157,7 +160,9 @@ class ConditionsOverview(Container):
         Returns:
             Textual 要掛載的條件摘要元件。
         """
-        yield Static("目前條件", id="condition-overview-title", markup=False)
+        with Container(id="condition-heading"):
+            yield Static("目前條件", id="condition-overview-title", markup=False)
+            yield Button("預覽格式", id="preview-format")
         with Container(id="condition-rows"):
             for key in _CONDITION_KEYS:
                 item = self._items[key]
