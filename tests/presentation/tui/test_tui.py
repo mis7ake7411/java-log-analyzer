@@ -62,6 +62,7 @@ def test_tui_loads_structured_responsive_stylesheets():
         "tui.responsive.layout.tcss",
         "tui.responsive.form.tcss",
         "tui.responsive.advanced.tcss",
+        "tui.time-range.tcss",
     ]
     assert not (Path(__file__).parents[3] / "src/log_analyzer/tcss/tui.responsive.tcss").exists()
 
@@ -2327,6 +2328,16 @@ def test_time_range_inputs_are_not_collapsed_in_wide_layout():
             await pilot.pause()
             app.action_toggle_advanced_settings()
             await pilot.pause()
+            app.query_one("#time-preset").value = "custom"
+            await _wait_for_ui_state(
+                pilot,
+                lambda: app.query_one("#time-range-custom").display
+                and all(
+                    app.query_one(f"#{field_id}").region.height > 0
+                    for field_id in ("start_date", "start_time", "end_date", "end_time")
+                ),
+                "custom time fields did not finish expanding before width checks",
+            )
 
             time_section = app.query_one(".time-section")
             await _wait_for_ui_state(
@@ -2406,9 +2417,19 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
             await pilot.pause()
             app.action_toggle_advanced_settings()
             await pilot.pause()
+            app.query_one("#time-preset").value = "custom"
+            await _wait_for_ui_state(
+                pilot,
+                lambda: app.query_one("#time-range-custom").display
+                and all(
+                    app.query_one(f"#{field_id}").region.height > 0
+                    for field_id in ("start_date", "start_time", "end_date", "end_time")
+                ),
+                "custom time fields did not finish expanding before Tab checks",
+            )
 
             sequence = []
-            for _ in range(20):
+            for _ in range(21):
                 focused = app.focused
                 sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
                 await pilot.press("tab")
@@ -2429,6 +2450,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
                 "browse_logback_xml",
                 "manual_pattern_override",
                 "log_pattern",
+                "time-preset",
                 "start_date",
                 "start_time",
                 "end_date",

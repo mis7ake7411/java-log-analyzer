@@ -97,6 +97,7 @@ class LogAnalyzerApp(
         str(_PACKAGE_ROOT / "tcss" / "tui.responsive.layout.tcss"),
         str(_PACKAGE_ROOT / "tcss" / "tui.responsive.form.tcss"),
         str(_PACKAGE_ROOT / "tcss" / "tui.responsive.advanced.tcss"),
+        str(_PACKAGE_ROOT / "tcss" / "tui.time-range.tcss"),
     ]
     _last_result: AnalysisResult | None = None
     _result_state = "idle"
