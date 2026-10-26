@@ -2351,10 +2351,11 @@ def test_time_range_inputs_are_not_collapsed_in_wide_layout():
     asyncio.run(run_check())
 
 
-def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(monkeypatch):
+def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(monkeypatch, tmp_path):
     """情境：隱藏進階設定時 Tab 順序應依畫面由上而下。"""
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
+    monkeypatch.chdir(tmp_path)
 
     async def run_check() -> None:
         app = LogAnalyzerApp()
@@ -2367,7 +2368,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(
             )
 
             sequence = []
-            for _ in range(9):
+            for _ in range(10):
                 focused = app.focused
                 sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
                 await pilot.press("tab")
@@ -2377,6 +2378,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(
                 None,
                 "path",
                 "browse_path",
+                "clear-condition-levels",
                 "select-source-files",
                 "keyword",
                 "clear_keyword",
@@ -2388,8 +2390,11 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(
     asyncio.run(run_check())
 
 
-def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible():
+def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible(monkeypatch, tmp_path):
     """情境：顯示進階設定時 Tab 順序應依畫面由上而下。"""
+    monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
+    monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
+    monkeypatch.chdir(tmp_path)
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=(1400, 980)) as pilot:
@@ -2400,7 +2405,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
             await pilot.pause()
 
             sequence = []
-            for _ in range(17):
+            for _ in range(19):
                 focused = app.focused
                 sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
                 await pilot.press("tab")
@@ -2410,6 +2415,8 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
                 None,
                 "path",
                 "browse_path",
+                "clear-condition-levels",
+                "clear-condition-pattern",
                 "select-source-files",
                 "keyword",
                 "clear_keyword",

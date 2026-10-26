@@ -226,3 +226,15 @@ Button.-primary:focus {
     border: tall #38bdf8;
     text-style: bold;
 }
+
+/* Compact overview actions retain a single line in every interaction state. */
+#condition-overview .condition-clear {
+    border: none;
+    padding: 0;
+    height: 1;
+}
+
+#condition-overview .condition-clear:focus {
+    text-style: bold underline;
+    background: #263c55;
+}

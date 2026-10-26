@@ -11,6 +11,7 @@ from log_analyzer.infrastructure.exporting.fields import (
 )
 from log_analyzer.presentation.tui.components.inputs import ShortcutInput
 from log_analyzer.presentation.tui.components.source_scope import SourceScopePreview
+from log_analyzer.presentation.tui.components.condition_overview import ConditionsOverview
 from log_analyzer.presentation.tui.components.result_notice import ResultContextNotice
 from log_analyzer.presentation.tui.form_values import (
     get_default_end_date_text,
@@ -44,6 +45,7 @@ class ViewCompositionMixin:
                 yield ShortcutInput(placeholder="例如：./logs", value=".", id="path")
                 yield Button("瀏覽", id="browse_path")
         yield Static("", classes="path-status", id="path-status")
+        yield ConditionsOverview(id="condition-overview")
         yield SourceScopePreview()
 
         with Container(classes="field"):

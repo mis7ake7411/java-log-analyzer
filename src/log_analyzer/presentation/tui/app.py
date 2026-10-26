@@ -35,6 +35,7 @@ from log_analyzer.presentation.tui.form_values import (
     parse_datetime_range_inputs,
 )
 from log_analyzer.presentation.tui.controllers.sources import SourceControllerMixin
+from log_analyzer.presentation.tui.controllers.conditions import ConditionsControllerMixin
 from log_analyzer.presentation.tui.controllers.patterns import PatternSetupMixin
 from log_analyzer.presentation.tui.controllers.analysis import AnalysisLifecycleMixin
 from log_analyzer.presentation.tui.controllers.exporting import ExportWorkflowMixin
@@ -48,6 +49,7 @@ __all__ = ["get_system_root_path"]
 
 
 class LogAnalyzerApp(
+    ConditionsControllerMixin,
     SourceControllerMixin,
     PatternSetupMixin,
     AnalysisLifecycleMixin,
@@ -221,6 +223,7 @@ class LogAnalyzerApp(
         if not self.is_running:
             return
         self.call_after_refresh(self._sync_result_context_notice)
+        self.call_after_refresh(self._refresh_condition_overview)
         if event.input.id == "path":
             normalized_path = self._normalize_recipe_source(event.value)
             if normalized_path != getattr(self, "_recipe_autofill_source", ""):
@@ -257,6 +260,7 @@ class LogAnalyzerApp(
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         self.call_after_refresh(self._sync_result_context_notice)
+        self.call_after_refresh(self._refresh_condition_overview)
         if event.checkbox.id == "manual_pattern_override":
             pattern_input = self.query_one("#log_pattern", Input)
             if event.value and not pattern_input.value.strip():

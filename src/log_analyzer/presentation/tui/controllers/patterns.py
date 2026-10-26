@@ -362,6 +362,7 @@ class PatternSetupMixin:
         self._preview_seed_pattern = seed_pattern
         self.query_one("#pattern-source", Static).update(f"格式來源：{source}")
         self.query_one("#pattern-preview", Static).update(f"Pattern 資訊：{pattern}")
+        self.call_after_refresh(self._refresh_condition_overview)
 
     def _sync_pattern_preview_for_current_selection(self) -> None:
         if self.query_one("#manual_pattern_override", Checkbox).value:

@@ -144,6 +144,8 @@ class SourceControllerMixin:
             self._clear_source_scope_preview(message)
             return
 
+        self._condition_source = source
+        self.call_after_refresh(self._refresh_condition_overview)
         self.query_one("#path-status", Static).update(
             format_path_status(message, color, False)
         )
@@ -155,6 +157,8 @@ class SourceControllerMixin:
             ).show_selection_count(len(state.available.filenames))
 
     def _clear_source_scope_preview(self, message: str) -> None:
+        self._condition_source = None
+        self.call_after_refresh(self._refresh_condition_overview)
         self.query_one("#path-status", Static).update(
             format_path_status(message, "red", False)
         )
