@@ -12,8 +12,9 @@ from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui.app import LogAnalyzerApp
 
 
-@pytest.mark.parametrize("size", [(80, 40), (160, 45)])
+@pytest.mark.parametrize("size", [(80, 40), (160, 45)], ids=['viewport-80x40', 'viewport-160x45'])
 def test_result_notice_tracks_form_changes_but_export_uses_frozen_request(tmp_path, monkeypatch, size):
+    """情境：寬窄版修改表單應更新條件提示但匯出仍用固定請求。"""
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
     (tmp_path / "app.log").write_text("2026-10-24 10:00:00.000 [main] INFO Service - original\n", encoding="utf-8")
@@ -56,6 +57,7 @@ def test_result_notice_tracks_form_changes_but_export_uses_frozen_request(tmp_pa
 
 
 def test_edits_during_analysis_and_failed_retry_keep_previous_result_identity(tmp_path, monkeypatch):
+    """情境：分析途中編輯及失敗重試應保留上次結果的條件識別。"""
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
     (tmp_path / "app.log").write_text("2026-10-24 10:00:00.000 [main] INFO Service - original\n", encoding="utf-8")

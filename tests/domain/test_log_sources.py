@@ -15,6 +15,7 @@ def _source_selection_api():
 
 
 def test_directory_selection_finds_supported_regular_files_at_current_level(tmp_path):
+    """情境：資料夾來源只應列出目前層級支援的一般檔案。"""
     supported_extensions, select_log_source, _log_sources = _source_selection_api()
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -37,6 +38,7 @@ def test_directory_selection_finds_supported_regular_files_at_current_level(tmp_
 
 
 def test_single_file_selection_keeps_file_path_and_excludes_siblings(tmp_path):
+    """情境：指定單檔應保留檔案路徑並排除同層其他日誌。"""
     _supported_extensions, select_log_source, _log_sources = _source_selection_api()
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -53,6 +55,7 @@ def test_single_file_selection_keeps_file_path_and_excludes_siblings(tmp_path):
 
 
 def test_single_file_selection_does_not_enumerate_parent_entries(tmp_path, monkeypatch):
+    """情境：單檔來源不應列舉父資料夾的內容。"""
     _supported_extensions, select_log_source, log_sources = _source_selection_api()
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -71,6 +74,7 @@ def test_single_file_selection_does_not_enumerate_parent_entries(tmp_path, monke
 
 
 def test_explicit_selection_stays_frozen_and_empty_selection_stays_empty(tmp_path):
+    """情境：明確選擇應固定且空選擇不得擴大成全部檔案。"""
     _supported_extensions, select_log_source, _log_sources = _source_selection_api()
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -86,6 +90,7 @@ def test_explicit_selection_stays_frozen_and_empty_selection_stays_empty(tmp_pat
 
 
 def test_selection_rejects_missing_unsupported_and_escaping_sources(tmp_path):
+    """情境：遺失、不支援或跳出來源範圍的檔案應拒絕。"""
     _supported_extensions, select_log_source, _log_sources = _source_selection_api()
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -104,6 +109,7 @@ def test_selection_rejects_missing_unsupported_and_escaping_sources(tmp_path):
 
 
 def test_selection_rejects_windows_and_posix_paths_as_filenames(tmp_path):
+    """情境：檔名選擇不得接受 Windows 或 POSIX 路徑。"""
     _supported_extensions, select_log_source, _log_sources = _source_selection_api()
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -124,6 +130,7 @@ def test_selection_rejects_windows_and_posix_paths_as_filenames(tmp_path):
 
 
 def test_selection_rejects_unreadable_single_file_without_fallback(tmp_path, monkeypatch):
+    """情境：單檔不可讀時應失敗而非退回分析整個資料夾。"""
     _supported_extensions, select_log_source, log_sources = _source_selection_api()
     log_dir = tmp_path / "logs"
     log_dir.mkdir()

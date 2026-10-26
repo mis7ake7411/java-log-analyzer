@@ -13,6 +13,9 @@ import time
 import pyte
 from wcwidth import wcswidth
 
+_INPUT_LEFT_BORDER = "▊"
+_INPUT_RIGHT_BORDER = "▎"
+
 
 class TerminalSession:
     def __init__(self, command, cwd: Path, env, evidence: Path, *, dimensions=(45, 160)):
@@ -163,14 +166,47 @@ class TerminalSession:
         self.fill_input_at(column + 20, row, value)
 
     def fill_input_at(self, column, row, value):
+        left, _ = self._input_bounds_at(column, row)
         self.click_at(column, row)
-        self.wait(lambda: self.screen.cursor.y == row, f"Input did not receive focus at row {row}")
         self.paste(value)
-        # A focused input can show either end of a long value; exports verify the complete value.
+        # Reflow can move the row and shrink its right edge when a scrollbar appears.
+        # Restrict matching to bordered inputs in this form column, never summary text.
+        visible_parts = tuple(part for part in (value[:20], value[-20:]) if part)
+
+        def value_visible_in_input():
+            for current_row in range(self.screen.lines):
+                cells = self.screen.buffer[current_row]
+                if cells[left].data != _INPUT_LEFT_BORDER:
+                    continue
+                right = next((index for index in range(left + 1, self.screen.columns)
+                              if cells[index].data == _INPUT_RIGHT_BORDER), None)
+                if right is None:
+                    continue
+                content = "".join(cells[index].data for index in range(left + 1, right))
+                if any(part in content for part in visible_parts):
+                    return True
+            return False
+
         self.wait(
-            lambda: any(part in self.text().splitlines()[row] for part in (value[:20], value[-20:])),
-            f"Input did not display its new value at row {row}",
+            value_visible_in_input,
+            f"Input in form column {left} did not display its new value",
         )
+
+    def _input_bounds_at(self, column, row):
+        cells = self.screen.buffer[row]
+        left = next(
+            (index for index in range(column - 1, -1, -1)
+             if cells[index].data == _INPUT_LEFT_BORDER),
+            None,
+        )
+        right = next(
+            (index for index in range(column + 1, self.screen.columns)
+             if cells[index].data == _INPUT_RIGHT_BORDER),
+            None,
+        )
+        if left is None or right is None:
+            raise AssertionError(f"Target at ({column}, {row}) has no visible Input borders")
+        return left, right
 
     def resize(self, columns, rows):
         with self.condition:

@@ -5,9 +5,22 @@ from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
+from heapq import heappush, heapreplace
 
 from ..domain.analysis_control import AnalysisControl
 from log_analyzer.domain.log_types import LogEntry, OccurrenceCoordinate
+
+_TOP_EVENT_LIMIT = 5
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardEvent:
+    """Dashboard 鑽取摘要，只保存索引與受限的代表文字。"""
+
+    group_index: int
+    level: str
+    message: str
+    count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,6 +31,7 @@ class DashboardAnalysis:
     time_hotspots: tuple[tuple[str, int, int], ...]
     logger_summary: tuple[tuple[str, int, int], ...]
     thread_summary: tuple[tuple[str, int, int], ...]
+    top_events: tuple[DashboardEvent, ...] = ()
 
 
 def aggregate_dashboard_summary(
@@ -25,7 +39,18 @@ def aggregate_dashboard_summary(
     *,
     control: AnalysisControl | None = None,
 ) -> tuple[DashboardAnalysis, int]:
-    """單次走訪命中日誌，計算 dashboard 統計與命中筆數。"""
+    """單次走訪命中日誌，計算摘要、前五個鑽取事件與命中筆數。
+
+    Args:
+        matched_logs: 依瀏覽順序提供的命中群組，可為單次走訪 iterable。
+        control: 可選的進度與取消控制器。
+
+    Returns:
+        tuple[DashboardAnalysis, int]: Dashboard 摘要與加權命中次數。
+
+    Raises:
+        AnalysisCancelled: control 收到取消要求時停止彙總。
+    """
     exception_occurrences: Counter[str] = Counter()
     exception_groups: Counter[str] = Counter()
     time_occurrences: Counter[str] = Counter()
@@ -34,15 +59,27 @@ def aggregate_dashboard_summary(
     logger_groups: Counter[str] = Counter()
     thread_occurrences: Counter[str] = Counter()
     thread_groups: Counter[str] = Counter()
+    top_events: list[tuple[tuple[int, int], DashboardEvent]] = []
     matched_occurrences = 0
     if control is not None:
         control.report_progress("summarizing", force=True)
 
-    for log in matched_logs:
+    for group_index, log in enumerate(matched_logs):
         if control is not None:
             control.raise_if_cancelled()
         occurrence_count = int(log.get("count", 1))
         matched_occurrences += occurrence_count
+        event = DashboardEvent(
+            group_index=group_index,
+            level=str(log.get("level", "") or "").strip(),
+            message=_dashboard_event_message(log),
+            count=occurrence_count,
+        )
+        rank = (event.count, -event.group_index)
+        if len(top_events) < _TOP_EVENT_LIMIT:
+            heappush(top_events, (rank, event))
+        elif rank > top_events[0][0]:
+            heapreplace(top_events, (rank, event))
         _add_summary_value(
             _extract_exception_signature(log),
             occurrence_count,
@@ -70,9 +107,27 @@ def aggregate_dashboard_summary(
             time_hotspots=_build_summary(time_occurrences, time_groups),
             logger_summary=_build_summary(logger_occurrences, logger_groups),
             thread_summary=_build_summary(thread_occurrences, thread_groups),
+            top_events=tuple(
+                sorted(
+                    (item[1] for item in top_events),
+                    key=lambda item: (-item.count, item.group_index),
+                )
+            ),
         ),
         matched_occurrences,
     )
+
+
+def _dashboard_event_message(log: LogEntry) -> str:
+    """取代表訊息第一行並折疊空白，避免鑽取摘要攜帶長內文。"""
+    message = str(log.get("message_body") or log.get("message") or "")
+    line_end = len(message)
+    for separator in ("\r", "\n"):
+        position = message.find(separator)
+        if position >= 0:
+            line_end = min(line_end, position)
+    first_line = message[:line_end]
+    return " ".join(first_line.split())[:160]
 
 
 def _occurrence_distributions(

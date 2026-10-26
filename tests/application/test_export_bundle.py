@@ -71,6 +71,7 @@ def _snapshot_metadata(result):
 
 
 def test_export_analysis_bundle_publishes_reports_and_manifest_together(tmp_path):
+    """情境：報表與證據清單應由同一次發布流程完成。"""
     result = _result(tmp_path / "logs")
     output = tmp_path / "report.csv"
     options = ResultExportOptions(output_path=str(output), split_by_level=True)
@@ -98,6 +99,7 @@ def test_export_analysis_bundle_publishes_reports_and_manifest_together(tmp_path
 
 
 def test_bundle_manifest_failure_leaves_no_new_reports_or_metadata_changes(tmp_path, monkeypatch):
+    """情境：清單建立失敗時不得留下新報表或更改結果中繼資料。"""
     import log_analyzer.application.evidence_manifest as evidence_manifest
 
     result = _result(tmp_path / "logs")
@@ -119,6 +121,7 @@ def test_bundle_manifest_failure_leaves_no_new_reports_or_metadata_changes(tmp_p
 
 
 def test_existing_manifest_conflict_aborts_bundle_before_any_report_is_published(tmp_path):
+    """情境：只有清單檔名衝突時也應在發布任何報表前中止。"""
     result = _result(tmp_path / "logs")
     output = tmp_path / "report.csv"
     manifest = tmp_path / "report_manifest.json"
@@ -146,10 +149,18 @@ def test_existing_manifest_conflict_aborts_bundle_before_any_report_is_published
         ("report_part001.csv", False, 1),
         ("report_manifest.json", False, None),
     ],
+    ids=[
+        'source-is-report',
+        'source-is-summary',
+        'source-is-level-part',
+        'source-is-size-part',
+        'source-is-manifest',
+    ],
 )
 def test_bundle_never_overwrites_any_input_source_even_when_overwrite_is_enabled(
     tmp_path, source_name, split_by_level, max_export_bytes
 ):
+    """情境：報表、摘要、分檔或清單與來源同名時即使授權覆蓋仍應拒絕。"""
     result = _result(tmp_path / "logs", source_names=(source_name,))
     source = Path(result.input_path) / source_name
     original_bytes = source.read_bytes()
@@ -172,6 +183,7 @@ def test_bundle_never_overwrites_any_input_source_even_when_overwrite_is_enabled
 
 
 def test_bundle_overwrite_replaces_old_report_family_and_manifest_after_rendering(tmp_path):
+    """情境：授權覆蓋應先完成內容再替換舊報表組與清單。"""
     result = _result(tmp_path / "logs")
     output = tmp_path / "report.csv"
     old_files = [

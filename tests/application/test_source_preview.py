@@ -23,6 +23,7 @@ def _occurrence(filename, line_number=5) -> OccurrenceCoordinate:
 
 
 def test_preview_reads_three_lines_each_side(tmp_path):
+    """情境：原文預覽應顯示命中行前後各三行。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     source_file = log_dir / "app.log"
@@ -52,6 +53,7 @@ def test_preview_reads_three_lines_each_side(tmp_path):
 
 
 def test_preview_displays_replacement_and_nonfatal_encoding_notice(tmp_path):
+    """情境：解碼替代字元應顯示並附非致命編碼提示。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     source_file = log_dir / "app.log"
@@ -74,6 +76,7 @@ def test_preview_displays_replacement_and_nonfatal_encoding_notice(tmp_path):
 
 
 def test_warning_preview_has_no_copyable_context(tmp_path):
+    """情境：警告預覽不應提供可複製的原文內容。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     source_file = log_dir / "app.log"
@@ -89,8 +92,9 @@ def test_warning_preview_has_no_copyable_context(tmp_path):
     assert preview.lines == ()
 
 
-@pytest.mark.parametrize("failure", ["missing", "changed", "unstable", "missing_snapshot"])
+@pytest.mark.parametrize("failure", ["missing", "changed", "unstable", "missing_snapshot"], ids=['failure-missing', 'failure-changed', 'failure-unstable', 'failure-missing-snapshot'])
 def test_preview_rejects_missing_changed_or_unstable_file(tmp_path, failure):
+    """情境：來源遺失、已改變、不穩定或缺快照時應拒絕預覽。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     source_file = log_dir / "app.log"
@@ -112,8 +116,9 @@ def test_preview_rejects_missing_changed_or_unstable_file(tmp_path, failure):
     assert preview.warning is not None
 
 
-@pytest.mark.parametrize("target_kind", ["traversal", "outside_symlink"])
+@pytest.mark.parametrize("target_kind", ["traversal", "outside_symlink"], ids=['target-kind-traversal', 'target-kind-outside-symlink'])
 def test_preview_rejects_path_traversal_and_outside_symlink(tmp_path, target_kind):
+    """情境：路徑穿越或連到根目錄外的符號連結應拒絕預覽。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     outside_file = tmp_path / "outside.log"

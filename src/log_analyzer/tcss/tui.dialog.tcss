@@ -284,6 +284,37 @@
     min-height: 1;
 }
 
+#event-browser-preview-toolbar {
+    height: auto;
+    layout: vertical;
+    margin: 1 0;
+}
+
+#event-browser-preview-toolbar.wide {
+    layout: horizontal;
+}
+
+#event-browser-preview-toolbar Button {
+    width: 1fr;
+    min-width: 0;
+    height: 1;
+    border: none;
+    padding: 0;
+    margin: 0;
+}
+
+#event-browser-preview-toolbar Button:focus {
+    height: 1;
+    border: none;
+    padding: 0;
+    text-style: bold underline;
+    background: #263c55;
+}
+
+#event-browser-preview-toolbar.wide Button {
+    margin: 0 1 0 0;
+}
+
 #source-warning {
     height: auto;
     color: #fbbf24;

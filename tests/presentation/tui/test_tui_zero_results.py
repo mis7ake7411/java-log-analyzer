@@ -135,6 +135,7 @@ async def _exercise_zero_result_retry(tmp_path, monkeypatch, retry_filter: str) 
 
 
 def test_zero_result_view_shows_all_five_stage_counts():
+    """情境：零結果畫面應顯示全部五個篩選階段計數。"""
     rendered = _render_zero_result(ScanDiagnostics(6, 5, 4, 3, 0))
 
     assert "掃描 Log 檔案" in rendered
@@ -147,6 +148,7 @@ def test_zero_result_view_shows_all_five_stage_counts():
 
 
 def test_zero_result_view_warns_when_invalid_utf8_was_replaced():
+    """情境：零結果遇無效 UTF-8 替代時應顯示編碼警告。"""
     rendered = _render_zero_result(ScanDiagnostics(1, 0, 0, 0, 0, 1, 2))
 
     assert "UTF-8" in rendered
@@ -163,14 +165,23 @@ def test_zero_result_view_warns_when_invalid_utf8_was_replaced():
         (ScanDiagnostics(2, 2, 2, 0, 0), "Level 篩選排除了所有"),
         (ScanDiagnostics(2, 2, 2, 2, 0), "關鍵字篩選排除了所有"),
     ],
+    ids=[
+        'no-supported-files',
+        'no-parsed-entries',
+        'time-filter-empty',
+        'level-filter-empty',
+        'keyword-filter-empty',
+    ],
 )
 def test_zero_result_view_explains_first_empty_stage(diagnostics, expected_reason):
+    """情境：零結果應解釋第一個沒有資料的處理階段。"""
     rendered = _render_zero_result(diagnostics)
 
     assert expected_reason in rendered
 
 
 def test_recent_form_state_persists_level_unrestricted(tmp_path, monkeypatch):
+    """情境：最近表單設定應保存不限 Level 狀態。"""
     monkeypatch.chdir(tmp_path)
 
     save_recent_tui_state({"levels": ["WARN"], "level_unrestricted": True})
@@ -179,6 +190,7 @@ def test_recent_form_state_persists_level_unrestricted(tmp_path, monkeypatch):
 
 
 def test_form_restores_level_unrestricted_and_selected_levels(monkeypatch):
+    """情境：還原表單應恢復不限 Level 與原選取層級。"""
     monkeypatch.setattr(
         tui_module,
         "load_recent_tui_state",
@@ -201,6 +213,7 @@ def test_form_restores_level_unrestricted_and_selected_levels(monkeypatch):
 
 
 def test_unrestricted_level_disables_controls_without_losing_selection(monkeypatch):
+    """情境：不限 Level 應停用個別控制但不遺失勾選。"""
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
 
     async def run_check() -> None:
@@ -248,12 +261,14 @@ def test_unrestricted_level_disables_controls_without_losing_selection(monkeypat
     asyncio.run(run_check())
 
 
-@pytest.mark.parametrize("retry_filter", ["time", "level", "keyword"])
+@pytest.mark.parametrize("retry_filter", ["time", "level", "keyword"], ids=['retry-filter-time', 'retry-filter-level', 'retry-filter-keyword'])
 def test_zero_result_retry_changes_only_its_filter_and_runs_real_scan(tmp_path, monkeypatch, retry_filter):
+    """情境：零結果重試只應修改指定條件並執行真實掃描。"""
     asyncio.run(_exercise_zero_result_retry(tmp_path, monkeypatch, retry_filter))
 
 
 def test_zero_result_can_be_cleared_without_analysis_result(tmp_path, monkeypatch):
+    """情境：沒有成功分析結果時也應能清除零結果畫面。"""
     logs = tmp_path / "logs"
     logs.mkdir()
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})

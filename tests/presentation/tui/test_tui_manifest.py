@@ -50,6 +50,7 @@ async def _edit_export_form_after_export_starts(app, export_started, continue_ex
 
 
 def test_manifest_is_opt_in_and_default_export_creates_reports_only(tmp_path, monkeypatch):
+    """情境：證據清單應預設關閉且一般匯出只產生報表。"""
     logs, _ = _write_log(tmp_path, "captured report only")
     export_dir = tmp_path / "exports"
     export_dir.mkdir()
@@ -83,6 +84,7 @@ def test_manifest_is_opt_in_and_default_export_creates_reports_only(tmp_path, mo
 
 
 def test_export_click_freezes_report_options_and_manifest_choice(tmp_path, monkeypatch):
+    """情境：點擊匯出時應固定輸出設定與清單選擇。"""
     logs, _ = _write_log(tmp_path, "frozen export options")
     original_export_dir = tmp_path / "original-exports"
     edited_export_dir = tmp_path / "edited-exports"
@@ -135,6 +137,7 @@ def test_export_click_freezes_report_options_and_manifest_choice(tmp_path, monke
 
 
 def test_manifest_uses_frozen_analysis_and_matches_exported_report_hash(tmp_path, monkeypatch):
+    """情境：清單應使用固定分析條件並匹配實際報表雜湊。"""
     logs, source = _write_log(tmp_path, "captured before source edit")
     export_dir = tmp_path / "exports"
     export_dir.mkdir()
@@ -199,6 +202,7 @@ def test_manifest_uses_frozen_analysis_and_matches_exported_report_hash(tmp_path
 
 
 def test_bundle_failure_is_atomic_and_retry_uses_same_result(tmp_path, monkeypatch):
+    """情境：報表加清單準備失敗應不發布新檔且可用同結果重試。"""
     logs, _ = _write_log(tmp_path, "retryable captured report")
     export_dir = tmp_path / "exports"
     export_dir.mkdir()
@@ -261,6 +265,7 @@ def test_bundle_failure_is_atomic_and_retry_uses_same_result(tmp_path, monkeypat
 
 
 def test_bundle_retry_keeps_auto_generated_report_name(tmp_path, monkeypatch):
+    """情境：重試報表加清單應保留自動產生的報表名稱。"""
     logs, _ = _write_log(tmp_path, "retry keeps the first report name")
     export_dir = tmp_path / "exports"
     export_dir.mkdir()
@@ -313,6 +318,7 @@ def test_bundle_retry_keeps_auto_generated_report_name(tmp_path, monkeypatch):
 
 
 def test_report_export_failure_does_not_attempt_manifest_and_keeps_result(tmp_path, monkeypatch):
+    """情境：報表匯出失敗時不應嘗試建立清單且保留結果。"""
     logs, _ = _write_log(tmp_path, "report export failure")
     export_dir = tmp_path / "exports"
     export_dir.mkdir()

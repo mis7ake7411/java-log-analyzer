@@ -8,7 +8,9 @@ from textual.containers import Container
 from textual.widgets import Button, Checkbox, Input, RichLog, Static
 from log_analyzer.application.analysis_service import AnalysisResult
 from log_analyzer.presentation.tui.screens.event_browser import EventBrowserScreen
-from log_analyzer.presentation.tui.views import build_dashboard_view, build_idle_view
+from log_analyzer.presentation.tui.views import build_dashboard_view, build_idle_view, analyze_dashboard
+from log_analyzer.presentation.dashboard_navigation import build_dashboard_targets
+from log_analyzer.presentation.tui.screens.summary_navigation import SummaryNavigationScreen
 from log_analyzer.presentation.analysis_labels import export_result_context
 
 logger = logging.getLogger(__name__)
@@ -86,7 +88,7 @@ class ResultStateMixin:
     def _build_dashboard_with_restore_warning(
         self, result: AnalysisResult, compact: bool
     ) -> Group:
-        dashboard = build_dashboard_view(result, compact)
+        dashboard = self._interactive_dashboard(result, compact)
         if not self._restored_encoding_warning:
             return dashboard
         return Group(
@@ -101,7 +103,7 @@ class ResultStateMixin:
         )
 
     def _build_result_dashboard(self, result: AnalysisResult):
-        return build_dashboard_view(
+        return self._interactive_dashboard(
             result, self._should_compact_dashboard(self.size.width, self.size.height)
         )
 
@@ -142,9 +144,82 @@ class ResultStateMixin:
             return
         self.push_screen(EventBrowserScreen(result))
 
+    def _prepare_dashboard_navigation(self, result) -> int:
+        """同一結果重繪時沿用入口，換結果才建立新的世代。
+
+        Args:
+            result: 目前保留的分析結果。
+
+        Returns:
+            此結果的世代編號，用於拒絕舊畫面的殘留點擊。
+        """
+        if getattr(self, "_dashboard_target_result", None) is not result:
+            targets = build_dashboard_targets(
+                result, analyze_dashboard(result)
+            )
+            self._dashboard_targets = targets
+            self._dashboard_navigation_generation = (
+                getattr(self, "_dashboard_navigation_generation", 0) + 1
+            )
+            self._dashboard_target_result = result
+        return self._dashboard_navigation_generation
+
+    def _interactive_dashboard(self, result, compact: bool):
+        generation = self._prepare_dashboard_navigation(result)
+        return build_dashboard_view(result, compact, navigation_generation=generation)
+
+    def action_browse_summary(self) -> None:
+        """以鍵盤選擇目前保留結果的摘要入口。
+
+        Returns:
+            None；沒有結果或有進行中的操作時不開啟導覽。
+        """
+        result = self._last_result
+        if (
+            result is None
+            or getattr(self, "_operation_in_progress", False)
+            or self.screen is not self.screen_stack[0]
+        ):
+            return
+        generation = self._prepare_dashboard_navigation(result)
+        if not self._dashboard_targets:
+            return
+
+        def selected(index: int | None) -> None:
+            if index is not None:
+                self.action_open_dashboard_target(generation, index)
+
+        self.push_screen(SummaryNavigationScreen(self._dashboard_targets), selected)
+
+    def action_open_dashboard_target(self, generation: int, index: int) -> None:
+        """開啟摘要對應的精確瀏覽範圍，忽略舊結果殘留的點擊。
+
+        Args:
+            generation: 產生入口時的結果世代。
+            index: 該世代的入口索引。
+
+        Returns:
+            None；不重新分析、不變更表單與匯出設定。
+        """
+        result = self._last_result
+        if (
+            result is None
+            or getattr(self, "_operation_in_progress", False)
+            or getattr(self, "_dashboard_target_result", None) is not result
+            or generation != getattr(self, "_dashboard_navigation_generation", None)
+            or not 0 <= index < len(self._dashboard_targets)
+        ):
+            return
+        target = self._dashboard_targets[index]
+        self.push_screen(EventBrowserScreen(
+            result, initial_level=target.level, initial_group_index=target.group_index
+        ))
+
     def _release_last_result(self, close_browser: bool = True) -> None:
         result = getattr(self, "_last_result", None)
         self._last_result = None
+        self._dashboard_target_result = None
+        self._dashboard_targets = ()
         self._result_form_identity = None
         self._sync_result_context_notice()
         if result is None:

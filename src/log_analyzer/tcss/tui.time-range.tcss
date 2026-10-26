@@ -1,0 +1,29 @@
+TimeRangeSettings {
+    width: 1fr;
+    min-width: 0;
+    height: auto;
+}
+
+TimeRangeSettings > #time-range-controls {
+    width: 1fr;
+    min-width: 0;
+    height: auto;
+}
+
+TimeRangeSettings #time-preset {
+    width: 1fr;
+    min-width: 0;
+}
+
+TimeRangeSettings #time-range-summary {
+    width: 1fr;
+    min-width: 0;
+    height: auto;
+    min-height: 1;
+}
+
+TimeRangeSettings #time-range-custom {
+    width: 1fr;
+    min-width: 0;
+    height: auto;
+}

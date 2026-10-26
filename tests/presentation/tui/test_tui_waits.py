@@ -19,6 +19,7 @@ from tui_waits import (
 
 
 def test_analysis_waits_for_a_new_task_and_its_result():
+    """情境：分析等待應等待新 task 建立及其實際完成。"""
     async def check():
         previous = asyncio.create_task(asyncio.sleep(0))
         await previous
@@ -38,6 +39,7 @@ def test_analysis_waits_for_a_new_task_and_its_result():
 
 
 def test_analysis_timeout_does_not_cancel_the_application_task():
+    """情境：分析等待逾時不應取消應用程式 task。"""
     async def check():
         gate = asyncio.Event()
         task = asyncio.create_task(gate.wait())
@@ -54,6 +56,7 @@ def test_analysis_timeout_does_not_cancel_the_application_task():
 
 
 def test_waits_propagate_application_and_predicate_errors():
+    """情境：等待函式應保留應用程式及判斷條件的原始例外。"""
     async def fail():
         raise TimeoutError("application failure")
 
@@ -73,6 +76,7 @@ def test_waits_propagate_application_and_predicate_errors():
 
 
 def test_export_idle_before_start_is_not_completion():
+    """情境：匯出尚未開始前的閒置不得當成完成。"""
     class Pilot:
         async def pause(self):
             await asyncio.sleep(0)
@@ -99,6 +103,7 @@ class WaitHarness(App):
 
 
 def test_button_wait_does_not_click_or_enable_a_disabled_button():
+    """情境：等待按鈕不得自行點擊或啟用停用中的按鈕。"""
     async def check():
         app = WaitHarness()
         async with app.run_test() as pilot:
@@ -114,6 +119,7 @@ def test_button_wait_does_not_click_or_enable_a_disabled_button():
 
 
 def test_layout_waits_for_scheduled_animation_before_accepting_equal_regions():
+    """情境：接受相同版面前應等待已排程動畫完成。"""
     async def check():
         app = WaitHarness()
         async with app.run_test() as pilot:
@@ -126,6 +132,7 @@ def test_layout_waits_for_scheduled_animation_before_accepting_equal_regions():
 
 
 def test_button_wait_uses_the_active_modal_screen():
+    """情境：按鈕等待應以目前活動的彈出視窗為準。"""
     class Dialog(ModalScreen):
         def compose(self) -> ComposeResult:
             yield Button("Next", id="next")
@@ -141,6 +148,7 @@ def test_button_wait_uses_the_active_modal_screen():
 
 
 def test_layout_allows_children_of_a_hidden_container():
+    """情境：隱藏容器中的子元件應允許沒有可見尺寸。"""
     class HiddenHarness(App):
         def compose(self) -> ComposeResult:
             with Container(id="hidden"):

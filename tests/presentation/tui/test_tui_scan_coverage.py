@@ -30,8 +30,9 @@ def _capture(app, name):
         app.save_screenshot(filename=name + ".svg", path=directory)
 
 
-@pytest.mark.parametrize("size", [(72, 28), (72, 45), (160, 45)])
+@pytest.mark.parametrize("size", [(72, 28), (72, 45), (160, 45)], ids=['viewport-72x28', 'viewport-72x45', 'viewport-160x45'])
 def test_scan_coverage_fits_result_width(tmp_path, monkeypatch, size):
+    """情境：各視窗尺寸下掃描覆蓋摘要應留在結果寬度內。"""
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
     (tmp_path / "app.log").write_text("unrecognized [red]literal[/red]\n" + LINE + "\n", encoding="utf-8")
@@ -67,8 +68,9 @@ def test_scan_coverage_fits_result_width(tmp_path, monkeypatch, size):
         result.matched_logs.release()
 
 
-@pytest.mark.parametrize("size", [(72, 28), (160, 45)])
+@pytest.mark.parametrize("size", [(72, 28), (160, 45)], ids=['viewport-72x28', 'viewport-160x45'])
 def test_pattern_dialog_shows_per_file_scores_and_keyboard_cancel(tmp_path, monkeypatch, size):
+    """情境：寬窄 Pattern 視窗應顯示逐檔評分且可鍵盤取消。"""
     monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
     xml = tmp_path / "logback.xml"

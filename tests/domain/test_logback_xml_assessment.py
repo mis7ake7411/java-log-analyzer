@@ -28,6 +28,7 @@ def _write_logs(directory: Path, *lines: str) -> Path:
 
 
 def test_multifile_assessment_samples_beyond_the_first_large_file(tmp_path):
+    """情境：多檔評估不應只對第一個大檔抽樣。"""
     xml_path = _write_xml(tmp_path / "logback.xml", ("LOG_PATTERN", PATTERN))
     logs = tmp_path / "logs"
     logs.mkdir()
@@ -45,6 +46,7 @@ def test_multifile_assessment_samples_beyond_the_first_large_file(tmp_path):
 
 
 def test_multifile_sampling_reuses_unused_budget_for_later_files(tmp_path):
+    """情境：前檔未用完的抽樣額度應讓後續檔案使用。"""
     xml_path = _write_xml(tmp_path / "logback.xml", ("LOG_PATTERN", PATTERN))
     logs = tmp_path / "logs"
     logs.mkdir()
@@ -57,6 +59,7 @@ def test_multifile_sampling_reuses_unused_budget_for_later_files(tmp_path):
 
 
 def test_good_total_score_does_not_hide_one_incompatible_file(tmp_path):
+    """情境：總分良好時仍須揭露某個檔案與格式不相容。"""
     xml_path = _write_xml(tmp_path / "logback.xml", ("LOG_PATTERN", PATTERN))
     logs = tmp_path / "logs"
     logs.mkdir()
@@ -70,6 +73,7 @@ def test_good_total_score_does_not_hide_one_incompatible_file(tmp_path):
 
 
 def test_assessment_selects_unique_pattern_at_exact_confidence_boundary(tmp_path):
+    """情境：剛好達到可信門檻的唯一候選應可選定。"""
     xml_path = _write_xml(tmp_path / "logback.xml", ("LOG_PATTERN", PATTERN))
     log_dir = _write_logs(tmp_path / "logs", *(MATCHING_LINE for _ in range(4)), "not a log line")
 
@@ -87,6 +91,7 @@ def test_assessment_selects_unique_pattern_at_exact_confidence_boundary(tmp_path
 
 
 def test_unsupported_candidate_does_not_hide_a_valid_candidate(tmp_path):
+    """情境：存在不支援候選時仍可選出有效候選。"""
     xml_path = _write_xml(
         tmp_path / "logback.xml",
         ("UNSUPPORTED_PATTERN", "%d [%thread] %-5level %logger - %msg %springProperty%n"),
@@ -103,6 +108,7 @@ def test_unsupported_candidate_does_not_hide_a_valid_candidate(tmp_path):
 
 
 def test_all_unsupported_candidates_are_not_selected(tmp_path):
+    """情境：全部候選皆不支援時不得自動選定。"""
     xml_path = _write_xml(
         tmp_path / "logback.xml",
         ("UNSUPPORTED_PATTERN", "%d [%thread] %-5level %logger - %msg %springProperty%n"),
@@ -120,6 +126,7 @@ def test_all_unsupported_candidates_are_not_selected(tmp_path):
 
 
 def test_empty_xml_reports_no_candidates_as_unsupported(tmp_path):
+    """情境：空 XML 應回報沒有候選而不是使用內建格式。"""
     xml_path = tmp_path / "logback.xml"
     xml_path.write_text("<configuration />", encoding="utf-8")
     log_dir = _write_logs(tmp_path / "logs", MATCHING_LINE)
@@ -133,6 +140,7 @@ def test_empty_xml_reports_no_candidates_as_unsupported(tmp_path):
 
 
 def test_no_log_samples_is_uncertain(tmp_path):
+    """情境：沒有日誌樣本時評估應為不確定。"""
     xml_path = _write_xml(tmp_path / "logback.xml", ("LOG_PATTERN", PATTERN))
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -146,6 +154,7 @@ def test_no_log_samples_is_uncertain(tmp_path):
 
 
 def test_zero_matches_is_uncertain_and_legacy_lookup_returns_none(tmp_path):
+    """情境：零匹配應回報不確定且舊介面回傳 None。"""
     xml_path = _write_xml(tmp_path / "logback.xml", ("LOG_PATTERN", PATTERN))
     log_dir = _write_logs(tmp_path / "logs", "arbitrary text")
 
@@ -158,6 +167,7 @@ def test_zero_matches_is_uncertain_and_legacy_lookup_returns_none(tmp_path):
 
 
 def test_low_confidence_is_uncertain(tmp_path):
+    """情境：低於可信門檻的評分應為不確定。"""
     xml_path = _write_xml(tmp_path / "logback.xml", ("LOG_PATTERN", PATTERN))
     log_dir = _write_logs(
         tmp_path / "logs",
@@ -176,6 +186,7 @@ def test_low_confidence_is_uncertain(tmp_path):
 
 
 def test_different_patterns_tied_for_top_matches_are_uncertain(tmp_path):
+    """情境：不同 Pattern 同為最高分時應要求確認。"""
     xml_path = _write_xml(
         tmp_path / "logback.xml",
         ("FIRST_PATTERN", PATTERN),
@@ -193,6 +204,7 @@ def test_different_patterns_tied_for_top_matches_are_uncertain(tmp_path):
 
 
 def test_same_pattern_across_xml_is_deduplicated_and_keeps_first_source(tmp_path):
+    """情境：多份 XML 的相同 Pattern 應去重並保留首次來源。"""
     first = _write_xml(tmp_path / "first.xml", ("FIRST_PATTERN", PATTERN))
     second = _write_xml(tmp_path / "second.xml", ("SECOND_PATTERN", PATTERN))
     log_dir = _write_logs(tmp_path / "logs", MATCHING_LINE)
@@ -205,6 +217,7 @@ def test_same_pattern_across_xml_is_deduplicated_and_keeps_first_source(tmp_path
 
 
 def test_different_patterns_tied_across_xml_remain_ambiguous(tmp_path):
+    """情境：跨 XML 的不同 Pattern 同分時仍應視為歧義。"""
     first = _write_xml(tmp_path / "first.xml", ("FIRST_PATTERN", PATTERN))
     second = _write_xml(
         tmp_path / "second.xml",
@@ -223,6 +236,7 @@ def test_different_patterns_tied_across_xml_remain_ambiguous(tmp_path):
 
 
 def test_assessment_uses_only_frozen_selected_files(tmp_path):
+    """情境：評估只能使用本輪固定的已選檔案。"""
     xml_path = _write_xml(tmp_path / "logback.xml", ("LOG_PATTERN", PATTERN))
     log_dir = _write_logs(tmp_path / "logs", MATCHING_LINE)
     (log_dir / "sibling.log").write_text("arbitrary text\n", encoding="utf-8")
@@ -239,6 +253,7 @@ def test_assessment_uses_only_frozen_selected_files(tmp_path):
 
 
 def test_preview_text_is_bounded_and_keeps_markup_like_text_literal(tmp_path):
+    """情境：樣本文字應限制長度且將標記語法當成原文。"""
     xml_path = _write_xml(tmp_path / "logback.xml", ("LOG_PATTERN", PATTERN))
     long_message = "[bold]" + ("x" * 700)
     log_dir = _write_logs(
@@ -256,6 +271,7 @@ def test_preview_text_is_bounded_and_keeps_markup_like_text_literal(tmp_path):
 
 
 def test_assessment_samples_at_most_fifty_nonempty_lines(tmp_path):
+    """情境：抽樣不得超過五十個非空行。"""
     xml_path = _write_xml(tmp_path / "logback.xml", ("LOG_PATTERN", PATTERN))
     log_dir = _write_logs(tmp_path / "logs", *(MATCHING_LINE for _ in range(51)))
 
@@ -266,8 +282,9 @@ def test_assessment_samples_at_most_fifty_nonempty_lines(tmp_path):
     assert assessment.selected.checked == 50
 
 
-@pytest.mark.parametrize("sample_limit", [0, -1])
+@pytest.mark.parametrize("sample_limit", [0, -1], ids=['zero-sample-limit', 'negative-sample-limit'])
 def test_assessment_rejects_nonpositive_sample_limit(tmp_path, sample_limit):
+    """情境：零或負抽樣上限應拒絕。"""
     xml_path = _write_xml(tmp_path / "logback.xml", ("LOG_PATTERN", PATTERN))
     log_dir = _write_logs(tmp_path / "logs", MATCHING_LINE)
 

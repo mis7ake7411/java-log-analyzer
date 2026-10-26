@@ -58,6 +58,7 @@ def _analyzed_export(tmp_path):
 
 
 def test_manifest_captures_frozen_analysis_reports_and_source_hashes(tmp_path):
+    """情境：證據清單應記錄固定分析條件、報表及來源雜湊。"""
     export_evidence_manifest = _export_evidence_manifest()
     result, report_options, report_files, source, logs = _analyzed_export(tmp_path)
     result.diagnostics.encoding_error_files = 1
@@ -133,6 +134,7 @@ def test_manifest_captures_frozen_analysis_reports_and_source_hashes(tmp_path):
 
 
 def test_manifest_does_not_include_local_unrecognized_line_samples(tmp_path):
+    """情境：證據清單不得包含本機未識別原文樣本。"""
     result, options, report_files, _, _ = _analyzed_export(tmp_path)
     try:
         result.diagnostics.file_coverage[0].unrecognized_samples.append((1, "private diagnostic sample"))
@@ -146,6 +148,7 @@ def test_manifest_does_not_include_local_unrecognized_line_samples(tmp_path):
 
 
 def test_manifest_uses_file_source_root_and_reports_verified_changed_and_missing(tmp_path):
+    """情境：單檔來源應使用正確根目錄並標記已核對、變動與遺失狀態。"""
     export_evidence_manifest = _export_evidence_manifest()
     logs = tmp_path / "logs"
     logs.mkdir()
@@ -196,6 +199,7 @@ def test_manifest_uses_file_source_root_and_reports_verified_changed_and_missing
 
 
 def test_source_changes_and_scan_failures_are_recorded_without_hashes(tmp_path):
+    """情境：來源變動或掃描失敗時應記錄原因而不產生來源雜湊。"""
     export_evidence_manifest = _export_evidence_manifest()
     result, report_options, report_files, source, logs = _analyzed_export(tmp_path)
     scanned = dict(result.source_states["app.log"])
@@ -228,6 +232,7 @@ def test_source_changes_and_scan_failures_are_recorded_without_hashes(tmp_path):
 
 
 def test_unreadable_source_is_reported_without_failing_manifest(tmp_path, monkeypatch):
+    """情境：來源不可讀時應記錄狀態而不讓整份清單失敗。"""
     export_evidence_manifest = _export_evidence_manifest()
     result, report_options, report_files, source, _logs = _analyzed_export(tmp_path)
     original_open = Path.open
@@ -247,6 +252,7 @@ def test_unreadable_source_is_reported_without_failing_manifest(tmp_path, monkey
 
 
 def test_source_change_during_hash_is_not_marked_verified(tmp_path, monkeypatch):
+    """情境：計算雜湊途中來源改變時不得標為核對成功。"""
     export_evidence_manifest = _export_evidence_manifest()
     result, report_options, report_files, source, _logs = _analyzed_export(tmp_path)
     original_open = Path.open
@@ -287,6 +293,7 @@ def test_source_change_during_hash_is_not_marked_verified(tmp_path, monkeypatch)
 
 
 def test_resolved_source_outside_root_is_unsafe_and_never_opened(tmp_path, monkeypatch):
+    """情境：解析後位於根目錄外的來源應標為不安全且不開檔。"""
     export_evidence_manifest = _export_evidence_manifest()
     result, report_options, report_files, _source, logs = _analyzed_export(tmp_path)
     result.source_states["linked.log"] = dict(result.source_states["app.log"])
@@ -318,6 +325,7 @@ def test_resolved_source_outside_root_is_unsafe_and_never_opened(tmp_path, monke
 
 
 def test_unresolvable_source_root_is_recorded_without_failing_manifest(tmp_path, monkeypatch):
+    """情境：來源根目錄無法解析時應保留診斷而不讓清單失敗。"""
     export_evidence_manifest = _export_evidence_manifest()
     result, report_options, report_files, _source, _logs = _analyzed_export(tmp_path)
     root = Path(result.analysis_request.path)
@@ -341,6 +349,7 @@ def test_unresolvable_source_root_is_recorded_without_failing_manifest(tmp_path,
 
 
 def test_manifest_requires_frozen_analysis_request(tmp_path):
+    """情境：缺少固定分析請求時不得產生證據清單。"""
     export_evidence_manifest = _export_evidence_manifest()
     result, report_options, _report_files, _source, _logs = _analyzed_export(tmp_path)
     result.analysis_request = None
@@ -350,6 +359,7 @@ def test_manifest_requires_frozen_analysis_request(tmp_path):
 
 
 def test_manifest_replace_failure_preserves_previous_manifest_and_reports(tmp_path, monkeypatch):
+    """情境：清單替換失敗時應保留舊清單與報表。"""
     export_evidence_manifest = _export_evidence_manifest()
     result, report_options, report_files, _source, _logs = _analyzed_export(tmp_path)
     manifest_path = tmp_path / "selected-report_manifest.json"
@@ -376,6 +386,7 @@ def test_manifest_replace_failure_preserves_previous_manifest_and_reports(tmp_pa
 
 
 def test_missing_report_fails_without_replacing_existing_manifest(tmp_path):
+    """情境：報表遺失時應失敗且不取代既有清單。"""
     export_evidence_manifest = _export_evidence_manifest()
     result, report_options, _report_files, _source, _logs = _analyzed_export(tmp_path)
     manifest_path = tmp_path / "selected-report_manifest.json"
@@ -388,6 +399,7 @@ def test_missing_report_fails_without_replacing_existing_manifest(tmp_path):
 
 
 def test_manifest_refuses_to_overwrite_existing_target_by_default(tmp_path):
+    """情境：預設不得覆蓋既有證據清單。"""
     export_evidence_manifest = _export_evidence_manifest()
     result, report_options, report_files, _source, _logs = _analyzed_export(tmp_path)
     manifest_path = tmp_path / "selected-report_manifest.json"

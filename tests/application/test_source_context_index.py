@@ -40,6 +40,7 @@ def _occurrence(filename: str, line_number: int) -> dict[str, str | int]:
 
 
 def test_repeated_deep_previews_seek_from_sparse_offsets(tmp_path, monkeypatch) -> None:
+    """情境：重複預覽深處原文應使用稀疏位元組索引定位。"""
     source_file = tmp_path / "deep.log"
     source_file.write_text(
         "".join(f"繁體中文第{line_number}行\n" for line_number in range(1, 12_001)),
@@ -103,6 +104,7 @@ def test_repeated_deep_previews_seek_from_sparse_offsets(tmp_path, monkeypatch) 
 
 
 def test_indexed_previews_keep_text_newline_and_boundary_semantics(tmp_path) -> None:
+    """情境：使用索引讀取仍應保留文字、換行與邊界行為。"""
     source_file = tmp_path / "mixed-newlines.log"
     line_texts = [f"繁體中文第{line_number}行" for line_number in range(1, 601)]
     line_endings = ("\r\n", "\r", "\n")
@@ -136,6 +138,7 @@ def test_indexed_previews_keep_text_newline_and_boundary_semantics(tmp_path) -> 
 
 
 def test_indexed_preview_strips_bom_and_replaces_invalid_utf8_without_losing_seek_context(tmp_path):
+    """情境：索引讀取應移除 BOM 並替代無效 UTF-8 而不破壞定位。"""
     source_file = tmp_path / "invalid-utf8.log"
     source_file.write_bytes(
         b"\xef\xbb\xbffirst \x80\r\n"
@@ -159,6 +162,7 @@ def test_indexed_preview_strips_bom_and_replaces_invalid_utf8_without_losing_see
 
 
 def test_indexed_preview_rejects_changed_source_and_rebuilds_for_new_snapshot(tmp_path) -> None:
+    """情境：來源快照改變時應拒絕舊索引並為新快照重建。"""
     source_file = tmp_path / "changing.log"
     source_file.write_text(
         "".join(f"舊內容第{line_number}行\n" for line_number in range(1, 1_201)),
@@ -190,6 +194,7 @@ def test_indexed_preview_rejects_changed_source_and_rebuilds_for_new_snapshot(tm
 
 
 def test_cached_index_does_not_bypass_path_validation(tmp_path) -> None:
+    """情境：命中索引快取時仍應驗證來源路徑。"""
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     safe_file = log_dir / "safe.log"
@@ -214,6 +219,7 @@ def test_cached_index_does_not_bypass_path_validation(tmp_path) -> None:
 
 
 def test_reader_keeps_a_bounded_lru_of_source_offsets(tmp_path) -> None:
+    """情境：來源索引快取應限制大小並淘汰最久未使用項目。"""
     reader = SourceContextReader()
     source_files = []
     for file_number in range(17):

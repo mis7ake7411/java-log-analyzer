@@ -18,6 +18,42 @@ logger = logging.getLogger(__name__)
 
 
 class PatternSetupMixin:
+    def action_preview_format(self) -> None:
+        """以目前來源及格式設定開啟唯讀抽樣預覽。
+
+        Returns:
+            None；來源無效時以通知呈現原因。
+        """
+        from log_analyzer.presentation.tui.screens.format_preview import FormatPreviewScreen
+
+        if getattr(self, "_operation_in_progress", False):
+            self.notify("分析或匯出完成後，可再預覽格式。")
+            return
+        try:
+            source = self._resolve_log_source(
+                self.query_one("#path", Input).value.strip() or "."
+            )
+        except (OSError, ValueError) as exc:
+            self.notify(str(exc), severity="error")
+            return
+        manual = self.query_one("#manual_pattern_override", Checkbox).value
+        xml = self.query_one("#logback_xml_path", Input).value.strip()
+        xml_paths = (xml,) if xml else ()
+        if (
+            not manual
+            and (not xml or xml == getattr(self, "_auto_logback_xml_path", ""))
+            and not getattr(self, "_recipe_autofill_source", "")
+        ):
+            xml_paths = tuple(self._find_logback_xml_candidates(source.root))
+        self.push_screen(
+            FormatPreviewScreen(
+                source,
+                manual_pattern=self.query_one("#log_pattern", Input).value,
+                manual_override=manual,
+                xml_paths=xml_paths,
+            )
+        )
+
     def _assess_logback_pattern_for_analysis(
         self,
         source: LogSourceSelection,
@@ -362,6 +398,7 @@ class PatternSetupMixin:
         self._preview_seed_pattern = seed_pattern
         self.query_one("#pattern-source", Static).update(f"格式來源：{source}")
         self.query_one("#pattern-preview", Static).update(f"Pattern 資訊：{pattern}")
+        self.call_after_refresh(self._refresh_condition_overview)
 
     def _sync_pattern_preview_for_current_selection(self) -> None:
         if self.query_one("#manual_pattern_override", Checkbox).value:

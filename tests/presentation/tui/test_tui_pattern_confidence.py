@@ -64,6 +64,7 @@ def _set_log_filters(app, keyword, *levels):
 
 
 def test_canceling_pattern_confirmation_preserves_the_previous_result(tmp_path, monkeypatch):
+    """情境：取消 Pattern 確認應保留前次成功結果。"""
     _disable_recent_state(monkeypatch)
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -117,6 +118,7 @@ def test_canceling_pattern_confirmation_preserves_the_previous_result(tmp_path, 
 
 
 def test_user_can_confirm_an_uncertain_zero_match_candidate(tmp_path, monkeypatch):
+    """情境：零匹配且不確定的候選仍應允許使用者明確確認。"""
     _disable_recent_state(monkeypatch)
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -156,6 +158,7 @@ def test_user_can_confirm_an_uncertain_zero_match_candidate(tmp_path, monkeypatc
 
 
 def test_auto_discovery_assesses_multiple_xml_files_together(tmp_path, monkeypatch):
+    """情境：自動探索應一起評估多份 XML。"""
     _disable_recent_state(monkeypatch)
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -185,6 +188,7 @@ def test_auto_discovery_assesses_multiple_xml_files_together(tmp_path, monkeypat
 
 
 def test_auto_discovered_unsupported_xml_does_not_fall_back_to_default(tmp_path, monkeypatch):
+    """情境：自動探索到不支援 XML 時不得退回內建格式。"""
     _disable_recent_state(monkeypatch)
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -224,6 +228,7 @@ def test_auto_discovered_unsupported_xml_does_not_fall_back_to_default(tmp_path,
 
 
 def test_auto_discovery_refreshes_xml_candidates_before_each_analysis(tmp_path, monkeypatch):
+    """情境：每次分析前應重新取得自動探索的 XML 候選。"""
     _disable_recent_state(monkeypatch)
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -302,6 +307,7 @@ async def _exercise_cancel_retry_frozen_request(log_dir, xml_path, tmp_path, ass
 
 
 def test_cancel_retry_reassesses_and_confirm_uses_frozen_source_and_filters(tmp_path, monkeypatch):
+    """情境：取消重試應重新評估且確認後使用固定來源與條件。"""
     _disable_recent_state(monkeypatch)
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -330,6 +336,7 @@ def test_cancel_retry_reassesses_and_confirm_uses_frozen_source_and_filters(tmp_
 
 
 def test_load_action_reports_uncertainty_without_opening_confirmation(tmp_path, monkeypatch):
+    """情境：載入操作應提示不確定但不開啟分析確認視窗。"""
     _disable_recent_state(monkeypatch)
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -356,6 +363,7 @@ def test_load_action_reports_uncertainty_without_opening_confirmation(tmp_path, 
 
 
 def test_load_action_reports_unsupported_error_without_opening_confirmation(tmp_path, monkeypatch):
+    """情境：載入不支援格式應提示錯誤而不開確認視窗。"""
     _disable_recent_state(monkeypatch)
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -386,6 +394,7 @@ def test_load_action_reports_unsupported_error_without_opening_confirmation(tmp_
 
 
 def test_pattern_confirmation_dialog_is_operable_at_compact_and_wide_sizes(tmp_path):
+    """情境：Pattern 確認視窗在寬窄尺寸都應可用鍵盤操作。"""
     xml_path = _write_xml(tmp_path / "logback.xml", "LOG_PATTERN", PATTERN)
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -424,6 +433,7 @@ def test_pattern_confirmation_dialog_is_operable_at_compact_and_wide_sizes(tmp_p
 
 
 def test_pattern_confirmation_pending_state_is_cleared_on_shutdown(tmp_path, monkeypatch):
+    """情境：關閉 App 時應清除等待確認的分析請求。"""
     _disable_recent_state(monkeypatch)
     log_dir = tmp_path / "logs"
     log_dir.mkdir()

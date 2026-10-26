@@ -20,6 +20,7 @@ from log_analyzer.application.analysis_service import AnalysisResult
 from log_analyzer.application.source_preview import read_source_context
 from log_analyzer.domain.parser import MatchedLogsStore
 from log_analyzer.presentation.tui import LogAnalyzerApp
+from log_analyzer.presentation.tui.event_browser_text import highlight_literal
 from log_analyzer.presentation.tui.screens.event_browser import EventBrowserScreen
 from log_analyzer.presentation.tui.screens import event_browser as browser_module
 
@@ -129,6 +130,7 @@ class _BoundedOccurrenceList(list[dict[str, object]]):
 
 
 def test_browser_query_filters_and_sorts_without_changing_analysis_result(tmp_path):
+    """情境：事件查詢與排序應不修改原分析結果。"""
     groups = [
         _group(0, [_occurrence("app.log", 1)]),
         _group(1, [_occurrence("app.log", line) for line in (2, 3, 4)]),
@@ -180,6 +182,7 @@ def test_browser_query_filters_and_sorts_without_changing_analysis_result(tmp_pa
 
 
 def test_browser_query_error_keeps_the_visible_page_and_reports_failure(tmp_path):
+    """情境：查詢失敗應保留目前頁面並回報原因。"""
     groups = [_group(0, [_occurrence("app.log", 1)])]
     result = _result(tmp_path, groups)
     original_store = result.matched_logs
@@ -220,6 +223,7 @@ def test_browser_query_error_keeps_the_visible_page_and_reports_failure(tmp_path
 
 
 def test_closing_browser_cancels_its_active_query(tmp_path, monkeypatch):
+    """情境：關閉瀏覽視窗應取消進行中的查詢。"""
     result = _result(tmp_path, [_group(0, [_occurrence("app.log", 1)])])
 
     async def run_check():
@@ -255,6 +259,7 @@ def test_closing_browser_cancels_its_active_query(tmp_path, monkeypatch):
 
 
 def test_browser_back_preserves_group_and_occurrence_selection(tmp_path):
+    """情境：返回上一層應保留群組與出現位置選擇。"""
     (tmp_path / "app.log").write_text("first\nsecond\nthird\n", encoding="utf-8")
     groups = [_group(index, [_occurrence("app.log", 1), _occurrence("app.log", 2)]) for index in range(4)]
     result = _result(tmp_path, groups, {"app.log": _snapshot(tmp_path / "app.log")})
@@ -291,6 +296,7 @@ def test_browser_back_preserves_group_and_occurrence_selection(tmp_path):
 
 
 def test_browser_query_controls_and_actions_fit_short_narrow_and_wide_screens(tmp_path):
+    """情境：查詢控制與操作在短窄及寬視窗都應完整可見。"""
     result = _result(tmp_path, [_group(0, [_occurrence("app.log", 1)])])
 
     async def run_check():
@@ -321,6 +327,7 @@ def test_browser_query_controls_and_actions_fit_short_narrow_and_wide_screens(tm
 
 
 def test_event_browser_selects_cross_file_coordinate_and_context(tmp_path: Path, monkeypatch) -> None:
+    """情境：事件瀏覽應選到跨檔案正確座標及上下文。"""
     first_path = tmp_path / "first.log"
     second_path = tmp_path / "second.log"
     first_path.write_text("first file match\n", encoding="utf-8")
@@ -355,7 +362,101 @@ def test_event_browser_selects_cross_file_coordinate_and_context(tmp_path: Path,
     asyncio.run(run_check())
 
 
+def test_browser_query_highlight_overrides_analysis_keyword(tmp_path):
+    """情境：已套用的事件查詢應取代原分析關鍵字的醒目標示。"""
+    group = _group(0, [_occurrence("app.log", 1)])
+    group["message_body"] = "analysis Needle"
+    result = _result(tmp_path, [group])
+    result.keyword = "analysis"
+    result.ignore_case = False
+
+    async def run_check():
+        app = EventBrowserHarness(result)
+        async with app.run_test(size=(100, 38)) as pilot:
+            browser = app.screen
+            search = browser.query_one("#browser-query", Input)
+            search.value = "needle"
+            search.focus()
+            await pilot.press("enter")
+            await wait_for_ui_state(
+                pilot,
+                lambda: browser._group_indices == [0]
+                and browser._active_browser_query == "needle",
+                "browser query did not finish applying",
+            )
+
+            prompt = browser.query_one("#event-options").options[0].prompt
+            assert isinstance(prompt, Text)
+
+            def highlighted(term: str) -> bool:
+                start = prompt.plain.index(term)
+                end = start + len(term)
+                return any(
+                    span.start <= start
+                    and span.end >= end
+                    and "on yellow" in str(span.style)
+                    for span in prompt.spans
+                )
+
+            assert highlighted("Needle")
+            assert not highlighted("analysis")
+
+    asyncio.run(run_check())
+
+
+@pytest.mark.parametrize(
+    "has_analysis_request",
+    [pytest.param(True, id="analysis-request"), pytest.param(False, id="legacy-result")],
+)
+def test_event_browser_does_not_highlight_unset_analysis_keyword_placeholder(
+    tmp_path: Path,
+    has_analysis_request: bool,
+) -> None:
+    """情境：沒有分析關鍵字時不應把摘要佔位文字標成搜尋結果。"""
+    group = _group(0, [_occurrence("app.log", 1)])
+    group["message_body"] = "未設定 is a display placeholder"
+    result = _result(tmp_path, [group])
+    result.keyword = "未設定"
+    result.analysis_request = (
+        SimpleNamespace(keyword=None, ignore_case=False)
+        if has_analysis_request
+        else None
+    )
+
+    async def run_check() -> None:
+        app = EventBrowserHarness(result)
+        async with app.run_test(size=(100, 38)):
+            prompt = app.screen.query_one("#event-options").options[0].prompt
+            assert isinstance(prompt, Text)
+            start = prompt.plain.index("未設定")
+            end = start + len("未設定")
+            assert not any(
+                span.start <= start
+                and span.end >= end
+                and "on yellow" in str(span.style)
+                for span in prompt.spans
+            )
+
+    asyncio.run(run_check())
+
+
+def test_literal_highlight_maps_unicode_casefold_expansion_to_original_offsets() -> None:
+    """情境：Unicode casefold 展開時標示仍須落在原字元位置。"""
+    source = Text("Prefix Straße suffix")
+    highlighted = highlight_literal(source, "STRASSE", ignore_case=True)
+    start = highlighted.plain.index("Straße")
+    end = start + len("Straße")
+
+    assert any(
+        span.start == start
+        and span.end == end
+        and "on yellow" in str(span.style)
+        for span in highlighted.spans
+    )
+
+
 def test_event_browser_pages_groups_and_occurrences(tmp_path: Path) -> None:
+    """情境：群組與出現位置應支援分頁。"""
     occurrences = [_occurrence("many.log", number) for number in range(1, 206)]
     groups = [_group(index, [_occurrence("many.log", index + 1)]) for index in range(100)]
     groups.append(_group(100, occurrences))
@@ -406,6 +507,7 @@ def test_event_browser_pages_groups_and_occurrences(tmp_path: Path) -> None:
 
 
 def test_event_browser_does_not_copy_the_complete_occurrence_list(tmp_path: Path) -> None:
+    """情境：事件瀏覽不應複製全部出現位置清單。"""
     group = _group(1, [_occurrence("many.log", 1)])
     occurrences = _BoundedOccurrenceList(
         _occurrence("many.log", number) for number in range(1, 206)
@@ -431,6 +533,7 @@ def test_event_browser_does_not_copy_the_complete_occurrence_list(tmp_path: Path
 
 
 def test_event_browser_labels_are_traditional_chinese(tmp_path: Path) -> None:
+    """情境：事件瀏覽標籤應使用繁體中文。"""
     result = _result(tmp_path, [_group(1, [_occurrence("sample.log", 1)])])
 
     async def run_check() -> None:
@@ -461,6 +564,7 @@ def test_event_browser_labels_are_traditional_chinese(tmp_path: Path) -> None:
 
 
 def test_event_browser_group_labels_separate_fields_and_show_result_order(tmp_path: Path) -> None:
+    """情境：群組標籤應分開欄位並顯示結果順序。"""
     group = _group(1, [_occurrence("sample.log", 7)])
     group.update(
         timestamp="2026-10-20 12:00:00",
@@ -512,6 +616,7 @@ def test_event_browser_group_labels_separate_fields_and_show_result_order(tmp_pa
 def test_event_browser_message_renderers_fall_back_to_header_message(
     message_body: object, remove_body: bool
 ) -> None:
+    """情境：本文空白、缺少或非字串時應退回首行訊息。"""
     occurrence = _occurrence("failure.log", 7)
     group = _group(1, [occurrence])
     group["message"] = "Failure beta"
@@ -531,6 +636,7 @@ def test_event_browser_message_renderers_fall_back_to_header_message(
 
 
 def test_event_browser_message_renderers_prefer_body_and_keep_empty_placeholder() -> None:
+    """情境：非空本文應優先使用且完全空白時保留佔位提示。"""
     occurrence = _occurrence("failure.log", 7)
     group = _group(1, [occurrence])
     group.update(message="Failure beta", message_body="Retained body")
@@ -553,6 +659,7 @@ def test_event_browser_message_renderers_prefer_body_and_keep_empty_placeholder(
 def test_event_browser_orders_occurrences_by_time_across_pages_and_selects_coordinate(
     tmp_path: Path,
 ) -> None:
+    """情境：出現位置應跨頁依時間排序並定位正確來源。"""
     page_two_path = tmp_path / "late-095.log"
     page_two_path.write_text("late match\n", encoding="utf-8")
     source_states = {"late-095.log": _snapshot(page_two_path)}
@@ -624,6 +731,7 @@ def test_event_browser_orders_occurrences_by_time_across_pages_and_selects_coord
 
 
 def test_event_browser_close_does_not_clear_result_occurrences(tmp_path: Path) -> None:
+    """情境：關閉事件瀏覽不得清空結果中的出現位置。"""
     occurrences = [
         _occurrence("same.log", 3),
         _occurrence("same.log", 1),
@@ -653,6 +761,7 @@ def test_event_browser_close_does_not_clear_result_occurrences(tmp_path: Path) -
 
 
 def test_event_browser_shows_retained_details_separately_from_raw_context(tmp_path: Path) -> None:
+    """情境：保留的解析內容應與來源原文上下文分區顯示。"""
     source_path = tmp_path / "details.log"
     source_path.write_text(
         "\n".join(f"physical line {number}" for number in range(1, 11)),
@@ -689,6 +798,7 @@ def test_event_browser_shows_retained_details_separately_from_raw_context(tmp_pa
 
             retained_widgets = browser.query("#retained-details")
             assert len(retained_widgets) == 1
+            assert retained_widgets.first().display
             retained = retained_widgets.first().render()
             retained_text = retained.plain if isinstance(retained, Text) else str(retained)
             assert retained_text.startswith(
@@ -713,7 +823,271 @@ def test_event_browser_shows_retained_details_separately_from_raw_context(tmp_pa
     asyncio.run(run_check())
 
 
+@pytest.mark.parametrize(
+    ("ignore_case", "expected_highlight"),
+    [pytest.param(True, True, id="ignore-case"), pytest.param(False, False, id="case-sensitive")],
+)
+def test_event_browser_highlights_analysis_keyword_as_case_sensitive_literal(
+    tmp_path: Path,
+    ignore_case: bool,
+    expected_highlight: bool,
+) -> None:
+    """情境：分析關鍵字應依大小寫設定以 literal 樣式標示。"""
+    source_path = tmp_path / "highlight.log"
+    source_path.write_text(
+        "Failure [tag] source [red]literal[/red]\n",
+        encoding="utf-8",
+    )
+    group = _group(1, [_occurrence("highlight.log", 1)])
+    group["message_body"] = "Failure [tag] retained [bold red]literal[/bold red]"
+    result = _result(
+        tmp_path,
+        [group],
+        {"highlight.log": _snapshot(source_path)},
+    )
+    result.keyword = "未設定"
+    result.ignore_case = not ignore_case
+    result.analysis_request = SimpleNamespace(
+        keyword="[TAG]",
+        ignore_case=ignore_case,
+    )
+
+    async def run_check() -> None:
+        app = EventBrowserHarness(result)
+        async with app.run_test(size=(100, 38)) as pilot:
+            browser = app.screen
+            await pilot.press("enter", "enter")
+            await wait_for_ui_state(
+                pilot,
+                lambda: browser._view == "preview",
+                "event source preview did not open",
+            )
+
+            for selector, unchanged_literal in (
+                ("#retained-details", "[bold red]literal[/bold red]"),
+                ("#source-context", "[red]literal[/red]"),
+            ):
+                rendered = browser.query_one(selector, Static).render()
+                plain = getattr(rendered, "plain", str(rendered))
+                assert unchanged_literal in plain
+                start = plain.index("[tag]")
+                end = start + len("[tag]")
+                is_highlighted = any(
+                    span.start <= start
+                    and span.end >= end
+                    and span.style.background is not None
+                    for span in getattr(rendered, "spans", ())
+                )
+                assert is_highlighted is expected_highlight, selector
+
+    asyncio.run(run_check())
+
+
+def test_event_browser_collapses_long_stacktrace_at_eight_lines(tmp_path: Path) -> None:
+    """情境：超過八行的保留堆疊應先顯示八行並提供展開操作。"""
+    source_path = tmp_path / "stacktrace.log"
+    source_path.write_text("match\n", encoding="utf-8")
+    group = _group(1, [_occurrence("stacktrace.log", 1)])
+    group["stacktrace"] = "\n".join(f"frame-{index}" for index in range(1, 11))
+    result = _result(
+        tmp_path,
+        [group],
+        {"stacktrace.log": _snapshot(source_path)},
+    )
+
+    async def run_check() -> None:
+        app = EventBrowserHarness(result)
+        async with app.run_test(size=(100, 38)) as pilot:
+            browser = app.screen
+            await pilot.press("enter", "enter")
+            await wait_for_ui_state(
+                pilot,
+                lambda: browser._view == "preview",
+                "event source preview did not open",
+            )
+
+            retained = browser.query_one("#retained-details", Static).render()
+            assert "frame-1" in retained.plain
+            assert "frame-8" in retained.plain
+            assert "frame-9" not in retained.plain
+            toggle = browser.query("#stacktrace-toggle")
+            assert len(toggle) == 1
+            assert toggle.first().display
+
+            toggle.first().focus()
+            await pilot.press("enter")
+            await wait_for_ui_state(
+                pilot,
+                lambda: browser._stacktrace_expanded,
+                "stacktrace did not expand",
+            )
+            assert toggle.first().has_focus
+            expanded = browser.query_one("#retained-details", Static).render()
+            assert "frame-9" in expanded.plain
+            assert "frame-10" in expanded.plain
+            assert str(toggle.first().label) == "收合堆疊"
+
+            await wait_for_layout_to_settle(
+                pilot,
+                (
+                    toggle.first(),
+                    browser.query_one("#browser-preview-content", VerticalScroll),
+                ),
+            )
+            toggle.first().focus()
+            # Layout completion does not clear Button's timed -active effect.
+            await wait_for_ui_state(
+                pilot,
+                lambda: toggle.first().has_focus and not toggle.first().has_class("-active"),
+                "stacktrace toggle is not ready for another key activation",
+            )
+            await pilot.press("enter")
+            await wait_for_ui_state(
+                pilot,
+                lambda: not browser._stacktrace_expanded,
+                "stacktrace did not collapse",
+            )
+            collapsed = browser.query_one("#retained-details", Static).render()
+            assert "frame-9" not in collapsed.plain
+
+    asyncio.run(run_check())
+
+
+@pytest.mark.parametrize(
+    "stacktrace",
+    [pytest.param("", id="empty"), pytest.param("frame-a\nframe-b", id="short")],
+)
+def test_event_browser_does_not_offer_stacktrace_toggle_for_short_or_empty_text(
+    tmp_path: Path,
+    stacktrace: str,
+) -> None:
+    """情境：短堆疊與空堆疊不需要展開或收合控制。"""
+    source_path = tmp_path / "short-stacktrace.log"
+    source_path.write_text("match\n", encoding="utf-8")
+    group = _group(1, [_occurrence("short-stacktrace.log", 1)])
+    group["stacktrace"] = stacktrace
+    result = _result(
+        tmp_path,
+        [group],
+        {"short-stacktrace.log": _snapshot(source_path)},
+    )
+
+    async def run_check() -> None:
+        app = EventBrowserHarness(result)
+        async with app.run_test(size=(80, 24)) as pilot:
+            browser = app.screen
+            await pilot.press("enter", "enter")
+            await wait_for_ui_state(
+                pilot,
+                lambda: browser._view == "preview",
+                "event source preview did not open",
+            )
+            assert not browser.query_one("#stacktrace-toggle").display
+
+    asyncio.run(run_check())
+
+
+def test_event_browser_preview_actions_are_keyboard_reachable_without_overflow(
+    tmp_path: Path,
+) -> None:
+    """情境：預覽操作在窄短與寬視窗都可用 Tab 到達且不水平溢出。"""
+    source_path = tmp_path / "keyboard-preview.log"
+    source_path.write_text("match\n", encoding="utf-8")
+    group = _group(1, [_occurrence("keyboard-preview.log", 1)])
+    group["message_body"] = "retained representative message"
+    group["stacktrace"] = "\n".join(f"frame-{index}" for index in range(1, 11))
+    result = _result(
+        tmp_path,
+        [group],
+        {"keyboard-preview.log": _snapshot(source_path)},
+    )
+    action_ids = (
+        "copy-retained-message",
+        "copy-full-stacktrace",
+        "stacktrace-toggle",
+        "browser-back",
+        "copy-coordinate",
+        "close-event-browser",
+    )
+
+    async def run_check() -> None:
+        for size in ((64, 18), (80, 24), (160, 44)):
+            app = EventBrowserHarness(result)
+            async with app.run_test(size=size) as pilot:
+                browser = app.screen
+                await pilot.press("enter", "enter")
+                await wait_for_ui_state(
+                    pilot,
+                    lambda: browser._view == "preview",
+                    "event source preview did not open",
+                )
+                preview_content = browser.query_one(
+                    "#browser-preview-content", VerticalScroll
+                )
+                retained_details = browser.query_one("#retained-details", Static)
+                assert retained_details.display
+                assert "retained representative" in retained_details.render().plain
+                assert "frame-8" in retained_details.render().plain
+                await wait_for_layout_to_settle(
+                    pilot,
+                    (preview_content, retained_details),
+                )
+                preview_content.scroll_to_widget(
+                    retained_details,
+                    animate=False,
+                    center=True,
+                )
+                await wait_for_ui_state(
+                    pilot,
+                    lambda: retained_details.is_on_screen,
+                    "retained representative was not scrollable into view",
+                )
+                if size[1] <= 24:
+                    await wait_for_ui_state(
+                        pilot,
+                        lambda: preview_content.scroll_y > 0,
+                        "preview did not scroll to the retained representative",
+                    )
+                capture = os.environ.get("TUI_CAPTURE_DIR")
+                if capture and size in ((80, 24), (160, 44)):
+                    Path(capture).mkdir(parents=True, exist_ok=True)
+                    app.save_screenshot(
+                        filename=f"event-preview-{size[0]}x{size[1]}.svg",
+                        path=capture,
+                    )
+
+                actions = {
+                    action_id: browser.query_one(f"#{action_id}")
+                    for action_id in action_ids
+                }
+                assert all(action.display and not action.disabled for action in actions.values())
+                assert all(
+                    action.region.x + action.region.width <= app.size.width
+                    for action in actions.values()
+                ), (size, {key: value.region for key, value in actions.items()})
+
+                actions["close-event-browser"].focus()
+                reached: set[str] = set()
+                for _ in range(len(action_ids) + 1):
+                    await pilot.press("tab")
+                    focused_id = next(
+                        (
+                            action_id
+                            for action_id, action in actions.items()
+                            if action.has_focus
+                        ),
+                        None,
+                    )
+                    if focused_id is not None:
+                        reached.add(focused_id)
+                        assert actions[focused_id].is_on_screen, (size, focused_id)
+                assert reached == set(action_ids), (size, reached)
+
+    asyncio.run(run_check())
+
+
 def test_event_browser_resets_preview_scroll_for_another_occurrence(tmp_path: Path) -> None:
+    """情境：改選另一出現位置時預覽捲動應回頂端。"""
     first_path = tmp_path / "first-scroll.log"
     second_path = tmp_path / "second-scroll.log"
     first_path.write_text("first physical match\n", encoding="utf-8")
@@ -779,6 +1153,7 @@ def test_event_browser_resets_preview_scroll_for_another_occurrence(tmp_path: Pa
 def test_event_browser_keeps_preview_actions_reachable_on_narrow_and_wide_screens(
     tmp_path: Path,
 ) -> None:
+    """情境：寬窄視窗下預覽操作都應可到達。"""
     source_path = tmp_path / "reachable.log"
     source_path.write_text("match\n", encoding="utf-8")
     result = _result(
@@ -820,6 +1195,7 @@ def test_event_browser_keeps_preview_actions_reachable_on_narrow_and_wide_screen
 
 
 def test_event_browser_shows_stale_warning_without_copy(tmp_path: Path) -> None:
+    """情境：來源過期應顯示警告並停用複製。"""
     source_path = tmp_path / "changed.log"
     source_path.write_text("line-1", encoding="utf-8")
     group = _group(1, [_occurrence("changed.log", 1)])
@@ -855,10 +1231,74 @@ def test_event_browser_shows_stale_warning_without_copy(tmp_path: Path) -> None:
     asyncio.run(run_check())
 
 
+def test_event_browser_copies_retained_representative_and_complete_stacktrace(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """情境：來源過期時仍可複製群組代表訊息與完整保留堆疊。"""
+    source_path = tmp_path / "stale-retained.log"
+    source_path.write_text("changed source\n", encoding="utf-8")
+    message = "retained representative message"
+    stacktrace = "\n".join(f"frame-{index}" for index in range(1, 11))
+    group = _group(1, [_occurrence("stale-retained.log", 1)])
+    group["message_body"] = message
+    group["stacktrace"] = stacktrace
+    result = _result(
+        tmp_path,
+        [group],
+        {"stale-retained.log": _snapshot(source_path, stable=False)},
+    )
+    copied: list[str] = []
+
+    async def run_check() -> None:
+        app = EventBrowserHarness(result)
+        monkeypatch.setattr(app, "copy_to_clipboard", copied.append)
+        async with app.run_test(size=(64, 18)) as pilot:
+            browser = app.screen
+            await pilot.press("enter", "enter")
+            await wait_for_ui_state(
+                pilot,
+                lambda: browser._view == "preview",
+                "event source preview did not open",
+            )
+
+            assert browser.query_one("#source-warning", Static).display
+            assert not browser.query_one("#source-context", Static).display
+            assert browser.query_one("#copy-coordinate").disabled
+            message_buttons = browser.query("#copy-retained-message")
+            stack_buttons = browser.query("#copy-full-stacktrace")
+            assert len(message_buttons) == 1
+            assert len(stack_buttons) == 1
+
+            message_button = message_buttons.first()
+            message_button.focus()
+            await pilot.press("enter")
+            await wait_for_ui_state(
+                pilot,
+                lambda: copied == [message],
+                "retained message was not copied",
+            )
+            stack_button = stack_buttons.first()
+            stack_button.focus()
+            await pilot.press("enter")
+            await wait_for_ui_state(
+                pilot,
+                lambda: len(copied) == 2,
+                "full retained stacktrace was not copied",
+            )
+
+            assert copied == [message, stacktrace]
+            feedback = str(browser.query_one("#copy-feedback", Static).render())
+            assert "不代表已核對原文" in feedback
+
+    asyncio.run(run_check())
+
+
 def test_event_browser_shows_nonfatal_encoding_notice_and_keeps_copy_enabled(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
+    """情境：非致命編碼提示不應停用原文複製。"""
     source_path = tmp_path / "invalid-utf8.log"
     source_path.write_bytes(b"matched \x80 line\n")
     result = _result(
@@ -892,6 +1332,7 @@ def test_event_browser_shows_nonfatal_encoding_notice_and_keeps_copy_enabled(
 
 
 def test_event_browser_keeps_full_path_visible_when_clipboard_fails(tmp_path: Path, monkeypatch) -> None:
+    """情境：剪貼簿失敗時仍應保留完整可讀路徑。"""
     source_path = tmp_path / "manual-copy.log"
     source_path.write_text("line-1\n", encoding="utf-8")
     result = _result(
@@ -924,6 +1365,7 @@ def test_event_browser_keeps_full_path_visible_when_clipboard_fails(tmp_path: Pa
 
 
 def test_event_browser_owns_and_clears_private_source_indexes(tmp_path: Path) -> None:
+    """情境：瀏覽視窗應自行擁有並清理來源定位索引。"""
     source_path = tmp_path / "lifecycle.log"
     source_path.write_text(
         "".join(f"來源行 {line_number}\n" for line_number in range(1, 401)),

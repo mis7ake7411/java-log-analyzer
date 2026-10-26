@@ -96,6 +96,50 @@ def find_best_logback_pattern(
     return assessment.selected
 
 
+def preview_logback_pattern(
+    pattern: str | None,
+    log_dir: str,
+    *,
+    selected_files: tuple[str, ...] | None = None,
+    sample_limit: int = 50,
+) -> LogbackPatternCandidate:
+    """以既有抽樣與評分流程預覽手動或預設 Pattern 的欄位擷取結果。
+
+    Args:
+        pattern: 手動 Pattern；None 使用既有內建預設解析器。
+        log_dir: 日誌資料夾或單一日誌檔路徑。
+        selected_files: 本次限定讀取的檔名；None 使用來源預設範圍。
+        sample_limit: 抽樣數量，最多使用既有的五十筆上限。
+
+    Returns:
+        含命中數、錯誤、樣本預覽與逐檔分數的 Pattern 候選。
+
+    Raises:
+        ValueError: 抽樣數量非正數，或手動 Pattern 為空白。
+        OSError: 來源檔案或資料夾無法讀取。
+    """
+    if sample_limit <= 0:
+        raise ValueError("sample_limit 必須大於 0")
+    if pattern is not None and not pattern.strip():
+        raise ValueError("手動 Pattern 不可為空白")
+
+    source = select_log_source(log_dir, selected_files=selected_files)
+    samples = list(
+        _read_source_samples(
+            source.root,
+            min(sample_limit, 50),
+            selected_files=source.filenames,
+        )
+    )
+    candidate_pattern = "" if pattern is None else pattern
+    return _assess_candidate(
+        LogbackPatternCandidate("Pattern", candidate_pattern, "preview"),
+        samples,
+        "",
+        source.filenames,
+    )
+
+
 def assess_logback_patterns(
     xml_paths: Iterable[str],
     log_dir: str,

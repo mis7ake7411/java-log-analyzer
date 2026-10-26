@@ -82,8 +82,9 @@ def _dashboard_result() -> SimpleNamespace:
     )
 
 
-@pytest.mark.parametrize("size", ACTION_LAYOUT_SIZES)
+@pytest.mark.parametrize("size", ACTION_LAYOUT_SIZES, ids=['viewport-160x44', 'viewport-120x40', 'viewport-88x44', 'viewport-80x32', 'viewport-80x24'])
 def test_form_actions_align_with_form_panel_and_stay_visible(size) -> None:
+    """情境：不同終端尺寸下表單操作應對齊且保持可見。"""
     async def run_check() -> None:
         with (
             patch.object(tui, "load_recent_tui_state", return_value={}),
@@ -123,8 +124,9 @@ def test_form_actions_align_with_form_panel_and_stay_visible(size) -> None:
     asyncio.run(run_check())
 
 
-@pytest.mark.parametrize("size", [(72, 28), (80, 40), (160, 40)])
+@pytest.mark.parametrize("size", [(72, 28), (80, 40), (160, 40)], ids=['viewport-72x28', 'viewport-80x40', 'viewport-160x40'])
 def test_result_remains_readable_with_changed_conditions_in_short_window(size):
+    """情境：短視窗中修改條件後結果仍應可閱讀與捲動。"""
     async def run_check():
         with (
             patch.object(tui, "load_recent_tui_state", return_value={}),
@@ -155,6 +157,7 @@ def test_result_remains_readable_with_changed_conditions_in_short_window(size):
 
 
 def test_compact_run_and_recipe_buttons_remain_clickable(tmp_path, monkeypatch) -> None:
+    """情境：窄版配方與分析按鈕應實際可點擊。"""
     monkeypatch.chdir(tmp_path)
 
     async def run_check() -> None:
@@ -183,6 +186,7 @@ def test_compact_run_and_recipe_buttons_remain_clickable(tmp_path, monkeypatch) 
 
 
 def test_completed_dashboard_reflows_with_viewport_width() -> None:
+    """情境：已完成儀表板應隨可用寬度重新排列。"""
     async def run_check() -> None:
         with (
             patch.object(tui, "load_recent_tui_state", return_value={}),

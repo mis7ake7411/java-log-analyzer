@@ -12,16 +12,13 @@ from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui import LogAnalyzerApp
 
 
-SIZES = ((80, 24), (80, 32), (100, 40), (120, 40), (160, 44), (240, 44))
+SIZES = ((64, 18), (80, 24), (80, 32), (100, 40), (120, 40), (160, 44), (240, 44))
 ADVANCED_CONTROL_IDS = (
     "logback_xml_path",
     "browse_logback_xml",
     "manual_pattern_override",
     "log_pattern",
-    "start_date",
-    "start_time",
-    "end_date",
-    "end_time",
+    "time-preset",
     "ignore_case",
     "sort_by",
     "level_ERROR",
@@ -40,6 +37,40 @@ def _disable_recent_state(monkeypatch):
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
 
 
+async def _wait_for_advanced_layout(app, pilot, *, wide: bool) -> None:
+    """等待容器寬度與延後套用的排版 class 同時到位，不以一次 pause 判定。"""
+    advanced = app.query_one("#advanced-settings")
+    expected_class = "advanced-wide" if wide else "advanced-compact"
+    await _wait_for_layout_to_settle(
+        pilot,
+        (app.query_one("#form-panel"), advanced),
+        lambda: advanced.display
+        and advanced.content_size.width > 0
+        and (advanced.content_size.width >= 72) is wide
+        and advanced.has_class(expected_class),
+    )
+
+
+async def _expand_custom_time_range(app, pilot) -> None:
+    """確認非自訂四欄不佔版面，再展開自訂範圍供版面檢查。"""
+    custom_fields = app.query_one("#time-range-custom")
+    assert custom_fields.display is False
+    assert custom_fields.region.height == 0
+    for field_id in ("start_date", "start_time", "end_date", "end_time"):
+        assert app.query_one(f"#{field_id}").region.height == 0
+
+    app.query_one("#time-preset").value = "custom"
+    await _wait_for_ui_state(
+        pilot,
+        lambda: custom_fields.display
+        and all(
+            app.query_one(f"#{field_id}").region.height > 0
+            for field_id in ("start_date", "start_time", "end_date", "end_time")
+        ),
+        "custom time fields did not finish expanding",
+    )
+
+
 def _overlap(first, second) -> bool:
     return (
         first.x < second.x + second.width
@@ -49,8 +80,9 @@ def _overlap(first, second) -> bool:
     )
 
 
-@pytest.mark.parametrize("size", SIZES)
+@pytest.mark.parametrize("size", SIZES, ids=['viewport-64x18', 'viewport-80x24', 'viewport-80x32', 'viewport-100x40', 'viewport-120x40', 'viewport-160x44', 'viewport-240x44'])
 def test_advanced_controls_fit_form_content_and_reflow(size, monkeypatch):
+    """情境：各視窗尺寸的進階控制應留在表單內且可捲動到達。"""
     _disable_recent_state(monkeypatch)
 
     async def run_check() -> None:
@@ -58,11 +90,18 @@ def test_advanced_controls_fit_form_content_and_reflow(size, monkeypatch):
         async with app.run_test(size=size) as pilot:
             await pilot.pause()
             app._set_advanced_settings_visible(True)
+            await pilot.pause()
             app.query_one("#manual_pattern_override").value = True
+            await pilot.pause()
             panel = app.query_one("#form-panel")
             advanced = app.query_one("#advanced-settings")
+            await _expand_custom_time_range(app, pilot)
             controls = [app.query_one(f"#{control_id}") for control_id in ADVANCED_CONTROL_IDS]
             controls.extend(app.query_one(f"#{control_id}") for control_id in ("path", "browse_path", "keyword"))
+            controls.extend(
+                app.query_one(f"#{field_id}")
+                for field_id in ("start_date", "start_time", "end_date", "end_time")
+            )
             await _wait_for_ui_state(
                 pilot,
                 lambda: (
@@ -96,6 +135,7 @@ def test_advanced_controls_fit_form_content_and_reflow(size, monkeypatch):
                 "logback_xml_path",
                 "browse_logback_xml",
                 "log_pattern",
+                "time-preset",
                 "start_date",
                 "start_time",
                 "end_date",
@@ -138,6 +178,7 @@ def test_advanced_controls_fit_form_content_and_reflow(size, monkeypatch):
 
 
 def test_advanced_responsive_layout_reflows_after_resize(monkeypatch):
+    """情境：執行中調整視窗尺寸後進階設定應重新排版。"""
     _disable_recent_state(monkeypatch)
 
     async def run_check() -> None:
@@ -145,12 +186,40 @@ def test_advanced_responsive_layout_reflows_after_resize(monkeypatch):
         async with app.run_test(size=(240, 44)) as pilot:
             await pilot.pause()
             app._set_advanced_settings_visible(True)
-            await pilot.pause()
+            await _wait_for_advanced_layout(app, pilot, wide=True)
             advanced = app.query_one("#advanced-settings")
             assert advanced.has_class("advanced-wide")
+            await _expand_custom_time_range(app, pilot)
+
+            async def assert_time_controls_fit_form() -> None:
+                panel = app.query_one("#form-panel")
+                content = panel.content_region
+                for control_id in (
+                    "time-preset",
+                    "start_date",
+                    "start_time",
+                    "end_date",
+                    "end_time",
+                ):
+                    control = app.query_one(f"#{control_id}")
+                    control.scroll_visible(animate=False)
+                    await _wait_for_layout_to_settle(
+                        pilot,
+                        (panel, control),
+                        lambda: panel.content_region.contains(
+                            control.region.x,
+                            control.region.y + control.region.height // 2,
+                        ),
+                    )
+                    region = control.region
+                    content = panel.content_region
+                    assert content.x <= region.x
+                    assert region.x + region.width <= content.x + content.width
+
+            await assert_time_controls_fit_form()
 
             await pilot.resize_terminal(80, 32)
-            await pilot.pause()
+            await _wait_for_advanced_layout(app, pilot, wide=False)
             assert advanced.has_class("advanced-compact"), (
                 advanced.region,
                 advanced.content_size,
@@ -158,10 +227,12 @@ def test_advanced_responsive_layout_reflows_after_resize(monkeypatch):
                 app.query_one("#form-panel").region,
             )
             assert app.query_one("#form-panel").content_region.height > 0
+            await assert_time_controls_fit_form()
 
             await pilot.resize_terminal(240, 44)
-            await pilot.pause()
+            await _wait_for_advanced_layout(app, pilot, wide=True)
             assert advanced.has_class("advanced-wide")
             assert app.query_one("#form-panel").content_region.height > 0
+            await assert_time_controls_fit_form()
 
     asyncio.run(run_check())

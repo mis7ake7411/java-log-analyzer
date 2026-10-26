@@ -19,6 +19,7 @@ def _group(occurrences):
 
 
 def test_time_hotspots_count_each_occurrence_and_each_group_once_per_hour():
+    """情境：時間熱點應逐次計數且同群組在同小時只計一次群組數。"""
     first = _group([
         ("2026-10-24 10:00:00.000", "worker-a"),
         ("2026-10-24 10:59:59.999", "worker-a"),
@@ -38,6 +39,7 @@ def test_time_hotspots_count_each_occurrence_and_each_group_once_per_hour():
 
 
 def test_thread_distribution_counts_each_occurrence_without_duplicate_groups():
+    """情境：Thread 分布應逐次計數且不重複增加群組數。"""
     first = _group([
         ("2026-10-24 10:00:00", "worker-a"),
         ("2026-10-24 10:00:01", "worker-b"),
@@ -49,8 +51,9 @@ def test_thread_distribution_counts_each_occurrence_without_duplicate_groups():
     assert total == 4
 
 
-@pytest.mark.parametrize("occurrences", [None, []])
+@pytest.mark.parametrize("occurrences", [None, []], ids=['occurrences-none', 'occurrences-empty'])
 def test_legacy_groups_without_occurrences_keep_weighted_summary(occurrences):
+    """情境：舊群組缺少出現位置時仍應依 count 加權產生摘要。"""
     group = _group([])
     group["count"] = 3
     if occurrences is None:
@@ -62,6 +65,7 @@ def test_legacy_groups_without_occurrences_keep_weighted_summary(occurrences):
 
 
 def test_missing_occurrence_fields_do_not_inherit_representative_values():
+    """情境：出現位置缺少欄位時不得借用群組代表值。"""
     summary, total = aggregate_dashboard_summary([
         _group([("", ""), ("2026-10-24 11:00:00", "worker-b")])
     ])
@@ -71,6 +75,7 @@ def test_missing_occurrence_fields_do_not_inherit_representative_values():
 
 
 def test_summary_can_cancel_while_reading_a_single_large_group():
+    """情境：讀取單一大型群組時摘要計算仍應回應取消。"""
     control = AnalysisControl()
 
     def occurrences():

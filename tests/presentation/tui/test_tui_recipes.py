@@ -31,6 +31,7 @@ def _assert_recipe_form_matches(app, saved):
 
 
 def test_recipe_management_control_is_present(tmp_path, monkeypatch):
+    """情境：畫面應提供配方管理控制。"""
     monkeypatch.chdir(tmp_path)
 
     async def run_check() -> None:
@@ -45,6 +46,7 @@ def test_recipe_management_control_is_present(tmp_path, monkeypatch):
 
 
 def test_recipe_button_opens_a_modal_backed_by_a_temporary_store(tmp_path, monkeypatch):
+    """情境：配方按鈕應開啟使用測試暫存儲存器的視窗。"""
     monkeypatch.chdir(tmp_path)
     store_path = tmp_path / "recipes.json"
     monkeypatch.setattr(
@@ -68,6 +70,7 @@ def test_recipe_button_opens_a_modal_backed_by_a_temporary_store(tmp_path, monke
 
 
 def test_recipe_modal_does_not_open_during_an_operation(tmp_path, monkeypatch):
+    """情境：操作進行中不得開啟配方視窗。"""
     monkeypatch.chdir(tmp_path)
 
     async def run_check() -> None:
@@ -86,6 +89,7 @@ def test_recipe_modal_does_not_open_during_an_operation(tmp_path, monkeypatch):
 
 
 def test_save_captures_only_recipe_fields_without_validating_or_running_analysis(tmp_path, monkeypatch):
+    """情境：保存配方只擷取配方欄位而不驗證或執行分析。"""
     monkeypatch.chdir(tmp_path)
     store = RecipeStore(tmp_path / "recipes.json")
     monkeypatch.setattr(tui_module, "RecipeStore", lambda: store, raising=False)
@@ -156,6 +160,7 @@ def test_save_captures_only_recipe_fields_without_validating_or_running_analysis
 
 
 def test_apply_restores_saved_conditions_without_running_or_replacing_result(tmp_path, monkeypatch):
+    """情境：套用配方應還原條件但不分析或替換結果。"""
     monkeypatch.chdir(tmp_path)
     logs = tmp_path / "logs"
     logs.mkdir()
@@ -234,6 +239,7 @@ def test_apply_restores_saved_conditions_without_running_or_replacing_result(tmp
 
 
 def test_legacy_custom_recipe_with_empty_pattern_keeps_xml_as_auto_source(tmp_path, monkeypatch):
+    """情境：舊自訂配方 Pattern 空白時應保留 XML 自動來源。"""
     monkeypatch.chdir(tmp_path)
     logs = tmp_path / "logs"
     logs.mkdir()
@@ -287,6 +293,7 @@ def test_legacy_custom_recipe_with_empty_pattern_keeps_xml_as_auto_source(tmp_pa
 
 
 def test_legacy_default_recipe_clears_inactive_pattern_fields_without_rewriting_file(tmp_path, monkeypatch):
+    """情境：舊預設配方應清除停用格式欄位且不重寫原配方。"""
     monkeypatch.chdir(tmp_path)
     logs = tmp_path / "logs"
     logs.mkdir()
@@ -351,6 +358,7 @@ def test_legacy_default_recipe_clears_inactive_pattern_fields_without_rewriting_
 
 
 def test_unsupported_or_missing_pattern_mode_preserves_current_override(tmp_path, monkeypatch):
+    """情境：不支援或缺少模式的配方應保留目前手動覆寫。"""
     monkeypatch.chdir(tmp_path)
     store = RecipeStore(tmp_path / "recipes.json")
     store.save("Unsupported mode", {"pattern_mode": "future-mode", "keyword": "kept"})
@@ -384,6 +392,7 @@ def test_unsupported_or_missing_pattern_mode_preserves_current_override(tmp_path
 
 
 def test_saved_recipes_survive_restart_and_delete_only_the_selected_recipe(tmp_path, monkeypatch):
+    """情境：配方重開應可讀取且刪除只影響指定項目。"""
     monkeypatch.chdir(tmp_path)
     store_path = tmp_path / "recipes.json"
     monkeypatch.setattr(
@@ -447,6 +456,7 @@ def test_saved_recipes_survive_restart_and_delete_only_the_selected_recipe(tmp_p
 
 
 def test_modal_enter_does_not_run_actions_and_escape_closes(tmp_path, monkeypatch):
+    """情境：配方視窗 Enter 不應誤執行操作而 Escape 應關閉。"""
     monkeypatch.chdir(tmp_path)
     store = RecipeStore(tmp_path / "recipes.json")
     monkeypatch.setattr(tui_module, "RecipeStore", lambda: store, raising=False)
@@ -485,6 +495,7 @@ def test_modal_enter_does_not_run_actions_and_escape_closes(tmp_path, monkeypatc
 
 
 def test_corrupt_recipe_file_stays_unchanged_after_save_and_delete_attempts(tmp_path, monkeypatch):
+    """情境：配方檔損壞時保存與刪除嘗試都不得改寫。"""
     monkeypatch.chdir(tmp_path)
     store_path = tmp_path / "recipes.json"
     corrupt_bytes = b"{not-json"
@@ -520,6 +531,7 @@ def test_corrupt_recipe_file_stays_unchanged_after_save_and_delete_attempts(tmp_
 
 
 def test_recipe_modal_controls_are_scroll_reachable_in_narrow_and_wide_layouts(tmp_path, monkeypatch):
+    """情境：配方各控制在寬窄版面都應可捲動到達。"""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         tui_module,
@@ -569,6 +581,7 @@ def test_recipe_modal_controls_are_scroll_reachable_in_narrow_and_wide_layouts(t
 
 
 def test_invalid_saved_enums_are_ignored_with_a_warning_while_other_fields_apply(tmp_path, monkeypatch):
+    """情境：無效列舉值應忽略並警告而其他有效欄位仍套用。"""
     monkeypatch.chdir(tmp_path)
     store = RecipeStore(tmp_path / "recipes.json")
     store.save(
@@ -606,6 +619,7 @@ def test_invalid_saved_enums_are_ignored_with_a_warning_while_other_fields_apply
 
 
 def test_applied_default_pattern_is_preserved_until_source_path_changes(tmp_path, monkeypatch):
+    """情境：套用預設 Pattern 後應保持至來源路徑改變。"""
     monkeypatch.chdir(tmp_path)
     logs = tmp_path / "recipe-source"
     logs.mkdir()

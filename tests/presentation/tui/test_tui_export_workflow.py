@@ -54,6 +54,7 @@ async def _submit_empty_export_selection(app, pilot) -> str:
 
 
 def test_analysis_succeeds_with_missing_export_directory_without_creating_report(tmp_path, monkeypatch):
+    """情境：匯出目錄不存在也應能先分析成功且不寫報表。"""
     logs, _ = _write_log(tmp_path, "captured before export")
     missing_export_dir = tmp_path / "not-created-until-export"
     monkeypatch.chdir(tmp_path)
@@ -84,6 +85,7 @@ def test_analysis_succeeds_with_missing_export_directory_without_creating_report
 
 
 def test_enter_from_export_controls_exports_retained_analysis_after_source_changes(tmp_path, monkeypatch):
+    """情境：來源改變後在匯出控制按 Enter 仍應匯出保留結果。"""
     logs, source = _write_log(tmp_path, "captured before export")
     export_dir = tmp_path / "exports"
     export_dir.mkdir()
@@ -139,6 +141,7 @@ def test_enter_from_export_controls_exports_retained_analysis_after_source_chang
 
 
 def test_default_export_keeps_legacy_all_fields_report_layout(tmp_path, monkeypatch):
+    """情境：預設匯出應維持舊版全欄位報表。"""
     logs, _ = _write_log(tmp_path, "default full report")
     export_dir = tmp_path / "exports"
     export_dir.mkdir()
@@ -202,6 +205,7 @@ def _assert_path_failure_status(status: str, previous_status: str, path) -> None
 
 
 def test_export_validation_failure_keeps_result_for_retry(tmp_path, monkeypatch):
+    """情境：匯出輸入驗證失敗應保留結果供修正重試。"""
     logs, _ = _write_log(tmp_path, "retry this export")
     bad_output_path = tmp_path / "not-a-directory[red]"
     bad_output_path.write_text("file", encoding="utf-8")
@@ -262,6 +266,7 @@ def test_export_validation_failure_keeps_result_for_retry(tmp_path, monkeypatch)
 
 
 def test_export_controls_are_reachable_in_narrow_and_wide_layouts(tmp_path):
+    """情境：寬窄視窗中匯出控制都應可到達。"""
     async def run_check(size: tuple[int, int]) -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=size) as pilot:

@@ -12,12 +12,34 @@ from log_analyzer.application.event_query import find_group_indices
 from log_analyzer.application.source_context_index import SourceContextReader
 from log_analyzer.application.source_preview import SourcePreview, read_source_context
 from log_analyzer.domain.log_types import LogEntry, OccurrenceCoordinate
+from log_analyzer.presentation.tui.event_browser_text import (
+    STACKTRACE_PREVIEW_LINES,
+    highlight_literal,
+    representative_message,
+    retained_stacktrace,
+    visible_stacktrace,
+)
 
 
 class EventBrowserScreen(ModalScreen[None]):
     """Browse matched groups and their verified source coordinates."""
 
-    def __init__(self, result: AnalysisResult, page_size: int = 100) -> None:
+    def __init__(
+        self,
+        result: AnalysisResult,
+        page_size: int = 100,
+        *,
+        initial_level: str | None = None,
+        initial_group_index: int | None = None,
+    ) -> None:
+        """開啟原結果的瀏覽範圍，篩選只建立索引、不修改原群組。
+
+        Args:
+            result: 仍有效的分析結果。
+            page_size: 每頁群組數，上限為一百。
+            initial_level: 摘要點選的精確 Level；None 表示不限制。
+            initial_group_index: 摘要點選的原始群組索引；0 也是有效索引。
+        """
         self.result = result
         self.page_size = min(max(1, int(page_size)), 100)
         self._view = "groups"
@@ -27,6 +49,9 @@ class EventBrowserScreen(ModalScreen[None]):
         self._group_highlight = 0
         self._occurrence_highlight = 0
         self._query_sort = "original"
+        self._active_browser_query: str | None = None
+        self._scope_level = initial_level
+        self._scope_group_index = initial_group_index
         self._query_task: asyncio.Task | None = None
         self._querying = False
         self._group_page: list[LogEntry] = []
@@ -36,6 +61,8 @@ class EventBrowserScreen(ModalScreen[None]):
         self._occurrence_start = 0
         self._source_context_reader = SourceContextReader()
         self._current_preview: SourcePreview | None = None
+        self._current_occurrence: OccurrenceCoordinate | None = None
+        self._stacktrace_expanded = False
         self._copy_path_line: str | None = None
         super().__init__()
 
@@ -60,12 +87,16 @@ class EventBrowserScreen(ModalScreen[None]):
                         id="browser-order",
                     )
                     yield Button("套用", id="browser-apply")
-                    yield Button("清除", id="browser-clear")
+                    yield Button("清除", id="browser-clear", tooltip="清除搜尋、排序與摘要範圍")
             yield Static("", id="browser-query-status")
             yield OptionList(id="event-options")
             with VerticalScroll(id="browser-preview-content"):
                 yield Static("", id="source-warning")
                 yield Static("", id="source-encoding-notice")
+                with Container(id="event-browser-preview-toolbar"):
+                    yield Button("複製代表訊息", id="copy-retained-message")
+                    yield Button("複製完整堆疊", id="copy-full-stacktrace")
+                    yield Button("展開堆疊", id="stacktrace-toggle")
                 yield Static("", id="source-path")
                 yield Static("", id="retained-details")
                 yield Static("", id="source-context")
@@ -79,7 +110,10 @@ class EventBrowserScreen(ModalScreen[None]):
 
     def on_mount(self) -> None:
         self._update_browser_layout()
-        self._render_group_page()
+        if self._scope_level is not None or self._scope_group_index is not None:
+            self._start_query()
+        else:
+            self._render_group_page()
         self.query_one("#event-options", OptionList).focus()
 
     def on_unmount(self) -> None:
@@ -91,6 +125,9 @@ class EventBrowserScreen(ModalScreen[None]):
 
     def _update_browser_layout(self) -> None:
         self.query_one("#browser-controls").set_class(self.size.width >= 100, "wide")
+        self.query_one("#event-browser-preview-toolbar").set_class(
+            self.size.width >= 100, "wide"
+        )
         self.query_one("#event-browser-card").set_class(self.size.height < 30, "short")
         self.query_one("#browser-sort-hint").display = (
             self._view != "preview" and self.size.height >= 30
@@ -126,24 +163,35 @@ class EventBrowserScreen(ModalScreen[None]):
         previous = (
             self._group_indices,
             self._query_sort,
+            self._active_browser_query,
             self._group_start,
             self._group_highlight,
         )
         try:
+            scope = {}
+            if self._scope_level is not None:
+                scope["level"] = self._scope_level
+            if self._scope_group_index is not None:
+                scope["group_index"] = self._scope_group_index
             indices = (
                 None
-                if not query and sort_by == "original"
-                else await find_group_indices(self.result.matched_logs, query, sort_by)
+                if not query and sort_by == "original" and not scope
+                else await find_group_indices(self.result.matched_logs, query, sort_by, **scope)
             )
             if not self._valid:
                 return
             self._group_indices = indices
             self._query_sort = sort_by
+            self._active_browser_query = query or None
             self._group_start = self._group_highlight = 0
             self._render_group_page()
             count = len(self.result.matched_logs) if indices is None else len(indices)
+            scope_label = (
+                f"Level {self._scope_level}；" if self._scope_level is not None else
+                f"指定事件 #{self._scope_group_index + 1}；" if self._scope_group_index is not None else ""
+            )
             status.update(
-                f"瀏覽 {count}/{len(self.result.matched_logs)} 群組；分析結果與匯出內容未變更。"
+                f"{scope_label}瀏覽 {count}/{len(self.result.matched_logs)} 群組；分析結果與匯出內容未變更。"
                 if indices is not None
                 else ""
             )
@@ -151,6 +199,7 @@ class EventBrowserScreen(ModalScreen[None]):
             (
                 self._group_indices,
                 self._query_sort,
+                self._active_browser_query,
                 self._group_start,
                 self._group_highlight,
             ) = previous
@@ -204,6 +253,8 @@ class EventBrowserScreen(ModalScreen[None]):
         elif button_id == "browser-apply":
             self._start_query()
         elif button_id == "browser-clear":
+            self._scope_level = None
+            self._scope_group_index = None
             self.query_one("#browser-query", Input).value = ""
             self.query_one("#browser-order", Select).value = "original"
             self._start_query()
@@ -219,6 +270,14 @@ class EventBrowserScreen(ModalScreen[None]):
             self.query_one("#event-options").focus()
         elif button_id == "copy-coordinate":
             self._copy_coordinate()
+        elif button_id == "copy-retained-message":
+            self._copy_retained_message()
+        elif button_id == "copy-full-stacktrace":
+            self._copy_full_stacktrace()
+        elif button_id == "stacktrace-toggle":
+            self._stacktrace_expanded = not self._stacktrace_expanded
+            self._update_retained_details()
+            self.query_one("#stacktrace-toggle", Button).focus()
 
     def invalidate(self) -> None:
         """Prevent cached coordinates from being used after their result is released."""
@@ -232,6 +291,7 @@ class EventBrowserScreen(ModalScreen[None]):
         self._occurrence_order.clear()
         self._source_context_reader.clear()
         self._current_preview = None
+        self._current_occurrence = None
         self._copy_path_line = None
 
     def _move_page(self, direction: int) -> None:
@@ -275,8 +335,12 @@ class EventBrowserScreen(ModalScreen[None]):
             end = min(self._group_start + self.page_size, length)
             self._group_page = [store[index] for index in range(self._group_start, end)]
 
+        keyword, ignore_case = self._highlight_query()
         options = [
-            Option(self._group_label(group), id=str(page_index))
+            Option(
+                highlight_literal(self._group_label(group), keyword, ignore_case),
+                id=str(page_index),
+            )
             for page_index, group in enumerate(self._group_page)
         ]
         self._set_list_state(
@@ -302,6 +366,7 @@ class EventBrowserScreen(ModalScreen[None]):
             return
         self._view = "occurrences"
         self._current_preview = None
+        self._current_occurrence = None
         self._copy_path_line = None
         length = len(self._occurrence_order)
         end = min(self._occurrence_start + self.page_size, length)
@@ -340,6 +405,8 @@ class EventBrowserScreen(ModalScreen[None]):
         self.query_one("#browser-controls").display = False
         self.query_one("#browser-query-status").display = False
         self._current_preview = preview
+        self._current_occurrence = occurrence
+        self._stacktrace_expanded = False
         self._copy_path_line = (
             preview.path_line if preview.warning is None and preview.lines else None
         )
@@ -365,17 +432,15 @@ class EventBrowserScreen(ModalScreen[None]):
         self.query_one("#source-path", Static).update(
             Text(preview.path_line or "", no_wrap=False)
         )
-        retained_details = self.query_one("#retained-details", Static)
-        retained_details.display = True
-        if self._selected_group is not None:
-            retained_details.update(
-                self._retained_details_text(self._selected_group, occurrence)
-            )
+        self._update_retained_details()
+        keyword, ignore_case = self._highlight_query()
         context_widget = self.query_one("#source-context", Static)
         has_verified_context = preview.warning is None and bool(preview.lines)
         context_widget.display = has_verified_context
         context_widget.update(
-            self._context_text(preview) if has_verified_context else Text()
+            highlight_literal(self._context_text(preview), keyword, ignore_case)
+            if has_verified_context
+            else Text()
         )
         self.query_one("#copy-feedback", Static).display = True
         self.query_one("#copy-feedback", Static).update("")
@@ -385,6 +450,71 @@ class EventBrowserScreen(ModalScreen[None]):
         self.query_one("#browser-preview-content", VerticalScroll).scroll_home(
             animate=False
         )
+
+    def _update_retained_details(self) -> None:
+        if self._selected_group is None or self._current_occurrence is None:
+            return
+
+        group = self._selected_group
+        stacktrace = retained_stacktrace(group)
+        visible_trace, has_toggle = visible_stacktrace(
+            stacktrace,
+            expanded=self._stacktrace_expanded,
+        )
+        details = self._retained_details_text(
+            group,
+            self._current_occurrence,
+            stacktrace_preview=visible_trace,
+        )
+        keyword, ignore_case = self._highlight_query()
+        retained_details = self.query_one("#retained-details", Static)
+        retained_details.display = True
+        retained_details.update(highlight_literal(details, keyword, ignore_case))
+
+        toolbar = self.query_one("#event-browser-preview-toolbar")
+        toolbar.display = True
+        self.query_one("#copy-retained-message", Button).disabled = not bool(
+            representative_message(group)
+        )
+        self.query_one("#copy-full-stacktrace", Button).disabled = not bool(
+            stacktrace.strip()
+        )
+        toggle = self.query_one("#stacktrace-toggle", Button)
+        toggle.display = has_toggle
+        if has_toggle:
+            if self._stacktrace_expanded:
+                toggle.label = "收合堆疊"
+            else:
+                remaining = max(
+                    0,
+                    len(stacktrace.splitlines()) - STACKTRACE_PREVIEW_LINES,
+                )
+                toggle.label = f"展開堆疊（另有 {remaining} 行）"
+
+    def _highlight_query(self) -> tuple[str | None, bool]:
+        if self._active_browser_query:
+            # find_group_indices uses casefold for browser queries.
+            return self._active_browser_query, True
+
+        analysis_request = getattr(self.result, "analysis_request", None)
+        if analysis_request is not None:
+            query = getattr(analysis_request, "keyword", None)
+            ignore_case = bool(
+                getattr(
+                    analysis_request,
+                    "ignore_case",
+                    getattr(self.result, "ignore_case", False),
+                )
+            )
+            return (
+                query if isinstance(query, str) and query.strip() else None,
+                ignore_case,
+            )
+
+        query = getattr(self.result, "keyword", None)
+        if not isinstance(query, str) or not query.strip() or query.strip() == "未設定":
+            query = None
+        return query, bool(getattr(self.result, "ignore_case", False))
 
     def _set_list_state(
         self, title: str, options: list[Option], start: int, length: int
@@ -447,6 +577,32 @@ class EventBrowserScreen(ModalScreen[None]):
             )
             return
         self.query_one("#copy-feedback", Static).update("已複製路徑:行號至剪貼簿。")
+
+    def _copy_retained_message(self) -> None:
+        if not self._valid or self._view != "preview" or self._selected_group is None:
+            return
+        message = representative_message(self._selected_group)
+        if message:
+            self._copy_retained_text(message, "代表訊息")
+
+    def _copy_full_stacktrace(self) -> None:
+        if not self._valid or self._view != "preview" or self._selected_group is None:
+            return
+        stacktrace = retained_stacktrace(self._selected_group)
+        if stacktrace.strip():
+            self._copy_retained_text(stacktrace, "完整堆疊")
+
+    def _copy_retained_text(self, value: str, label: str) -> None:
+        try:
+            self.app.copy_to_clipboard(value)
+        except Exception:  # noqa: BLE001 - clipboard availability depends on the terminal driver
+            self.query_one("#copy-feedback", Static).update(
+                f"剪貼簿複製失敗；請在上方保留的群組代表{label}中手動選取。"
+            )
+            return
+        self.query_one("#copy-feedback", Static).update(
+            f"已複製分析保留的群組代表{label}；不代表已核對原文。"
+        )
 
     @staticmethod
     def _group_label(group: LogEntry) -> Text:
@@ -568,8 +724,21 @@ class EventBrowserScreen(ModalScreen[None]):
 
     @staticmethod
     def _retained_details_text(
-        group: LogEntry, occurrence: OccurrenceCoordinate
+        group: LogEntry,
+        occurrence: OccurrenceCoordinate,
+        *,
+        stacktrace_preview: str | None = None,
     ) -> Text:
+        """組合出現位置與分析保留的代表資訊，供預覽畫面顯示。
+
+        Args:
+            group: 分析結果保留的事件群組。
+            occurrence: 目前選取的來源座標。
+            stacktrace_preview: 指定顯示的堆疊文字；未提供時顯示完整堆疊。
+
+        Returns:
+            含欄位標籤樣式的代表資訊文字。
+        """
         text = Text()
 
         text.append("選取的出現位置\n", style="bold cyan")
@@ -601,20 +770,12 @@ class EventBrowserScreen(ModalScreen[None]):
         level_text = level if isinstance(level, str) and level else "未知層級"
         logger = group.get("logger")
         logger_text = logger if isinstance(logger, str) and logger else "未知記錄器"
-        message = group.get("message_body")
-        if not isinstance(message, str) or not message:
-            message = group.get("message")
-        message_text = (
-            message if isinstance(message, str) and message else "（無保留訊息）"
+        message_text = representative_message(group) or "（無保留訊息）"
+        stacktrace = (
+            retained_stacktrace(group)
+            if stacktrace_preview is None
+            else stacktrace_preview
         )
-        stacktrace = group.get("stacktrace")
-        if not isinstance(stacktrace, str) or not stacktrace:
-            stacktrace_lines = group.get("stacktrace_lines")
-            stacktrace = (
-                "\n".join(line for line in stacktrace_lines if isinstance(line, str))
-                if isinstance(stacktrace_lines, list)
-                else ""
-            )
         stacktrace_text = stacktrace or "（無保留堆疊追蹤）"
 
         EventBrowserScreen._append_field(text, "層級：", level_text + "\n")

@@ -11,13 +11,9 @@ from log_analyzer.infrastructure.exporting.fields import (
 )
 from log_analyzer.presentation.tui.components.inputs import ShortcutInput
 from log_analyzer.presentation.tui.components.source_scope import SourceScopePreview
+from log_analyzer.presentation.tui.components.condition_overview import ConditionsOverview
 from log_analyzer.presentation.tui.components.result_notice import ResultContextNotice
-from log_analyzer.presentation.tui.form_values import (
-    get_default_end_date_text,
-    get_default_end_time_text,
-    get_default_start_date_text,
-    get_default_start_time_text,
-)
+from log_analyzer.presentation.tui.components.time_range import TimeRangeSettings
 from log_analyzer.version import get_package_version
 from log_analyzer.presentation.tui.components.layout import (
     _ResponsiveAdvancedSettings,
@@ -44,6 +40,7 @@ class ViewCompositionMixin:
                 yield ShortcutInput(placeholder="例如：./logs", value=".", id="path")
                 yield Button("瀏覽", id="browse_path")
         yield Static("", classes="path-status", id="path-status")
+        yield ConditionsOverview(id="condition-overview")
         yield SourceScopePreview()
 
         with Container(classes="field"):
@@ -111,40 +108,7 @@ class ViewCompositionMixin:
             )
 
     def _compose_time_settings(self) -> ComposeResult:
-        with Container(classes="time-section"):
-            yield Label("時間區間")
-            with Container(classes="time-stack"):
-                with Container(id="start-time-row", classes="time-row"):
-                    with Container(id="start-date-group", classes="time-group"):
-                        yield Label("開始日期")
-                        yield ShortcutInput(
-                            value=get_default_start_date_text(),
-                            placeholder="YYYY-MM-DD",
-                            id="start_date",
-                        )
-                    with Container(id="start-time-group", classes="time-group"):
-                        yield Label("開始時間")
-                        yield ShortcutInput(
-                            value=get_default_start_time_text(),
-                            placeholder="HH:MM",
-                            id="start_time",
-                        )
-                with Container(id="end-time-row", classes="time-row"):
-                    with Container(id="end-date-group", classes="time-group"):
-                        yield Label("結束日期")
-                        yield ShortcutInput(
-                            value=get_default_end_date_text(),
-                            placeholder="YYYY-MM-DD",
-                            id="end_date",
-                        )
-                    with Container(id="end-time-group", classes="time-group"):
-                        yield Label("結束時間")
-                        yield ShortcutInput(
-                            value=get_default_end_time_text(),
-                            placeholder="HH:MM",
-                            id="end_time",
-                        )
-        yield Static("", classes="field-hint")
+        yield TimeRangeSettings()
 
     def _compose_display_settings(self) -> ComposeResult:
         with (

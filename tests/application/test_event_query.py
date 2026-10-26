@@ -16,6 +16,7 @@ def _groups():
 
 
 def test_query_matches_message_logger_and_every_occurrence_thread_without_mutation():
+    """情境：搜尋應涵蓋訊息、Logger 與所有出現位置的 Thread 且不修改原資料。"""
     groups = _groups()
     before = deepcopy(groups)
     assert asyncio.run(find_group_indices(groups, "timeout", "original")) == [0, 2]
@@ -27,6 +28,7 @@ def test_query_matches_message_logger_and_every_occurrence_thread_without_mutati
 
 
 def test_query_sort_is_deterministic_and_keeps_original_indices():
+    """情境：排序應可重現並保留對應原始群組索引。"""
     groups = _groups()
     assert asyncio.run(find_group_indices(groups, "", "original")) == [0, 1, 2]
     assert asyncio.run(find_group_indices(groups, "", "count")) == [1, 2, 0]
@@ -34,6 +36,7 @@ def test_query_sort_is_deterministic_and_keeps_original_indices():
 
 
 def test_recent_sort_uses_latest_occurrence_even_if_files_were_not_chronological():
+    """情境：檔案掃描順序不按時間時最近排序仍應使用最後出現時間。"""
     groups = [
         {"last_timestamp": "2026-10-24 09:00:00", "occurrences": [
             {"timestamp": "2026-10-24 12:00:00"}, {"timestamp": "2026-10-24 09:00:00"},
@@ -46,6 +49,7 @@ def test_recent_sort_uses_latest_occurrence_even_if_files_were_not_chronological
 
 
 def test_query_cooperatively_cancels_before_scanning_every_group():
+    """情境：搜尋應在掃描全部群組前回應合作式取消。"""
     consumed = []
 
     def groups():

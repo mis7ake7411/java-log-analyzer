@@ -8,46 +8,55 @@ from log_analyzer.presentation.cli.runtime import parse_datetime_value, resolve_
 
 
 def test_parse_datetime_value_accepts_compact_numeric_date_only():
+    """情境：日期解析應接受緊湊數字日期。"""
     value = parse_datetime_value("20260607", "開始時間")
 
     assert value.replace(tzinfo=None).isoformat(sep=" ") == "2026-06-07 00:00:00"
 
 
 def test_parse_datetime_value_accepts_compact_numeric_datetime():
+    """情境：日期解析應接受含秒的緊湊數字日期時間。"""
     value = parse_datetime_value("20260607 182000", "開始時間")
 
     assert value.replace(tzinfo=None).isoformat(sep=" ") == "2026-06-07 18:20:00"
 
 
 def test_parse_datetime_value_accepts_compact_numeric_datetime_without_seconds():
+    """情境：日期解析應接受不含秒的緊湊數字日期時間。"""
     value = parse_datetime_value("202606071820", "開始時間")
 
     assert value.replace(tzinfo=None).isoformat(sep=" ") == "2026-06-07 18:20:00"
 
 
 def test_parse_datetime_value_assigns_system_local_timezone():
+    """情境：CLI 日期解析應補上系統本地時區。"""
     value = parse_datetime_value("202606071820", "開始時間")
 
     assert value.tzinfo == datetime.now().astimezone().tzinfo
 
 
 def test_resolve_levels_defaults_to_common_levels():
+    """情境：未指定 Level 應使用常用層級。"""
     assert resolve_levels(None) == ("ERROR", "WARN", "INFO")
 
 
 def test_resolve_levels_keeps_order_and_removes_duplicates():
+    """情境：Level 清理應去重並保留指定順序。"""
     assert resolve_levels(["debug", "ERROR", "debug"]) == ("DEBUG", "ERROR")
 
 
 def test_resolve_levels_all_expands_to_every_supported_level():
+    """情境：ALL 應展開為全部支援層級。"""
     assert resolve_levels(["ALL"]) == ("ERROR", "WARN", "INFO", "DEBUG", "TRACE")
 
 
 def test_resolve_levels_all_takes_precedence_when_mixed_with_other_levels():
+    """情境：ALL 與個別 Level 混用時應以 ALL 為準。"""
     assert resolve_levels(["ERROR", "ALL"]) == ("ERROR", "WARN", "INFO", "DEBUG", "TRACE")
 
 
 def test_resolve_logback_pattern_passes_frozen_files_to_xml_sampling(monkeypatch, tmp_path):
+    """情境：XML 抽樣應收到固定檔名選擇。"""
     selected_files = ("chosen.LOG",)
     captured_call = None
     best_pattern = SimpleNamespace(
@@ -82,6 +91,7 @@ def test_resolve_logback_pattern_passes_frozen_files_to_xml_sampling(monkeypatch
 
 
 def test_resolve_logback_pattern_rejects_uncertain_xml_candidate(tmp_path):
+    """情境：不確定 XML 候選應拒絕自動使用。"""
     xml_path = tmp_path / "logback.xml"
     xml_path.write_text(
         '<configuration><property name="LOG_PATTERN" value="%d [%thread] %-5level %logger - %msg%n"/></configuration>',
@@ -96,6 +106,7 @@ def test_resolve_logback_pattern_rejects_uncertain_xml_candidate(tmp_path):
 
 
 def test_resolve_logback_pattern_reports_unsupported_candidate_error(tmp_path):
+    """情境：不支援候選應回報實際原因。"""
     xml_path = tmp_path / "logback.xml"
     xml_path.write_text(
         '<configuration><property name="FILE_LOG_PATTERN" value="%d %springProperty%n"/></configuration>',

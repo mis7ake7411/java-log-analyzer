@@ -92,6 +92,7 @@ def _panel_geometry(line: str, expected_count: int) -> tuple[list[int], list[int
 
 @pytest.mark.parametrize("legacy_windows", [False, True], ids=("rounded", "legacy"))
 def test_metric_cards_use_available_width_even_when_compact(legacy_windows: bool) -> None:
+    """情境：一般與舊終端框線下數字卡都應充分使用可用寬度。"""
     for width in (80, 100, 140):
         for compact in (False, True):
             output = _render(
@@ -116,6 +117,7 @@ def test_metric_cards_use_available_width_even_when_compact(legacy_windows: bool
 def test_logger_and_thread_panels_fill_equally_and_adapt_to_actual_width(
     legacy_windows: bool,
 ) -> None:
+    """情境：Logger 與 Thread 面板應等寬並依實際寬度調整。"""
     for width in (45, 80, 100, 140):
         for compact in (False, True):
             output = _render(
@@ -154,6 +156,7 @@ def test_logger_and_thread_panels_fill_equally_and_adapt_to_actual_width(
 
 
 def test_metric_cards_stack_at_narrow_width_for_both_modes() -> None:
+    """情境：窄寬度下兩種舊版面旗標都應直排數字卡。"""
     for compact in (False, True):
         output = _render(_result(), width=45, compact=compact)
 
@@ -165,6 +168,7 @@ def test_metric_cards_stack_at_narrow_width_for_both_modes() -> None:
 
 
 def test_dashboard_status_is_concise_and_contains_export_state() -> None:
+    """情境：儀表板狀態應精簡並包含匯出狀態。"""
     pending = _render(_result(), width=100, compact=True)
     exported = _render(
         _result(exported_files=("C:/exports/report.csv",)),
@@ -180,6 +184,7 @@ def test_dashboard_status_is_concise_and_contains_export_state() -> None:
 
 
 def test_dashboard_warns_when_invalid_utf8_was_replaced() -> None:
+    """情境：無效 UTF-8 被替代時儀表板應顯示警告。"""
     result = _result()
     result.diagnostics = ScanDiagnostics(2, 4, 4, 4, 4, 1, 3)
     output = _render(
@@ -194,6 +199,7 @@ def test_dashboard_warns_when_invalid_utf8_was_replaced() -> None:
 
 
 def test_analysis_information_and_level_distribution_are_full_width_sections() -> None:
+    """情境：分析資訊與 Level 分布應使用完整區塊寬度。"""
     for compact in (False, True):
         output = _render(_result(), width=140, compact=compact)
 
@@ -215,6 +221,7 @@ def test_analysis_information_and_level_distribution_are_full_width_sections() -
 
 
 def test_dashboard_displays_the_actual_selected_file_path() -> None:
+    """情境：單檔分析的儀表板應顯示實際選取路徑。"""
     output = _render(
         _result(input_path="C:/logs", analysis_request_path="C:/logs/api.log"),
         width=140,
@@ -227,6 +234,7 @@ def test_dashboard_displays_the_actual_selected_file_path() -> None:
 
 
 def test_level_bars_expand_with_width_and_percent_is_share_of_total() -> None:
+    """情境：Level 長條應隨寬度延伸且百分比以總筆數為分母。"""
     wide = _render(_result(), width=140, compact=True)
     narrow = _render(_result(), width=45, compact=True)
     wide_debug_row = next(
@@ -244,6 +252,7 @@ def test_level_bars_expand_with_width_and_percent_is_share_of_total() -> None:
 
 
 def test_level_bars_keep_zero_and_empty_summaries_safe() -> None:
+    """情境：零計數或空 Level 摘要應安全呈現。"""
     all_zero = _render(
         _result(level_summary=(("DEBUG", 0), ("ERROR", 0))),
         width=80,
@@ -258,6 +267,7 @@ def test_level_bars_keep_zero_and_empty_summaries_safe() -> None:
 
 
 def test_long_metadata_is_literal_and_survives_narrow_wrapping() -> None:
+    """情境：長中繼資料應當成原文並可在窄視窗換行。"""
     literal_path = "C:/logs/[bold red]application[/bold red]/service.log"
     literal_keyword = "[link=https://example.test]timeout[/link]"
     output = _render(

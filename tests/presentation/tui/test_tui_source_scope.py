@@ -80,6 +80,7 @@ async def _wait_for_source_picker(app, pilot):
 
 
 def test_tui_previews_supported_directory_and_single_file_before_analysis(tmp_path, monkeypatch):
+    """情境：分析前應預覽資料夾或單檔的支援範圍。"""
     _disable_recent_state(monkeypatch)
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -126,6 +127,7 @@ def test_tui_previews_supported_directory_and_single_file_before_analysis(tmp_pa
 
 
 def test_tui_invalid_source_clears_previous_scope_preview(tmp_path, monkeypatch):
+    """情境：來源無效時應清除前次來源預覽。"""
     _disable_recent_state(monkeypatch)
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -162,6 +164,7 @@ def test_tui_invalid_source_clears_previous_scope_preview(tmp_path, monkeypatch)
 
 
 def test_tui_invalid_source_summary_keeps_markup_like_path_literal(tmp_path, monkeypatch):
+    """情境：無效來源路徑中的標記語法應原樣顯示。"""
     _disable_recent_state(monkeypatch)
     invalid_path = tmp_path / "[bold]missing.log"
 
@@ -183,6 +186,7 @@ def test_tui_invalid_source_summary_keeps_markup_like_path_literal(tmp_path, mon
 
 
 def test_tui_browse_source_accepts_a_file_and_a_directory(tmp_path, monkeypatch):
+    """情境：來源瀏覽應同時接受檔案與資料夾。"""
     _disable_recent_state(monkeypatch)
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -234,6 +238,7 @@ def test_tui_browse_source_accepts_a_file_and_a_directory(tmp_path, monkeypatch)
 
 
 def test_tui_source_scope_list_is_literal_bounded_and_scrollable(tmp_path, monkeypatch):
+    """情境：檔名清單應原樣顯示、限制高度且可捲動。"""
     _disable_recent_state(monkeypatch)
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -281,6 +286,7 @@ async def _resize_scope(pilot, scope_list, size, *, scrollable):
 
 
 def test_source_scope_list_is_keyboard_focusable_only_when_scrollable(tmp_path, monkeypatch):
+    """情境：來源清單只有需要捲動時才應取得鍵盤焦點。"""
     _disable_recent_state(monkeypatch)
     empty_dir = tmp_path / "empty"
     empty_dir.mkdir()
@@ -308,10 +314,9 @@ def test_source_scope_list_is_keyboard_focusable_only_when_scrollable(tmp_path, 
 
             path_input = app.query_one("#path", Input)
             path_input.focus()
-            await pilot.press("tab")
-            assert app.focused is app.query_one("#browse_path")
-            await pilot.press("tab")
-            assert app.focused is app.query_one("#select-source-files")
+            for target in ("browse_path", "preview-format", "clear-condition-levels", "select-source-files"):
+                await pilot.press("tab")
+                assert app.focused is app.query_one(f"#{target}")
             await pilot.press("tab")
             assert app.focused is scope_list
 
@@ -320,9 +325,9 @@ def test_source_scope_list_is_keyboard_focusable_only_when_scrollable(tmp_path, 
             assert app.focused is not scope_list
             await _select_scope(pilot, scope_list, many_files, scrollable=True)
             path_input.focus()
-            await pilot.press("tab")
-            await pilot.press("tab")
-            assert app.focused is app.query_one("#select-source-files")
+            for target in ("browse_path", "preview-format", "clear-condition-levels", "select-source-files"):
+                await pilot.press("tab")
+                assert app.focused is app.query_one(f"#{target}")
             await pilot.press("tab")
             assert app.focused is scope_list
 
@@ -341,6 +346,7 @@ def test_source_scope_list_is_keyboard_focusable_only_when_scrollable(tmp_path, 
 
 
 def test_tui_paste_of_file_uri_keeps_file_scope_visible(tmp_path, monkeypatch):
+    """情境：貼上 file URI 後應清楚保留單檔模式。"""
     _disable_recent_state(monkeypatch)
     log_file = tmp_path / "single.log"
     log_file.write_text("", encoding="utf-8")
@@ -364,6 +370,7 @@ def test_tui_paste_of_file_uri_keeps_file_scope_visible(tmp_path, monkeypatch):
 
 
 def test_analysis_freezes_directory_file_list_when_execution_starts(tmp_path, monkeypatch):
+    """情境：開始執行時應固定資料夾檔名清單。"""
     _disable_recent_state(monkeypatch)
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -404,6 +411,7 @@ def test_analysis_freezes_directory_file_list_when_execution_starts(tmp_path, mo
 
 
 def test_single_file_xml_autofill_ignores_conflicting_sibling_samples(tmp_path, monkeypatch):
+    """情境：單檔自動 XML 評估應忽略同層衝突樣本。"""
     _disable_recent_state(monkeypatch)
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
@@ -456,6 +464,7 @@ def test_single_file_xml_autofill_ignores_conflicting_sibling_samples(tmp_path, 
 
 
 def test_scope_preview_wraps_empty_single_and_many_files_without_overlap(tmp_path, monkeypatch):
+    """情境：空、單檔與多檔預覽應換行且不遮蓋其他欄位。"""
     _disable_recent_state(monkeypatch)
     sources = []
     for source_name, file_count in (("empty", 0), ("single", 1), ("many", 7)):

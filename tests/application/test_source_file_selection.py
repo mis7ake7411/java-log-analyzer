@@ -4,6 +4,7 @@ from log_analyzer.application.source_file_selection import SourceFileSelection
 
 
 def test_explicit_selection_is_preserved_until_source_changes(tmp_path):
+    """情境：明確選檔應維持到來源改變為止。"""
     first, second = tmp_path / "first", tmp_path / "second"
     first.mkdir()
     second.mkdir()
@@ -21,6 +22,7 @@ def test_explicit_selection_is_preserved_until_source_changes(tmp_path):
 
 
 def test_missing_or_invalid_selection_is_not_silently_replaced(tmp_path):
+    """情境：選擇遺失或無效檔案時不得默默改選其他來源。"""
     (tmp_path / "app.log").write_text("one", encoding="utf-8")
     state = SourceFileSelection()
     source = state.resolve(str(tmp_path))
