@@ -15,6 +15,7 @@ from rich.console import Console
 from textual.events import Paste
 
 from tui_waits import (
+    set_path_input_and_wait,
     wait_for_ui_state as _wait_for_ui_state,
     wait_for_scheduled_analysis as _wait_for_scheduled_analysis,
     wait_for_layout_to_settle as _wait_for_layout_to_settle,
@@ -41,6 +42,12 @@ from log_analyzer.presentation.tui.recent_state import (
 )
 from log_analyzer.presentation.tui.views import analyze_dashboard
 from log_analyzer.version import get_package_version
+
+
+# run_test 的尺寸單位是字元欄／列；240 欄同時保留主畫面與進階區塊的寬版配置。
+# 一般寬版保留足夠高度；捲動案例另用 40 列，確保仍必須捲動表單。
+WIDE_TERMINAL_SIZE = (240, 80)
+WIDE_SCROLL_TERMINAL_SIZE = (240, 40)
 
 
 class _FakeSourceScopePreview:
@@ -640,7 +647,11 @@ def test_manual_pattern_field_is_hidden_until_override_is_enabled():
             assert pattern_field.display is False
 
             await pilot.click("#manual_pattern_override")
-            await pilot.pause()
+            await _wait_for_ui_state(
+                pilot,
+                lambda: pattern_field.display,
+                "manual override did not reveal the Pattern field",
+            )
 
             assert pattern_field.display is True
 
@@ -651,7 +662,7 @@ def test_advanced_settings_title_stays_at_top_of_panel():
     """情境：進階設定標題應留在面板頂端。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
-        async with app.run_test(size=(1400, 980)) as pilot:
+        async with app.run_test(size=WIDE_TERMINAL_SIZE) as pilot:
             await pilot.pause()
             app.action_toggle_advanced_settings()
             await pilot.pause()
@@ -671,7 +682,7 @@ def test_advanced_settings_logback_browse_button_keeps_right_edge_aligned():
     """情境：寬版進階設定的 XML 瀏覽按鈕右緣應對齊。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
-        async with app.run_test(size=(1606, 979)) as pilot:
+        async with app.run_test(size=WIDE_TERMINAL_SIZE) as pilot:
             await pilot.pause()
             app.action_toggle_advanced_settings()
 
@@ -692,6 +703,7 @@ def test_advanced_settings_logback_browse_button_keeps_right_edge_aligned():
                 (logback_xml_path, browse_button, path_row, app.query_one("#advanced-settings")),
             )
 
+            assert app.query_one("#advanced-settings").has_class("advanced-wide")
             assert browse_button.region.width <= 10
             assert browse_button.region.x + browse_button.region.width <= path_row.region.x + path_row.region.width
             assert logback_xml_path.region.x + logback_xml_path.region.width < browse_button.region.x + browse_button.region.width
@@ -703,7 +715,7 @@ def test_advanced_toggle_aligns_with_action_buttons():
     """情境：進階設定切換應與操作按鈕對齊。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
-        async with app.run_test(size=(1606, 979)) as pilot:
+        async with app.run_test(size=WIDE_TERMINAL_SIZE) as pilot:
             await pilot.pause()
 
             toggle = app.query_one("#toggle_advanced_settings")
@@ -908,7 +920,7 @@ def test_paste_invalid_path_keeps_focused_input_value(tmp_path):
         async with app.run_test() as pilot:
             await pilot.pause()
             path_input = app.query_one("#path")
-            path_input.value = str(tmp_path)
+            await set_path_input_and_wait(pilot, path_input, str(tmp_path))
             path_input.focus()
             await pilot.pause()
 
@@ -939,7 +951,7 @@ def test_paste_invalid_output_path_keeps_value_and_displays_error(tmp_path):
             app.action_show_export_settings()
             await pilot.pause()
             output_input = app.query_one("#output_path")
-            output_input.value = str(tmp_path)
+            await set_path_input_and_wait(pilot, output_input, str(tmp_path))
             output_input.focus()
             await pilot.pause()
 
@@ -2024,7 +2036,7 @@ def test_main_panels_have_equal_width_in_wide_layout():
     """情境：寬視窗下輸入與結果面板應等寬。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
-        async with app.run_test(size=(1920, 980)) as pilot:
+        async with app.run_test(size=WIDE_TERMINAL_SIZE) as pilot:
             await pilot.pause()
 
             form_panel = app.query_one("#form-panel")
@@ -2057,7 +2069,7 @@ def test_run_button_stays_below_form_scroll_area():
     """情境：表單捲動後開始分析按鈕仍應位於捲動區之外。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
-        async with app.run_test(size=(1400, 40)) as pilot:
+        async with app.run_test(size=WIDE_SCROLL_TERMINAL_SIZE) as pilot:
             await pilot.pause()
             form_panel = app.query_one("#form-panel")
             form_actions = app.query_one("#form-actions")
@@ -2068,6 +2080,8 @@ def test_run_button_stays_below_form_scroll_area():
                 pilot, (form_panel, form_actions), lambda: form_panel.scroll_offset.y > 0
             )
 
+            assert form_panel.has_class("wide")
+            assert app.query_one("#advanced-settings").has_class("advanced-wide")
             assert form_panel.scroll_offset.y > 0
             assert form_actions.region.y >= form_panel.region.y + form_panel.region.height
 
@@ -2078,7 +2092,7 @@ def test_clear_button_is_in_output_panel_bottom_actions():
     """情境：清除結果按鈕應在輸出面板底部操作區。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
-        async with app.run_test(size=(1400, 980)) as pilot:
+        async with app.run_test(size=WIDE_TERMINAL_SIZE) as pilot:
             await pilot.pause()
             output_panel = app.query_one("#output-panel")
             clear_button = app.query_one("#clear")
@@ -2093,7 +2107,7 @@ def test_run_and_clear_buttons_share_the_same_row_in_wide_layout():
     """情境：寬版開始分析與清除結果應位於同一列。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
-        async with app.run_test(size=(1400, 980)) as pilot:
+        async with app.run_test(size=WIDE_TERMINAL_SIZE) as pilot:
             await pilot.pause()
 
             run_button = app.query_one("#run")
@@ -2232,7 +2246,7 @@ def test_dashboard_browse_button_opens_event_browser():
     """情境：查看原文操作應開啟事件瀏覽。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
-        async with app.run_test(size=(1400, 980)) as pilot:
+        async with app.run_test(size=WIDE_TERMINAL_SIZE) as pilot:
             await pilot.pause()
             result = SimpleNamespace(
                 total_logs=1,
@@ -2324,7 +2338,7 @@ def test_time_range_inputs_are_not_collapsed_in_wide_layout():
     """情境：寬版時間區間欄位不應塌縮。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
-        async with app.run_test(size=(1920, 980)) as pilot:
+        async with app.run_test(size=WIDE_TERMINAL_SIZE) as pilot:
             await pilot.pause()
             app.action_toggle_advanced_settings()
             await pilot.pause()
@@ -2351,6 +2365,7 @@ def test_time_range_inputs_are_not_collapsed_in_wide_layout():
                     "#start_date", "#start_time", "#end_date", "#end_time"
                 ))),
             )
+            assert app.query_one("#advanced-settings").has_class("advanced-wide")
             assert time_section.region.width > 20
 
             for selector in ("#start-date-group", "#start-time-group", "#end-date-group", "#end-time-group"):
@@ -2372,7 +2387,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(
 
     async def run_check() -> None:
         app = LogAnalyzerApp()
-        async with app.run_test(size=(1400, 980)) as pilot:
+        async with app.run_test(size=WIDE_TERMINAL_SIZE) as pilot:
             await pilot.pause()
             await _wait_for_ui_state(
                 pilot,
@@ -2411,7 +2426,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
     monkeypatch.chdir(tmp_path)
     async def run_check() -> None:
         app = LogAnalyzerApp()
-        async with app.run_test(size=(1400, 980)) as pilot:
+        async with app.run_test(size=WIDE_TERMINAL_SIZE) as pilot:
             await pilot.pause()
             app.query_one("#manual_pattern_override").value = True
             await pilot.pause()
@@ -2428,6 +2443,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
                 "custom time fields did not finish expanding before Tab checks",
             )
 
+            assert app.query_one("#advanced-settings").has_class("advanced-wide")
             sequence = []
             for _ in range(21):
                 focused = app.focused
@@ -2466,7 +2482,7 @@ def test_form_panel_scroll_area_reaches_right_edge():
     """情境：表單捲動區應延伸至面板右緣。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
-        async with app.run_test(size=(1900, 1024)) as pilot:
+        async with app.run_test(size=WIDE_TERMINAL_SIZE) as pilot:
             await pilot.pause()
 
             form_panel = app.query_one("#form-panel")
@@ -2482,7 +2498,7 @@ def test_form_controls_keep_gap_from_scrollbar(tmp_path):
     """情境：表單控制元件應與捲軸保持間距。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
-        async with app.run_test(size=(1292, 797)) as pilot:
+        async with app.run_test(size=WIDE_TERMINAL_SIZE) as pilot:
             await pilot.pause()
 
             form_panel = app.query_one("#form-panel")

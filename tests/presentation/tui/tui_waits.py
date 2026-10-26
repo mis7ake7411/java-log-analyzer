@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Callable, Iterable
+from unittest.mock import patch
 
 from textual.errors import NoWidget
 
@@ -31,6 +32,19 @@ async def wait_for_ui_state(pilot, predicate, message, *, timeout=DEFAULT_TIMEOU
     await asyncio.wait_for(pilot.pause(), timeout=timeout)
     # 處理佇列期間條件可能再改變，不以舊狀態當作完成。
     await wait_until(predicate, message, timeout=timeout)
+
+
+async def set_path_input_and_wait(pilot, path_input, value):
+    """等前置路徑的 Changed 事件完成，避免晚到的預覽覆蓋下一次貼上結果。"""
+    app = pilot.app
+    # wraps 保留真正的預覽與事件處理；只觀察指定路徑已交給預覽處理。
+    with patch.object(app, "update_path_preview", wraps=app.update_path_preview) as preview:
+        path_input.value = value
+        await wait_for_ui_state(
+            pilot,
+            lambda: any(call.args and call.args[0] == value for call in preview.call_args_list),
+            f"initial path preview did not finish for {path_input.id}: {value}",
+        )
 
 
 async def wait_for_scheduled_analysis(app, previous_task=None, *, timeout=OPERATION_TIMEOUT):

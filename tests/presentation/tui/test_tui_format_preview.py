@@ -194,13 +194,14 @@ def test_format_preview_wraps_long_samples_and_close_stays_visible(source, size)
             button.focus()
             assert button.region.height == 1
             await pilot.press("enter")
-            screen = app.screen
             await wait_for_ui_state(
                 pilot,
-                lambda: (
-                    isinstance(app.screen, FormatPreviewScreen) and not screen.preview_loading
-                ),
-                "preview not complete",
+                lambda: isinstance(app.screen, FormatPreviewScreen),
+                "preview not opened",
+            )
+            screen = app.screen
+            await wait_for_ui_state(
+                pilot, lambda: not screen.preview_loading, "preview not complete",
             )
             card = screen.query_one("#format-preview-card")
             body = screen.query_one("#format-preview-body")

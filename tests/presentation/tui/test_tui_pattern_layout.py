@@ -1,7 +1,7 @@
 import asyncio
 
 from textual.widgets import Collapsible, Input, Static
-from tui_waits import wait_for_layout_to_settle
+from tui_waits import wait_for_layout_to_settle, wait_for_ui_state
 
 from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui import LogAnalyzerApp
@@ -23,7 +23,11 @@ def test_manual_override_shows_only_input_and_one_hint(monkeypatch):
             app._set_advanced_settings_visible(True)
             checkbox = app.query_one("#manual_pattern_override")
             checkbox.value = True
-            await pilot.pause()
+            await wait_for_ui_state(
+                pilot,
+                lambda: app.query_one("#pattern-field").display,
+                "manual override visibility was not applied",
+            )
 
             assert app.query_one("#log_pattern", Input).display
             assert not app.query_one("#pattern-source", Static).display
