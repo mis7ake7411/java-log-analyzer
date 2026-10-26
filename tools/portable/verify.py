@@ -41,8 +41,21 @@ def check_archive(archive):
         assert not path.is_absolute() and ".." not in path.parts
         assert path.parts[0] == "log-analyzer", f"Unexpected archive root: {name}"
     assert "log-analyzer/LICENSE" in names, "Application license missing from portable archive"
-    styles = [name for name in names if "/log_analyzer/tcss/" in name and name.endswith(".tcss")]
-    assert len(styles) == 6, f"Expected all six application stylesheets: {styles}"
+    expected_styles = [
+        "tui.base.tcss",
+        "tui.dialog.tcss",
+        "tui.layout.tcss",
+        "tui.responsive.advanced.tcss",
+        "tui.responsive.form.tcss",
+        "tui.responsive.layout.tcss",
+        "tui.time-range.tcss",
+    ]
+    styles = [
+        PurePosixPath(name).name
+        for name in names
+        if "/log_analyzer/tcss/" in name and name.endswith(".tcss")
+    ]
+    assert sorted(styles) == sorted(expected_styles), f"Unexpected application stylesheets: {styles}"
     return digest
 
 
@@ -184,11 +197,11 @@ def verify_first_session(target, input_path, root, name):
         terminal.click("管理分析配方")
         terminal.wait_text("輸入配方名稱")
         terminal.paste(name)
-        terminal.click("儲存目前條件")
-        terminal.wait_text("已儲存配方")
+        terminal.click("另存新配方")
+        terminal.wait_text("已另存新配方")
         terminal.capture("recipe-saved")
         terminal.click("關閉")
-        terminal.wait(lambda: terminal.find("儲存目前條件") is None, "Recipe dialog did not close")
+        terminal.wait(lambda: terminal.find("另存新配方") is None, "Recipe dialog did not close")
         terminal.click("開始分析")
         assert_analysis(terminal)
         terminal.capture("analysis-wide")
@@ -228,7 +241,7 @@ def verify_restarted_session(target, root, name):
         terminal.click(name)
         terminal.wait(lambda: terminal.find("選擇配方") is None, "Recipe selection did not complete")
         terminal.click("套用")
-        terminal.wait(lambda: terminal.find("儲存目前條件") is None, "Recipe did not apply")
+        terminal.wait(lambda: terminal.find("另存新配方") is None, "Recipe did not apply")
         terminal.wait_text("已載入配方")
         terminal.wait_text("單一檔案")
         terminal.click("開始分析")

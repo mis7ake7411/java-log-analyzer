@@ -45,12 +45,12 @@ def fill_visible_input(terminal, visible_text, value):
     terminal.fill_input(visible_text, value)
 
 
-def select_option(terminal, current, selected, *, max_column=None, menu_ready=None):
+def select_last_option(terminal, current, selected, *, max_column=None):
     terminal.wait(lambda: terminal.find(current, max_column=max_column) is not None, f"Select not visible: {current}")
-    column, row = terminal.find(current, max_column=max_column)
-    terminal.click_at(column, row)
-    terminal.wait_text(menu_ready or selected)
-    terminal.click(selected)
+    # The caller has focused the select with Tab; keep that focus through scrolling.
+    terminal.send("\r")
+    terminal.wait_text("Dismiss menu")
+    terminal.send("\x1b[F\r")
     terminal.wait(
         lambda: any(selected in line[:max_column] and "▼" in line[:max_column]
                     for line in terminal.text().splitlines()),
@@ -64,10 +64,7 @@ def start_xml_analysis(terminal, source, xml):
     terminal.wait_text(Path(source).name)
     terminal.click("展開進階設定")
     terminal.wait_text("Logback XML")
-    terminal.click("例如：./logback-spring.xml")
-    _, input_row = terminal.find("例如：./logback-spring.xml")
-    terminal.wait(lambda: terminal.screen.cursor.y == input_row, "XML input did not receive focus")
-    terminal.paste(xml)
+    terminal.fill_input("例如：./logback-spring.xml", xml)
     terminal.wait_text("format.xml")
     terminal.click("開始分析")
 
@@ -104,11 +101,19 @@ def apply_manual_filters(terminal):
     terminal.fill_input("yyyy-MM-dd", MANUAL_PATTERN, max_column=80)
     terminal.capture("manual-pattern")
     fill_visible_input(terminal, "Order_123", "failure")
+    terminal.click("不限時間")
+    terminal.wait_text("Dismiss menu")
+    # Choose the final preset through the real keyboard; the PTY renderer can
+    # lose wide glyphs in the option overlay, so verify the resulting fields.
+    terminal.send("\x1b[F\r")
+    terminal.wait_text("YYYY-MM-DD")
     fill_visible_input(terminal, "YYYY-MM-DD", "2026-10-24")
     fill_visible_input(terminal, "HH:MM", "10:00:00")
     fill_visible_input(terminal, "YYYY-MM-DD", "2026-10-24")
     fill_visible_input(terminal, "HH:MM", "10:02:00")
-    select_option(terminal, "時間排序", "Level 分組", max_column=80)
+    # End time -> ignore case -> sorting; focus scrolls the lower control into view.
+    terminal.send("\t\t")
+    select_last_option(terminal, "時間排序", "Level 分組", max_column=80)
     terminal.click("開始分析")
     wait_analysis(terminal, 3)
     terminal.capture("filtered-analysis")
