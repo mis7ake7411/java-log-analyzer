@@ -2198,6 +2198,8 @@ def _stored_result(path: Path, group: dict[str, object]) -> SimpleNamespace:
         input_path=str(path.parent),
         source_states={},
         matched_logs=MatchedLogsStore(path=str(path), length=1),
+        level_summary=[(str(group["level"]), int(group.get("count", 1)))],
+        dashboard_summary=analyze_dashboard(SimpleNamespace(matched_logs=[group])),
     )
 
 
@@ -2267,7 +2269,7 @@ def test_result_replacement_clear_and_unmount_release_stores(tmp_path: Path, mon
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(tui_module, "analyze_logs", fake_analyze_logs)
-    monkeypatch.setattr(results_module, "build_dashboard_view", lambda *_args: "dashboard")
+    monkeypatch.setattr(results_module, "build_dashboard_view", lambda *_args, **_kwargs: "dashboard")
 
     async def run_check() -> None:
         app = LogAnalyzerApp()

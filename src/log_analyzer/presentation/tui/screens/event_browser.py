@@ -17,7 +17,22 @@ from log_analyzer.domain.log_types import LogEntry, OccurrenceCoordinate
 class EventBrowserScreen(ModalScreen[None]):
     """Browse matched groups and their verified source coordinates."""
 
-    def __init__(self, result: AnalysisResult, page_size: int = 100) -> None:
+    def __init__(
+        self,
+        result: AnalysisResult,
+        page_size: int = 100,
+        *,
+        initial_level: str | None = None,
+        initial_group_index: int | None = None,
+    ) -> None:
+        """開啟原結果的瀏覽範圍，篩選只建立索引、不修改原群組。
+
+        Args:
+            result: 仍有效的分析結果。
+            page_size: 每頁群組數，上限為一百。
+            initial_level: 摘要點選的精確 Level；None 表示不限制。
+            initial_group_index: 摘要點選的原始群組索引；0 也是有效索引。
+        """
         self.result = result
         self.page_size = min(max(1, int(page_size)), 100)
         self._view = "groups"
@@ -27,6 +42,8 @@ class EventBrowserScreen(ModalScreen[None]):
         self._group_highlight = 0
         self._occurrence_highlight = 0
         self._query_sort = "original"
+        self._scope_level = initial_level
+        self._scope_group_index = initial_group_index
         self._query_task: asyncio.Task | None = None
         self._querying = False
         self._group_page: list[LogEntry] = []
@@ -60,7 +77,7 @@ class EventBrowserScreen(ModalScreen[None]):
                         id="browser-order",
                     )
                     yield Button("套用", id="browser-apply")
-                    yield Button("清除", id="browser-clear")
+                    yield Button("清除", id="browser-clear", tooltip="清除搜尋、排序與摘要範圍")
             yield Static("", id="browser-query-status")
             yield OptionList(id="event-options")
             with VerticalScroll(id="browser-preview-content"):
@@ -79,7 +96,10 @@ class EventBrowserScreen(ModalScreen[None]):
 
     def on_mount(self) -> None:
         self._update_browser_layout()
-        self._render_group_page()
+        if self._scope_level is not None or self._scope_group_index is not None:
+            self._start_query()
+        else:
+            self._render_group_page()
         self.query_one("#event-options", OptionList).focus()
 
     def on_unmount(self) -> None:
@@ -130,10 +150,15 @@ class EventBrowserScreen(ModalScreen[None]):
             self._group_highlight,
         )
         try:
+            scope = {}
+            if self._scope_level is not None:
+                scope["level"] = self._scope_level
+            if self._scope_group_index is not None:
+                scope["group_index"] = self._scope_group_index
             indices = (
                 None
-                if not query and sort_by == "original"
-                else await find_group_indices(self.result.matched_logs, query, sort_by)
+                if not query and sort_by == "original" and not scope
+                else await find_group_indices(self.result.matched_logs, query, sort_by, **scope)
             )
             if not self._valid:
                 return
@@ -142,8 +167,12 @@ class EventBrowserScreen(ModalScreen[None]):
             self._group_start = self._group_highlight = 0
             self._render_group_page()
             count = len(self.result.matched_logs) if indices is None else len(indices)
+            scope_label = (
+                f"Level {self._scope_level}；" if self._scope_level is not None else
+                f"指定事件 #{self._scope_group_index + 1}；" if self._scope_group_index is not None else ""
+            )
             status.update(
-                f"瀏覽 {count}/{len(self.result.matched_logs)} 群組；分析結果與匯出內容未變更。"
+                f"{scope_label}瀏覽 {count}/{len(self.result.matched_logs)} 群組；分析結果與匯出內容未變更。"
                 if indices is not None
                 else ""
             )
@@ -204,6 +233,8 @@ class EventBrowserScreen(ModalScreen[None]):
         elif button_id == "browser-apply":
             self._start_query()
         elif button_id == "browser-clear":
+            self._scope_level = None
+            self._scope_group_index = None
             self.query_one("#browser-query", Input).value = ""
             self.query_one("#browser-order", Select).value = "original"
             self._start_query()

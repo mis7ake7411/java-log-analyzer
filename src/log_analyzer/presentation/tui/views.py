@@ -2,6 +2,8 @@ from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+from rich.style import Style
+from log_analyzer.presentation.dashboard_navigation import build_dashboard_targets
 from ...application.analysis_service import AnalysisResult
 from ...application.dashboard_summary import DashboardAnalysis, aggregate_dashboard_summary
 from ...domain.log_types import ScanDiagnostics
@@ -99,8 +101,27 @@ def format_path_status(message: str, color: str, require_writable: bool) -> Text
     return _status_text(message, color)
 
 
-def build_dashboard_view(result: AnalysisResult, compact: bool) -> Group:
+def build_dashboard_view(
+    result: AnalysisResult,
+    compact: bool,
+    *,
+    navigation_generation: int | None = None,
+) -> Group:
+    """產生摘要；互動入口只用於 TUI，靜態呈現不附帶操作指令。
+
+    Args:
+        result: 已完成的分析結果。
+        compact: 保留既有呼叫介面，版面依實際可用寬度調整。
+        navigation_generation: TUI 結果世代；None 產生一般靜態摘要。
+
+    Returns:
+        可交給 RichLog 或 Console 繪製的摘要群組。
+    """
     analysis = analyze_dashboard(result)
+    targets = (
+        build_dashboard_targets(result, analysis)
+        if navigation_generation is not None else ()
+    )
     has_export = bool(result.exported_files)
     export_state = (
         f"已匯出 {result.format_name.upper()}"
@@ -110,6 +131,8 @@ def build_dashboard_view(result: AnalysisResult, compact: bool) -> Group:
     status_line = Text("分析完成", style="bold green")
     status_line.append(" · ")
     status_line.append(export_state, style="magenta" if has_export else "dim")
+    if navigation_generation is not None:
+        status_line.append(" · d 摘要導覽", style="bold cyan")
     overview = Panel(
         status_line,
         border_style="green",
@@ -155,38 +178,7 @@ def build_dashboard_view(result: AnalysisResult, compact: bool) -> Group:
     metadata.add_row("排序方式", "Level 分組" if result.sort_by == "level" else "時間排序")
     metadata.add_row("忽略大小寫", "是" if result.ignore_case else "否")
 
-    level_table = Table.grid(expand=True, padding=(0, 1))
-    level_table.add_column(style="bold", width=7, no_wrap=True)
-    level_table.add_column(justify="right", width=7, no_wrap=True)
-    level_table.add_column(justify="right", width=8, no_wrap=True)
-    level_table.add_column(ratio=1, min_width=1)
-    level_table.add_row(
-        Text("Level", style="dim"),
-        Text("筆數", style="dim"),
-        Text("占比", style="dim"),
-        Text("相對最高", style="dim"),
-    )
-    if result.level_summary:
-        max_count = max(count for _, count in result.level_summary)
-        total_count = sum(count for _, count in result.level_summary)
-        for level, count in result.level_summary:
-            percentage = (count / total_count * 100) if total_count else 0
-            level_table.add_row(
-                Text(str(level)),
-                str(count),
-                f"{percentage:.1f}%",
-                _ProgressBar(count, max_count),
-            )
-    else:
-        level_table.add_row("N/A", "-", "", "沒有可顯示的統計")
-
-    level_content = Group(
-        level_table,
-        Text(
-            "占比以本次結果的總筆數計算；長條以最高筆數為滿格。",
-            style="dim",
-        ),
-    )
+    level_content = _build_level_distribution(result, targets, navigation_generation)
 
     summary_panel_items = [
         Panel(
@@ -210,6 +202,10 @@ def build_dashboard_view(result: AnalysisResult, compact: bool) -> Group:
         overview,
         _ResponsivePanelRow(metric_cards, minimum_panel_width=24),
         summary_panels,
+        *(
+            [_build_top_events_panel(analysis.top_events, targets, navigation_generation)]
+            if getattr(analysis, "top_events", ()) else []
+        ),
         *(
             [Panel(Text(coverage), title="逐檔解析診斷", border_style="yellow")]
             if (coverage := format_scan_coverage(getattr(result, "diagnostics", None))) else []
@@ -265,9 +261,10 @@ class _ResponsivePanelRow:
 class _ProgressBar:
     """依照表格分配的欄寬繪製以最大筆數為基準的長條。"""
 
-    def __init__(self, value: int, maximum: int) -> None:
+    def __init__(self, value: int, maximum: int, *, action: str | None = None) -> None:
         self.value = value
         self.maximum = maximum
+        self.action = action
 
     def __rich_console__(self, console, options):
         width = max(0, options.max_width)
@@ -276,7 +273,68 @@ class _ProgressBar:
         filled = 0
         if self.maximum > 0 and self.value > 0:
             filled = min(width, max(1, round(self.value / self.maximum * width)))
-        yield Text("█" * filled + "░" * (width - filled), style="green")
+        yield Text("█" * filled + "░" * (width - filled), style=Style(color="green") + _dashboard_link_style(self.action))
+
+
+def _dashboard_link_style(action: str | None) -> Style:
+    """附上程式產生的入口編號，避免將日誌文字拼成操作指令。"""
+    return Style(color="cyan", underline=True, meta={"@click": action}) if action else Style()
+
+
+def _build_level_distribution(result, targets, generation: int | None) -> Group:
+    """以同一入口標記 Level 文字、筆數、比例及長條。"""
+    indices = {
+        target.level: index for index, target in enumerate(targets)
+        if target.level is not None
+    }
+    table = Table.grid(expand=True, padding=(0, 1))
+    table.add_column(style="bold", width=7, no_wrap=True)
+    table.add_column(justify="right", width=7, no_wrap=True)
+    table.add_column(justify="right", width=8, no_wrap=True)
+    table.add_column(ratio=1, min_width=1)
+    table.add_row(
+        Text("Level", style="dim"), Text("筆數", style="dim"),
+        Text("占比", style="dim"), Text("相對最高", style="dim"),
+    )
+    if result.level_summary:
+        maximum = max(count for _, count in result.level_summary)
+        total = sum(count for _, count in result.level_summary)
+        for level, count in result.level_summary:
+            action = (
+                f"app.open_dashboard_target({generation}, {indices[level]})"
+                if level in indices else None
+            )
+            style = _dashboard_link_style(action)
+            table.add_row(
+                Text(str(level), style=style), Text(str(count), style=style),
+                Text(f"{count / total * 100 if total else 0:.1f}%", style=style),
+                _ProgressBar(count, maximum, action=action),
+            )
+    else:
+        table.add_row("N/A", "-", "", "沒有可顯示的統計")
+    return Group(table, Text("占比以本次結果的總筆數計算；長條以最高筆數為滿格。", style="dim"))
+
+
+def _build_top_events_panel(events, targets, generation: int | None) -> Panel:
+    """顯示已有摘要的前五個事件，以原群組索引連到精確的事件清單。"""
+    indices = {
+        target.group_index: index for index, target in enumerate(targets)
+        if target.group_index is not None
+    }
+    table = Table.grid(expand=True, padding=(0, 1))
+    table.add_column(ratio=1, overflow="fold")
+    table.add_column(width=10, justify="right")
+    for event in events:
+        action = (
+            f"app.open_dashboard_target({generation}, {indices[event.group_index]})"
+            if event.group_index in indices else None
+        )
+        style = _dashboard_link_style(action)
+        table.add_row(
+            Text(f"{event.level} · {event.message}", style=style),
+            Text(f"{event.count} 次", style=style),
+        )
+    return Panel(table, title="高頻事件（前 5 項）", border_style="cyan", padding=(0, 1), expand=True)
 
 
 def _build_exception_summary_panel(summary: tuple[tuple[str, int, int], ...]) -> Panel:

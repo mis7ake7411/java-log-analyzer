@@ -81,6 +81,7 @@ class LogAnalyzerApp(
         ("ctrl+x", "cancel_analysis", "取消分析"),
         ("c", "clear_result", "清除結果"),
         ("a", "toggle_advanced_settings", "進階設定"),
+        ("d", "browse_summary", "摘要導覽"),
     ]
 
     def compose(self) -> ComposeResult:
