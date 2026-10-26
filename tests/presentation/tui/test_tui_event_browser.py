@@ -935,6 +935,12 @@ def test_event_browser_collapses_long_stacktrace_at_eight_lines(tmp_path: Path) 
                 ),
             )
             toggle.first().focus()
+            # Layout completion does not clear Button's timed -active effect.
+            await wait_for_ui_state(
+                pilot,
+                lambda: toggle.first().has_focus and not toggle.first().has_class("-active"),
+                "stacktrace toggle is not ready for another key activation",
+            )
             await pilot.press("enter")
             await wait_for_ui_state(
                 pilot,
