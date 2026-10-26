@@ -37,6 +37,20 @@ def _disable_recent_state(monkeypatch):
     monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
 
 
+async def _wait_for_advanced_layout(app, pilot, *, wide: bool) -> None:
+    """等待容器寬度與延後套用的排版 class 同時到位，不以一次 pause 判定。"""
+    advanced = app.query_one("#advanced-settings")
+    expected_class = "advanced-wide" if wide else "advanced-compact"
+    await _wait_for_layout_to_settle(
+        pilot,
+        (app.query_one("#form-panel"), advanced),
+        lambda: advanced.display
+        and advanced.content_size.width > 0
+        and (advanced.content_size.width >= 72) is wide
+        and advanced.has_class(expected_class),
+    )
+
+
 async def _expand_custom_time_range(app, pilot) -> None:
     """確認非自訂四欄不佔版面，再展開自訂範圍供版面檢查。"""
     custom_fields = app.query_one("#time-range-custom")
@@ -172,11 +186,10 @@ def test_advanced_responsive_layout_reflows_after_resize(monkeypatch):
         async with app.run_test(size=(240, 44)) as pilot:
             await pilot.pause()
             app._set_advanced_settings_visible(True)
-            await pilot.pause()
+            await _wait_for_advanced_layout(app, pilot, wide=True)
             advanced = app.query_one("#advanced-settings")
             assert advanced.has_class("advanced-wide")
-            app.query_one("#time-preset").value = "custom"
-            await pilot.pause()
+            await _expand_custom_time_range(app, pilot)
 
             async def assert_time_controls_fit_form() -> None:
                 panel = app.query_one("#form-panel")
@@ -206,7 +219,7 @@ def test_advanced_responsive_layout_reflows_after_resize(monkeypatch):
             await assert_time_controls_fit_form()
 
             await pilot.resize_terminal(80, 32)
-            await pilot.pause()
+            await _wait_for_advanced_layout(app, pilot, wide=False)
             assert advanced.has_class("advanced-compact"), (
                 advanced.region,
                 advanced.content_size,
@@ -217,7 +230,7 @@ def test_advanced_responsive_layout_reflows_after_resize(monkeypatch):
             await assert_time_controls_fit_form()
 
             await pilot.resize_terminal(240, 44)
-            await pilot.pause()
+            await _wait_for_advanced_layout(app, pilot, wide=True)
             assert advanced.has_class("advanced-wide")
             assert app.query_one("#form-panel").content_region.height > 0
             await assert_time_controls_fit_form()

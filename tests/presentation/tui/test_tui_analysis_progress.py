@@ -325,7 +325,8 @@ def test_queued_progress_after_cancel_does_not_overwrite_cancelling_status(tmp_p
             await pilot.pause()
             app.query_one("#path").value = str(tmp_path)
             await wait_for_button_ready(app, pilot)
-            await asyncio.wait_for(pilot.click("#run"), timeout=1)
+            # 此處建立進度回呼的前置工作；點擊含多次繪製等待，不是 UI 延遲量測。
+            await pilot.click("#run")
             await _wait_until(entered.is_set)
 
             operation_id = app._active_analysis_operation_id
@@ -361,7 +362,8 @@ def test_late_progress_callback_from_completed_operation_is_ignored(tmp_path, mo
             await pilot.pause()
             app.query_one("#path").value = result.input_path
             await wait_for_button_ready(app, pilot)
-            await asyncio.wait_for(pilot.click("#run"), timeout=1)
+            # 回呼時效以分析工作完成為界；一秒互動要求由背景取消案例獨立驗證。
+            await pilot.click("#run")
             await wait_for_scheduled_analysis(app)
             previous_status = str(app.query_one("#result-status").render())
 
