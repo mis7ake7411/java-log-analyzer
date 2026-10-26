@@ -160,9 +160,13 @@ def test_click_chart_or_top_event_opens_exact_retained_groups(source, kind, size
                 lambda: _link_cell(log, action, bar_only=kind == "bar") is not None,
                 "clickable dashboard not rendered",
             )
+            # 覆蓋 resize 排入下一輪 refresh、尚未重繪完成的順序。
+            app.call_after_refresh(app._refresh_dashboard_after_resize)
+            await wait_for_layout_to_settle(pilot, (log,))
             x, y = _link_cell(log, action, bar_only=kind == "bar")
             log.scroll_to(y=y, immediate=True)
             await wait_for_layout_to_settle(pilot, (log,))
+            x, y = _link_cell(log, action, bar_only=kind == "bar")
             offset = (
                 log.content_region.x - log.region.x + x,
                 log.content_region.y - log.region.y + y - int(log.scroll_y),
