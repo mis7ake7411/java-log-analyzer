@@ -1,6 +1,6 @@
 import pytest
 
-from log_analyzer.domain.parser_aggregation import GroupedLog, _append_line_number, normalize_line_numbers
+from log_analyzer.domain.parsing.aggregation import GroupedLog, _append_line_number, normalize_line_numbers
 
 
 @pytest.mark.parametrize("numbers, expected", [

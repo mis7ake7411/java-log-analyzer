@@ -1,6 +1,6 @@
 """日誌解析主線：逐行組成事件 → 篩選與分組 → 排序 → 保存可重讀的結果。
 
-從 parse_log_directory 開始閱讀，再看 iter_logs / _iter_entries_from_file。
+從 parse_log_directory 開始閱讀，再看 iter_logs 與 parsing 子套件。
 iter_ 開頭的函式多使用 yield：呼叫時先取得生成器，迭代時才實際執行。
 此模組只處理資料，不認識 Textual 畫面或報表格式。
 """
@@ -10,10 +10,10 @@ from __future__ import annotations
 import heapq
 import os
 import pickle
-import re
 import tempfile
 from array import array
 from collections import Counter
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -21,18 +21,10 @@ from .analysis_control import AnalysisControl
 from .logback_pattern import DEFAULT_LOGBACK_REGEX, compile_logback_pattern
 from .log_sources import select_log_source
 from .matched_logs_store import MatchedLogsStore
-from log_analyzer.domain.parser_aggregation import commit_entry, normalize_keyword, normalize_line_numbers, sort_key
-from log_analyzer.domain.log_types import FileScanCoverage, LogEntry, MatchedLogs, ScanDiagnostics, SourceSnapshot
-from .text_decoding import (
-    SOURCE_TEXT_ENCODING,
-    SOURCE_TEXT_ERRORS,
-    SOURCE_TEXT_NEWLINE,
-    normalize_decoded_line,
-)
+from .parsing import aggregation, entries as entry_assembly, scanner
+from log_analyzer.domain.log_types import MatchedLogs, ScanDiagnostics, SourceSnapshot
 from .timezone import to_local_timezone
 
-_STACKTRACE_HEADER_RE = re.compile(r"^[A-Za-z_][\w.$]*(?:Exception|Error)(?::|\s|$)")
-_POSSIBLE_LOG_HEADER_RE = re.compile(r"^\s*\d{4}[-/]\d{2}[-/]\d{2}[T ]\d{2}:\d{2}:\d{2}")
 MAX_SORT_GROUPS_IN_MEMORY = 5000
 MAX_GROUPS_IN_MEMORY = 5000
 MAX_GROUP_SHARDS = 32
@@ -165,7 +157,7 @@ def _collect_grouped_logs(directory, options, counts, diagnostics=None, *, contr
         AnalysisCancelled: control 觀察到取消要求時停止處理。
         ValueError: 來源範圍無效或 Pattern 不受支援時停止處理。
     """
-    search_keyword = normalize_keyword(options.keyword, options.ignore_case)
+    search_keyword = aggregation.normalize_keyword(options.keyword, options.ignore_case)
     selected_levels = _normalize_levels(options.levels)
     grouped_logs = {}
     spilled_to_disk = False
@@ -190,7 +182,7 @@ def _collect_grouped_logs(directory, options, counts, diagnostics=None, *, contr
                 continue
             if diagnostics is not None:
                 diagnostics.after_level += 1
-            if commit_entry(grouped_logs, counts, entry, search_keyword, options.ignore_case):
+            if aggregation.commit_entry(grouped_logs, counts, entry, search_keyword, options.ignore_case):
                 if diagnostics is not None:
                     diagnostics.after_keyword += 1
             if len(grouped_logs) >= MAX_GROUPS_IN_MEMORY:
@@ -281,7 +273,7 @@ def iter_logs(  # noqa: PLR0913 - preserve the existing positional API
         before = os.stat(filepath)
         if diagnostics is not None:
             diagnostics.files_scanned += 1
-        accumulator = _EntryAccumulator(filename, start_time, end_time, diagnostics=diagnostics)
+        accumulator = entry_assembly._EntryAccumulator(filename, start_time, end_time, diagnostics=diagnostics)
         if control is not None:
             control.report_progress(
                 "scanning",
@@ -328,13 +320,15 @@ def iter_logs(  # noqa: PLR0913 - preserve the existing positional API
                 file_has_encoding_error = True
                 diagnostics.encoding_error_files += 1
 
-        yield from _iter_entries_from_file(
+        scanned_lines = scanner.iter_scanned_lines(
             filepath,
             entry_pattern,
-            accumulator,
+            diagnostics=diagnostics,
             on_line=on_line if control is not None else None,
             on_encoding_error=on_encoding_error if diagnostics is not None else None,
         )
+        with closing(scanned_lines):
+            yield from entry_assembly.iter_entries(scanned_lines, accumulator)
         _raise_if_cancelled(control)
         after = os.stat(filepath)
         source_states[filename] = {
@@ -391,7 +385,7 @@ def iter_sorted_logs(
     _raise_if_cancelled(control)
     if len(entries) <= max_in_memory_groups:
         # sorted 執行途中無法插入取消檢查，所以在呼叫前後各檢查一次。
-        sorted_entries = sorted(entries, key=lambda entry: sort_key(entry, sort_by))
+        sorted_entries = sorted(entries, key=lambda entry: aggregation.sort_key(entry, sort_by))
         _raise_if_cancelled(control)
         yield from sorted_entries
         return
@@ -495,8 +489,8 @@ def _merge_grouped_log(grouped_logs, entry):
         grouped_logs[key].count += entry.count
         grouped_logs[key].last_timestamp = entry.last_timestamp
         if not isinstance(grouped_logs[key].line_numbers, list):
-            grouped_logs[key].line_numbers = normalize_line_numbers(grouped_logs[key].line_numbers)
-        grouped_logs[key].line_numbers.extend(normalize_line_numbers(entry.line_numbers))
+            grouped_logs[key].line_numbers = aggregation.normalize_line_numbers(grouped_logs[key].line_numbers)
+        grouped_logs[key].line_numbers.extend(aggregation.normalize_line_numbers(entry.line_numbers))
         grouped_logs[key].occurrences.extend(entry.occurrences)
         return
 
@@ -619,7 +613,7 @@ def _iter_sorted_logs_external(entries, sort_by, chunk_size, *, control=None):
         chunk_paths = []
         for index in range(0, len(entries), chunk_size):
             _raise_if_cancelled(control)
-            chunk = sorted(entries[index:index + chunk_size], key=lambda entry: sort_key(entry, sort_by))
+            chunk = sorted(entries[index:index + chunk_size], key=lambda entry: aggregation.sort_key(entry, sort_by))
             _raise_if_cancelled(control)
             chunk_path = os.path.join(temp_dir, f"sorted_chunk_{len(chunk_paths):05d}.pkl")
             with open(chunk_path, "wb") as file_handle:
@@ -627,7 +621,7 @@ def _iter_sorted_logs_external(entries, sort_by, chunk_size, *, control=None):
             chunk_paths.append(chunk_path)
 
         iterators = [_load_sorted_chunk(path) for path in chunk_paths]
-        for entry in heapq.merge(*iterators, key=lambda entry: sort_key(entry, sort_by)):
+        for entry in heapq.merge(*iterators, key=lambda entry: aggregation.sort_key(entry, sort_by)):
             _raise_if_cancelled(control)
             yield entry
 
@@ -647,101 +641,6 @@ def _load_sorted_chunk(path):
     with open(path, "rb") as file_handle:
         for entry in pickle.load(file_handle):
             yield entry
-
-
-def _iter_entries_from_file(
-    filepath,
-    entry_pattern,
-    accumulator: _EntryAccumulator,
-    *,
-    on_line=None,
-    on_encoding_error=None,
-):
-    """讀取來源原文，遇到下一個事件首行才交出上一個完整事件。
-
-    enumerate(..., 1) 從人類閱讀的第 1 行計數；沒有匹配首行的內容交給
-    accumulator 當作續行。檔尾必須再 finish，否則最後一筆沒有下一個首行
-    觸發輸出。回呼只回報進度／解碼異常，with 負責關閉來源檔案。
-
-    Args:
-        filepath: 要逐行讀取的原始日誌檔案路徑。
-        entry_pattern: 已編譯的事件首行正則，須提供必要的具名群組。
-        accumulator: 累積目前事件與續行的 _EntryAccumulator。
-        on_line: 每讀一行時呼叫的無參數回呼；可省略。
-        on_encoding_error: 每遇到解碼異常行時呼叫的回呼；可省略。
-
-    Returns:
-        Iterator[LogEntry]: 含續行的完整事件，不包含被時間條件排除的事件。
-
-    Raises:
-        OSError: 來源或暫存檔案無法讀寫時向上傳遞。
-        AnalysisCancelled: control 觀察到取消要求時停止處理。
-    """
-    coverage = None
-    if accumulator.diagnostics is not None:
-        coverage = FileScanCoverage(accumulator.filename)
-        accumulator.diagnostics.file_coverage.append(coverage)
-    has_header = False
-    with open(
-        filepath,
-        "r",
-        encoding=SOURCE_TEXT_ENCODING,
-        errors=SOURCE_TEXT_ERRORS,
-        newline=SOURCE_TEXT_NEWLINE,
-    ) as file_handle:
-        for line_num, line in enumerate(file_handle, 1):
-            if on_line is not None:
-                on_line()
-            line, has_encoding_error = normalize_decoded_line(line)
-            if has_encoding_error and on_encoding_error is not None:
-                on_encoding_error()
-            match = entry_pattern.match(line)
-            if coverage is not None:
-                _record_line_coverage(coverage, line_num, line, bool(match), has_header)
-
-            if match:
-                has_header = True
-                completed_entry = accumulator.start_entry(match, line_num)
-                if completed_entry:
-                    yield completed_entry
-                continue
-
-            accumulator.append_continuation(line_num, line)
-
-        completed_entry = accumulator.finish()
-        if completed_entry:
-            yield completed_entry
-
-
-def _record_line_coverage(coverage, line_num, line, matched, has_header):
-    """將每行歸類到解析首行、空白、未知、堆疊或續行，保留少量未知樣本。
-
-    原地更新 coverage 供零結果診斷使用；這項分類不負責判斷事件是否命中篩選。
-
-    Args:
-        coverage: 要原地累加的單檔 FileScanCoverage。
-        line_num: 原始日誌從 1 起算的實體行號。
-        line: 目前讀到的原文行，可能保留換行。
-        matched: 此行是否符合事件首行格式。
-        has_header: 本檔先前是否已出現符合格式的事件首行。
-
-    Returns:
-        None: 原地更新 coverage 的分類計數與樣本。
-    """
-    coverage.total_lines += 1
-    stripped = line.strip()
-    if matched:
-        coverage.parsed_entries += 1
-    elif not stripped:
-        coverage.blank_lines += 1
-    elif not has_header or _POSSIBLE_LOG_HEADER_RE.match(line):
-        coverage.unrecognized_lines += 1
-        if len(coverage.unrecognized_samples) < 3:
-            coverage.unrecognized_samples.append((line_num, line.rstrip("\r\n")[:240]))
-    elif stripped.startswith(("at ", "Caused by:", "Suppressed:", "... ")) or _STACKTRACE_HEADER_RE.match(stripped):
-        coverage.stacktrace_lines += 1
-    else:
-        coverage.continuation_lines += 1
 
 
 def _raise_if_cancelled(control) -> None:
@@ -776,197 +675,3 @@ def _report_phase(control, phase: str, *, force: bool = True) -> None:
     """
     if control is not None:
         control.report_progress(phase, force=force)
-
-
-@dataclass(slots=True)
-class _EntryAccumulator:
-    """保存單一檔案尚未完成的事件，將首行與後續堆疊組合起來。
-
-    dataclass 產生初始化方法；slots=True 限定可用欄位。
-    current_entry=None 可能代表尚無事件，或目前事件被時間條件排除。
-    """
-
-    filename: str
-    start_time: datetime | None
-    end_time: datetime | None
-    current_entry: LogEntry | None = None
-    diagnostics: ScanDiagnostics | None = None
-
-    def start_entry(self, match, line_num):
-        """交出上一筆事件，再用新的正則匹配建立目前事件並套用時間篩選。
-
-        Args:
-            match: 包含 timestamp、thread、level、logger、message 的正則匹配。
-            line_num: 原始日誌從 1 起算的實體行號。
-
-        Returns:
-            LogEntry | None: 上一筆已累積的事件；目前事件另行初始化。
-
-        Raises:
-            IndexError: 首行正則缺少必要的具名群組。
-        """
-        completed_entry = self.current_entry
-        self.current_entry = _create_entry(match, self.filename, line_num)
-        if self.current_entry and self.diagnostics is not None:
-            self.diagnostics.parsed_entries += 1
-        if self.current_entry and not _is_entry_in_time_range(
-            self.current_entry,
-            self.start_time,
-            self.end_time,
-        ):
-            self.current_entry = None
-        elif self.current_entry and self.diagnostics is not None:
-            self.diagnostics.after_time += 1
-        return completed_entry
-
-    def append_continuation(self, line_num, line):
-        """有保留中的事件才附加續行，避免被時間排除的事件重新混入結果。
-
-        Args:
-            line_num: 原始日誌從 1 起算的實體行號。
-            line: 目前讀到的原文行，可能保留換行。
-
-        Returns:
-            None: 有目前事件時才原地附加續行。
-        """
-        if self.current_entry:
-            _append_continuation_line(self.current_entry, line_num, line)
-
-    def finish(self):
-        """在檔尾交出目前事件；只讀取狀態，不會自動清空 current_entry。
-        Returns:
-            LogEntry | None: 目前累積的事件，不會清空狀態。
-        """
-        return self.current_entry
-
-
-def _create_entry(match, filename, line_num):
-    """將正則的具名群組轉成事件 dict，保留檔名、首行行號與續行累積欄位。
-
-    message 保存首行訊息，message_body 保存一般續行，stacktrace_lines 保存堆疊；
-    full_text 則供關鍵字比對，包含首行與所有後續行。
-
-    Args:
-        match: 包含 timestamp、thread、level、logger、message 的正則匹配。
-        filename: 事件所屬來源檔名，用於出現位置與原文定位。
-        line_num: 原始日誌從 1 起算的實體行號。
-
-    Returns:
-        LogEntry: 含首行欄位與空續行容器的新 dict。
-
-    Raises:
-        IndexError: 匹配物件缺少必要的具名群組。
-    """
-    timestamp_str = match.group("timestamp")
-    thread = match.group("thread")
-    level = match.group("level")
-    logger = match.group("logger")
-    message = match.group("message")
-
-    return {
-        "timestamp": timestamp_str,
-        "thread": thread,
-        "level": level,
-        "logger": logger,
-        "message": message,
-        "filename": filename,
-        "line_num": line_num,
-        "stacktrace_lines": [],
-        "message_body": "",
-        "full_text": message,
-    }
-
-
-def _is_entry_in_time_range(entry, start_time, end_time):
-    """以含起訖邊界的方式判斷時間；無法解析的時間不納入結果。
-
-    Args:
-        entry: 目前解析事件的 dict；續行函式會原地累加內容。
-        start_time: 解析時間起點，含邊界；None 表示不限制。
-        end_time: 解析時間終點，含邊界；None 表示不限制。
-
-    Returns:
-        bool: 時間可解析且位於含邊界的範圍內時為 True。
-    """
-    entry_time = _parse_entry_time(entry["timestamp"])
-    if entry_time is None:
-        return False
-    if start_time and entry_time < start_time:
-        return False
-    return not end_time or entry_time <= end_time
-
-
-def _parse_entry_time(timestamp_str):
-    """以時間戳前 19 字元建立本地時區 datetime；此處比較精度為秒。
-
-    原始時間字串仍保留在事件內；無法按此格式解析時回傳 None，交給上層排除。
-
-    Args:
-        timestamp_str: 原始時間字串；此流程以前 19 字元解析至秒。
-
-    Returns:
-        datetime | None: 本地時區且精度到秒的時間；格式無效時為 None。
-    """
-    try:
-        return to_local_timezone(datetime.strptime(timestamp_str[:19], "%Y-%m-%d %H:%M:%S"))
-    except ValueError:
-        return None
-
-
-def _append_continuation_line(entry, line_num, line):
-    """原地更新 full_text，再將續行分配至一般本文或帶原始行號的堆疊。
-
-    Args:
-        entry: 目前解析事件的 dict；續行函式會原地累加內容。
-        line_num: 原始日誌從 1 起算的實體行號。
-        line: 目前讀到的原文行，可能保留換行。
-
-    Returns:
-        None: 原地更新事件的完整文字、本文或堆疊。
-    """
-    line_text = line.rstrip("\n")
-    entry["full_text"] += f"\n{line_text}"
-
-    if _is_stacktrace_line(entry, line_text):
-        entry["stacktrace_lines"].append(f"{line_num:5}: {line}")
-        return
-
-    entry["message_body"] = _append_message_body(entry["message_body"], line_text)
-
-
-def _append_message_body(message_body, line_text):
-    """回傳接上續行的新字串；第一行不多加換行，也不修改呼叫者的原字串。
-
-    Args:
-        message_body: 已累積的一般續行本文。
-        line_text: 已去除尾端換行的續行文字。
-
-    Returns:
-        str: 接上續行的新本文字串。
-    """
-    if not message_body:
-        return line_text
-    return f"{message_body}\n{line_text}"
-
-
-def _is_stacktrace_line(entry, line_text):
-    """判斷是否為 Java 堆疊；開始累積堆疊後，後續行都沿用堆疊分類。
-
-    Args:
-        entry: 目前解析事件的 dict；續行函式會原地累加內容。
-        line_text: 已去除尾端換行的續行文字。
-
-    Returns:
-        bool: 本行應歸入堆疊時為 True。
-    """
-    if entry["stacktrace_lines"]:
-        return True
-
-    stripped = line_text.strip()
-    if not stripped:
-        return False
-
-    if stripped.startswith(("at ", "Caused by:", "Suppressed:", "... ")):
-        return True
-
-    return bool(_STACKTRACE_HEADER_RE.match(stripped))

@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 from io import StringIO
 
-from ...domain.parser_aggregation import normalize_line_numbers
+from ...domain.parsing.aggregation import normalize_line_numbers
 from .fields import EXPORT_FIELDS, EXPORT_FIELD_LABELS, normalize_export_fields
 
 

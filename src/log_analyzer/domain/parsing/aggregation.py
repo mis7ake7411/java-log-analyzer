@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .log_types import OccurrenceCoordinate
+from ..log_types import OccurrenceCoordinate
 
 LEVEL_SORT_ORDER = {
     "ERROR": 0,

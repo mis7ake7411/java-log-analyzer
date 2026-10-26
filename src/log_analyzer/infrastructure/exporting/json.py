@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from ...domain.parser_aggregation import normalize_line_numbers
+from ...domain.parsing.aggregation import normalize_line_numbers
 from .fields import normalize_export_fields
 
 

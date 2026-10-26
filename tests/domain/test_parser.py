@@ -11,6 +11,7 @@ from log_analyzer.domain.parser import (
     parse_logs,
 )
 import log_analyzer.domain.parser as parser_module
+from log_analyzer.domain.parsing.entries import _parse_entry_time
 from log_analyzer.domain.log_types import ScanDiagnostics
 
 
@@ -430,7 +431,7 @@ def test_parse_log_directory_accepts_aware_parse_options(temp_log_dir):
 
 def test_parse_entry_time_assigns_system_local_timezone():
     """情境：事件時間解析應補上系統本地時區。"""
-    entry_time = parser_module._parse_entry_time("2026-06-06 10:05:00.123")
+    entry_time = _parse_entry_time("2026-06-06 10:05:00.123")
 
     assert entry_time.tzinfo == datetime.now().astimezone().tzinfo
 
