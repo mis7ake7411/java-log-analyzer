@@ -73,25 +73,27 @@ async def _select_preset(pilot, app: LogAnalyzerApp, preset: str) -> None:
         await pilot.press(direction)
     await pilot.press("enter")
     if preset == "custom":
-        ready = lambda: (
-            select.value == preset
-            and not select.expanded
-            and custom_fields.display
-            and time_range._pending_input_snapshot is None
-            and time_range._read_values() == previous_values
-        )
-    else:
-        ready = lambda: (
-            select.value == preset
-            and not select.expanded
-            and not custom_fields.display
-            and time_range._pending_input_snapshot is not None
-            and time_range._read_values() == time_range._pending_input_snapshot
-            and (
-                previous_preset == preset
-                or time_range._pending_input_snapshot != previous_snapshot
+        def ready():
+            return (
+                select.value == preset
+                and not select.expanded
+                and custom_fields.display
+                and time_range._pending_input_snapshot is None
+                and time_range._read_values() == previous_values
             )
-        )
+    else:
+        def ready():
+            return (
+                select.value == preset
+                and not select.expanded
+                and not custom_fields.display
+                and time_range._pending_input_snapshot is not None
+                and time_range._read_values() == time_range._pending_input_snapshot
+                and (
+                    previous_preset == preset
+                    or time_range._pending_input_snapshot != previous_snapshot
+                )
+            )
     await wait_for_ui_state(
         pilot,
         ready,
