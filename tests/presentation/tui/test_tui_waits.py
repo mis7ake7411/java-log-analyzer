@@ -8,6 +8,10 @@ from textual.app import App, ComposeResult
 from textual.containers import Container
 from textual.screen import ModalScreen
 from textual.widgets import Button
+from textual import screen as screen_module
+from textual.geometry import Offset, Region, Size
+
+import tui_waits
 
 from tui_waits import (
     wait_for_button_ready,
@@ -344,8 +348,12 @@ def test_button_wait_uses_the_active_modal_screen():
     asyncio.run(check())
 
 
-def test_layout_allows_children_of_a_hidden_container():
+@pytest.mark.parametrize("refresh_hz", [60, 8], ids=["normal-refresh", "slow-refresh"])
+def test_layout_allows_children_of_a_hidden_container(monkeypatch, refresh_hz):
     """情境：隱藏容器中的子元件應允許沒有可見尺寸。"""
+    # 真實刷新受 frame timer 排程；低刷新率重現 200 ms 速度假設的失敗。
+    monkeypatch.setattr(screen_module, "UPDATE_PERIOD", 1 / refresh_hz)
+
     class HiddenHarness(App):
         def compose(self) -> ComposeResult:
             with Container(id="hidden"):
@@ -357,8 +365,68 @@ def test_layout_allows_children_of_a_hidden_container():
             parent = app.query_one("#hidden")
             child = app.query_one("#child")
             parent.display = False
-            await wait_for_layout_to_settle(pilot, (parent, child), timeout=0.2)
+            # 驗證隱藏後的完成狀態，不額外要求主機在 200 ms 內刷新。
+            await wait_for_layout_to_settle(pilot, (parent, child))
+            assert not parent.display
             assert child.display
             assert child.region.width == 0
+
+    asyncio.run(check())
+
+
+def test_hidden_layout_still_requires_a_second_refreshed_snapshot(monkeypatch):
+    """隱藏子元件可為零尺寸，但不能跳過後續刷新與穩定性確認。"""
+    async def check():
+        parent = SimpleNamespace(
+            region=Region(), display=False, classes=set(), content_size=Size(),
+            scroll_offset=Offset(), max_scroll_y=0,
+        )
+        child = SimpleNamespace(
+            region=Region(), display=True, classes=set(), content_size=Size(),
+            scroll_offset=Offset(), max_scroll_y=2,
+        )
+        parent.ancestors_with_self = (parent,)
+        child.ancestors_with_self = (child, parent)
+        blocked_refresh = asyncio.Event()
+        pending_callbacks = []
+        snapshot_count = 0
+        release_refresh = False
+        original_snapshot = tui_waits._layout_snapshot
+
+        def observe_snapshot(widgets):
+            nonlocal snapshot_count
+            snapshot_count += 1
+            return original_snapshot(widgets)
+
+        def schedule_refresh(callback):
+            if snapshot_count == 1 and not release_refresh:
+                pending_callbacks.append(callback)
+                blocked_refresh.set()
+            else:
+                asyncio.get_running_loop().call_soon(callback)
+            return True
+
+        async def no_animations():
+            return None
+
+        monkeypatch.setattr(tui_waits, "_layout_snapshot", observe_snapshot)
+        pilot = SimpleNamespace(app=SimpleNamespace(
+            call_after_refresh=schedule_refresh,
+            animator=SimpleNamespace(wait_until_complete=no_animations),
+        ))
+        waiting = asyncio.create_task(wait_for_layout_to_settle(pilot, (parent, child)))
+        try:
+            await asyncio.wait_for(blocked_refresh.wait(), timeout=tui_waits.DEFAULT_TIMEOUT)
+            assert snapshot_count == 1
+            assert not waiting.done()
+            release_refresh = True
+            for callback in pending_callbacks:
+                callback()
+            await waiting
+            assert snapshot_count == 2
+        finally:
+            if not waiting.done():
+                waiting.cancel()
+                await asyncio.gather(waiting, return_exceptions=True)
 
     asyncio.run(check())
