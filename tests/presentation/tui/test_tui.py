@@ -12,10 +12,12 @@ from types import SimpleNamespace
 
 import pytest
 from rich.console import Console
+from textual.errors import NoWidget
 from textual.events import Paste
 
 from tui_waits import (
     set_path_input_and_wait,
+    wait_for_focus_transition as _wait_for_focus_transition,
     wait_for_ui_state as _wait_for_ui_state,
     wait_for_scheduled_analysis as _wait_for_scheduled_analysis,
     wait_for_layout_to_settle as _wait_for_layout_to_settle,
@@ -24,6 +26,7 @@ from tui_waits import (
 from log_analyzer.application.analysis_service import AnalysisRequest
 from log_analyzer.infrastructure.paths import get_system_root_path
 from log_analyzer.presentation.tui import LogAnalyzerApp
+from log_analyzer.presentation.tui.components.time_range import TimeRangeSettings
 from log_analyzer.presentation.tui.screens.path_picker import DirectoryPickerScreen, FilePickerScreen
 from log_analyzer.presentation.tui.form_values import get_default_end_date_text, get_default_end_time_text, get_default_output_name_text, get_default_start_date_text, get_default_start_time_text, parse_datetime_range_inputs
 from log_analyzer.presentation.tui.views import (
@@ -41,6 +44,7 @@ from log_analyzer.presentation.tui.recent_state import (
     save_recent_tui_state,
 )
 from log_analyzer.presentation.tui.views import analyze_dashboard
+from tui_harnesses import AdvancedSettingsHarness, TimeRangeSettingsHarness
 from log_analyzer.version import get_package_version
 
 
@@ -225,10 +229,22 @@ def test_composed_ui_preserves_key_widget_contracts(tmp_path, monkeypatch):
             assert app.query_one("#output_path").value == "."
             assert app.query_one("#keyword")
             assert app.query_one("#advanced-settings")
+            advanced = app.query_one("#advanced-settings")
+            assert advanced.query_one("#sort_by")
+            assert advanced.query_one("#logback_xml_path")
+            assert advanced.query_one("#browse_logback_xml")
+            time_range = advanced.query_one(TimeRangeSettings)
+            assert time_range.query_one("#time-preset")
+            assert time_range.query_one("#start-time-row")
+            assert time_range.query_one("#end-time-row")
+            assert app.query_one("#manage-recipes")
             assert app.query_one("#output_name").value.startswith("analysis_")
             assert app.query_one("#ignore_case").value is True
             assert app.query_one("#format").value == "csv"
             assert app.query_one("#level_ERROR").value is True
+            assert app.query_one("#level_WARN").value is True
+            assert app.query_one("#level_INFO").value is True
+            assert app.query_one("#level_DEBUG").value is False
             assert app.query_one("#level_TRACE").value is False
             assert app.query_one("#run")
             assert app.query_one("#clear")
@@ -432,11 +448,10 @@ def test_collect_form_values_includes_time_fields():
 def test_display_settings_rows_follow_current_field_grouping():
     """情境：設定列應符合目前欄位分組。"""
     async def run_check() -> None:
-        app = LogAnalyzerApp()
+        app = AdvancedSettingsHarness()
         async with app.run_test() as pilot:
-            await pilot.pause()
-
             advanced = app.query_one("#advanced-settings")
+            await _wait_for_layout_to_settle(pilot, (advanced,))
             field_rows = [child for child in advanced.children if child.has_class("field-row")]
 
             assert len(field_rows) == 2
@@ -606,11 +621,11 @@ def test_tui_shortcut_works_without_input_focus():
 def test_time_range_rows_have_two_inputs_each():
     """情境：起訖時間列都應包含日期與時間兩個輸入。"""
     async def run_check() -> None:
-        app = LogAnalyzerApp()
+        app = TimeRangeSettingsHarness()
         async with app.run_test() as pilot:
-            await pilot.pause()
             start_row = app.query_one("#start-time-row")
             end_row = app.query_one("#end-time-row")
+            await _wait_for_layout_to_settle(pilot, (start_row, end_row))
 
             assert len(start_row.query("Input")) == 2
             assert len(end_row.query("Input")) == 2
@@ -641,12 +656,48 @@ def test_manual_pattern_field_is_hidden_until_override_is_enabled():
         async with app.run_test(size=(140, 80)) as pilot:
             await pilot.pause()
             app.action_toggle_advanced_settings()
-            await pilot.pause()
 
+            advanced = app.query_one("#advanced-settings")
+            manual_override = app.query_one("#manual_pattern_override")
             pattern_field = app.query_one("#pattern-field")
+
+            def manual_override_can_be_clicked() -> bool:
+                region = manual_override.region
+                if not (
+                    advanced.display
+                    and advanced.content_size.width > 0
+                    and (
+                        advanced.has_class("advanced-wide")
+                        or advanced.has_class("advanced-compact")
+                    )
+                    and manual_override.display
+                    and not manual_override.disabled
+                    and region.width > 0
+                    and region.height > 0
+                ):
+                    return False
+                x = region.x + region.width // 2
+                y = region.y + region.height // 2
+                if not app.screen.region.contains(x, y):
+                    return False
+                try:
+                    hit, _ = app.screen.get_widget_at(x, y)
+                except NoWidget:
+                    return False
+                return hit is manual_override
+
+            await _wait_for_layout_to_settle(
+                pilot,
+                (advanced, manual_override),
+                manual_override_can_be_clicked,
+            )
             assert pattern_field.display is False
 
-            await pilot.click("#manual_pattern_override")
+            clicked = await pilot.click(
+                "#manual_pattern_override",
+                offset=(manual_override.region.width // 2, manual_override.region.height // 2),
+            )
+            assert clicked, f"manual override click did not hit its checkbox: {manual_override.region}"
             await _wait_for_ui_state(
                 pilot,
                 lambda: pattern_field.display,
@@ -665,11 +716,17 @@ def test_advanced_settings_title_stays_at_top_of_panel():
         async with app.run_test(size=WIDE_TERMINAL_SIZE) as pilot:
             await pilot.pause()
             app.action_toggle_advanced_settings()
-            await pilot.pause()
 
             advanced_title = app.query_one("#advanced-settings .section-title--sub")
             advanced_settings = app.query_one("#advanced-settings")
             advanced_title_row = app.query_one("#advanced-settings-title-row")
+            await _wait_for_layout_to_settle(
+                pilot,
+                (advanced_settings, advanced_title_row, advanced_title),
+                lambda: advanced_settings.display
+                and advanced_title_row.region.width > 0
+                and advanced_title.region.width > 0,
+            )
 
             assert advanced_title_row.region.height <= 2
             assert advanced_title.region.y <= advanced_settings.region.y + 3
@@ -729,23 +786,26 @@ def test_advanced_toggle_aligns_with_action_buttons():
 def test_sort_control_exists():
     """情境：表單應包含排序控制。"""
     async def run_check() -> None:
-        app = LogAnalyzerApp()
+        app = AdvancedSettingsHarness()
         async with app.run_test() as pilot:
-            await pilot.pause()
+            sort_by = app.query_one("#sort_by")
+            await _wait_for_layout_to_settle(pilot, (sort_by,))
 
             assert app.query_one("#sort_by")
 
     asyncio.run(run_check())
 
 
-def test_level_filter_defaults_to_common_levels(tmp_path, monkeypatch):
+def test_level_filter_defaults_to_common_levels():
     """情境：預設 Level 應為常用層級。"""
-    monkeypatch.chdir(tmp_path)
-
     async def run_check() -> None:
-        app = LogAnalyzerApp()
+        app = AdvancedSettingsHarness()
         async with app.run_test() as pilot:
-            await pilot.pause()
+            levels = tuple(
+                app.query_one(f"#level_{level}")
+                for level in ("ERROR", "WARN", "INFO", "DEBUG", "TRACE")
+            )
+            await _wait_for_layout_to_settle(pilot, levels)
 
             assert app.query_one("#level_ERROR").value is True
             assert app.query_one("#level_WARN").value is True
@@ -781,9 +841,9 @@ def test_level_filter_controls_use_full_field_body_width_in_wide_layout():
         async with app.run_test(size=(184, 90)) as pilot:
             await pilot.pause()
             app.action_toggle_advanced_settings()
-            await pilot.pause()
 
             level_row = app.query_one(".level-filter-row")
+            advanced = app.query_one("#advanced-settings")
             actions = app.query_one(".level-filter-actions")
             error_checkbox = app.query_one("#level_ERROR")
             info_checkbox = app.query_one("#level_INFO")
@@ -794,6 +854,21 @@ def test_level_filter_controls_use_full_field_body_width_in_wide_layout():
             await _wait_for_layout_to_settle(
                 pilot,
                 (level_row, actions, error_checkbox, info_checkbox, debug_checkbox, trace_checkbox, select_all, clear_levels),
+                lambda: advanced.display
+                and advanced.has_class("advanced-wide")
+                and all(
+                    widget.region.width > 0 and widget.region.height > 0
+                    for widget in (
+                        level_row,
+                        actions,
+                        error_checkbox,
+                        info_checkbox,
+                        debug_checkbox,
+                        trace_checkbox,
+                        select_all,
+                        clear_levels,
+                    )
+                ),
             )
 
             assert level_row.region.width >= 40
@@ -814,15 +889,41 @@ def test_level_filter_controls_reflow_in_compact_layout():
         async with app.run_test(size=(70, 40)) as pilot:
             await pilot.pause()
             app.action_toggle_advanced_settings()
-            await pilot.pause()
 
+            form_panel = app.query_one("#form-panel")
+            advanced = app.query_one("#advanced-settings")
             level_row = app.query_one(".level-filter-row")
             error_checkbox = app.query_one("#level_ERROR")
             info_checkbox = app.query_one("#level_INFO")
             select_all = app.query_one("#select_all_levels")
             clear_levels = app.query_one("#clear_levels")
+            await _wait_for_layout_to_settle(
+                pilot,
+                (
+                    form_panel,
+                    advanced,
+                    level_row,
+                    error_checkbox,
+                    info_checkbox,
+                    select_all,
+                    clear_levels,
+                ),
+                lambda: advanced.display
+                and advanced.content_size.width > 0
+                and advanced.has_class("advanced-compact")
+                and all(
+                    widget.region.width > 0 and widget.region.height > 0
+                    for widget in (
+                        level_row,
+                        error_checkbox,
+                        info_checkbox,
+                        select_all,
+                        clear_levels,
+                    )
+                ),
+            )
 
-            assert app.query_one("#form-panel").has_class("compact")
+            assert form_panel.has_class("compact")
             assert info_checkbox.region.y > error_checkbox.region.y
             assert error_checkbox.region.x + error_checkbox.region.width <= level_row.region.x + level_row.region.width
             assert clear_levels.region.y > select_all.region.y
@@ -833,9 +934,13 @@ def test_level_filter_controls_reflow_in_compact_layout():
 def test_logback_xml_controls_exist():
     """情境：表單應提供 Logback XML 控制元件。"""
     async def run_check() -> None:
-        app = LogAnalyzerApp()
+        app = AdvancedSettingsHarness()
         async with app.run_test() as pilot:
-            await pilot.pause()
+            controls = (
+                app.query_one("#logback_xml_path"),
+                app.query_one("#browse_logback_xml"),
+            )
+            await _wait_for_layout_to_settle(pilot, controls)
 
             assert app.query_one("#logback_xml_path")
             assert app.query_one("#browse_logback_xml")
@@ -2400,7 +2505,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(
                 focused = app.focused
                 sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
                 await pilot.press("tab")
-                await pilot.pause()
+                await _wait_for_focus_transition(app, focused)
 
             assert sequence == [
                 None,
@@ -2429,9 +2534,15 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
         async with app.run_test(size=WIDE_TERMINAL_SIZE) as pilot:
             await pilot.pause()
             app.query_one("#manual_pattern_override").value = True
-            await pilot.pause()
             app.action_toggle_advanced_settings()
-            await pilot.pause()
+            advanced = app.query_one("#advanced-settings")
+            await _wait_for_layout_to_settle(
+                pilot,
+                (advanced,),
+                lambda: advanced.display
+                and advanced.has_class("advanced-wide")
+                and advanced.content_size.width > 0,
+            )
             app.query_one("#time-preset").value = "custom"
             await _wait_for_ui_state(
                 pilot,
@@ -2449,7 +2560,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
                 focused = app.focused
                 sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
                 await pilot.press("tab")
-                await pilot.pause()
+                await _wait_for_focus_transition(app, focused)
 
             assert sequence == [
                 None,

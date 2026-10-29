@@ -8,6 +8,7 @@ from log_analyzer.application.analysis_service import AnalysisRequest, analyze_l
 from log_analyzer.infrastructure.recipe_store import RECIPE_FIELDS, RecipeStore
 from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui import LogAnalyzerApp
+from tui_harnesses import RecipeActionsHarness
 
 
 def _assert_recipe_form_matches(app, saved):
@@ -30,14 +31,16 @@ def _assert_recipe_form_matches(app, saved):
     assert app.query_one("#level_unrestricted").value is saved["level_unrestricted"]
 
 
-def test_recipe_management_control_is_present(tmp_path, monkeypatch):
+def test_recipe_management_control_is_present():
     """情境：畫面應提供配方管理控制。"""
-    monkeypatch.chdir(tmp_path)
-
     async def run_check() -> None:
-        app = LogAnalyzerApp()
+        app = RecipeActionsHarness()
         async with app.run_test() as pilot:
-            await pilot.pause()
+            controls = (
+                app.query_one("#manage-recipes"),
+                app.query_one("#recipe-feedback"),
+            )
+            await wait_for_layout_to_settle(pilot, controls)
 
             assert len(app.query("#manage-recipes")) == 1
             assert app.query_one("#recipe-feedback").display is False

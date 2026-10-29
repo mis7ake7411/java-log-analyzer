@@ -17,6 +17,7 @@ from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui.app import LogAnalyzerApp
 from log_analyzer.presentation.tui.screens.pattern_confirmation import LogbackPatternConfirmationScreen
 from log_analyzer.presentation.tui.views import build_dashboard_view
+from tui_harnesses import ScreenHarness
 
 
 PATTERN = "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger - %msg%n"
@@ -69,10 +70,8 @@ def test_scan_coverage_fits_result_width(tmp_path, monkeypatch, size):
 
 
 @pytest.mark.parametrize("size", [(72, 28), (160, 45)], ids=['viewport-72x28', 'viewport-160x45'])
-def test_pattern_dialog_shows_per_file_scores_and_keyboard_cancel(tmp_path, monkeypatch, size):
+def test_pattern_dialog_shows_per_file_scores_and_keyboard_cancel(tmp_path, size):
     """情境：寬窄 Pattern 視窗應顯示逐檔評分且可鍵盤取消。"""
-    monkeypatch.setattr(tui_module, "load_recent_tui_state", lambda: {})
-    monkeypatch.setattr(tui_module, "save_recent_tui_state", lambda _state: None)
     xml = tmp_path / "logback.xml"
     xml.write_text(f'<configuration><property name="PATTERN" value="{PATTERN}"/></configuration>', encoding="utf-8")
     (tmp_path / "a.log").write_text((LINE + "\n") * 50, encoding="utf-8")
@@ -80,7 +79,7 @@ def test_pattern_dialog_shows_per_file_scores_and_keyboard_cancel(tmp_path, monk
     assessment = assess_logback_patterns([str(xml)], str(tmp_path))
 
     async def check():
-        app = LogAnalyzerApp()
+        app = ScreenHarness()
         async with app.run_test(size=size) as pilot:
             dialog = LogbackPatternConfirmationScreen(assessment)
             await app.push_screen(dialog)

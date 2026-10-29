@@ -10,8 +10,10 @@ from log_analyzer.infrastructure.recipe_store import RecipeStore
 from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui import LogAnalyzerApp
 from log_analyzer.presentation.tui.components import time_range as time_range_module
+from tui_harnesses import TimeRangeSettingsHarness
 from tui_waits import (
     wait_for_button_ready,
+    wait_for_layout_to_settle,
     wait_for_scheduled_analysis,
     wait_for_ui_state,
 )
@@ -195,9 +197,10 @@ def test_time_range_settings_expose_a_preset_select():
     """情境：時間範圍應以選單呈現，而不是直接顯示四個欄位。"""
 
     async def run_check() -> None:
-        app = LogAnalyzerApp()
+        app = TimeRangeSettingsHarness()
         async with app.run_test() as pilot:
-            await pilot.pause()
+            preset = app.query_one("#time-preset")
+            await wait_for_layout_to_settle(pilot, (preset,))
 
             assert len(app.query("#time-preset")) == 1
 

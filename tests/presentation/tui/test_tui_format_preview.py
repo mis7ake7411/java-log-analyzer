@@ -5,10 +5,12 @@ import threading
 import pytest
 from textual.widgets import Checkbox, Input, Static
 
+from log_analyzer.domain.log_sources import select_log_source
 from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui.app import LogAnalyzerApp
 from log_analyzer.presentation.tui.screens.format_preview import FormatPreviewScreen
 from log_analyzer.domain.logback_xml import LogbackPatternAssessment
+from tui_harnesses import ScreenHarness
 from tui_waits import (
     wait_for_layout_to_settle,
     wait_for_ui_state,
@@ -58,7 +60,14 @@ def test_format_preview_shows_fields_without_running_analysis_or_changing_form(s
             assert app._last_result is None
             assert getattr(app, "_scheduled_analysis_task", None) is None
             await pilot.press("escape")
+            await wait_for_ui_state(
+                pilot, lambda: app.screen is not screen, "preview did not close"
+            )
             assert app.screen is not screen
+            for size in ((160, 45), (120, 40), (80, 40), (80, 24)):
+                await pilot.resize_terminal(*size)
+                await wait_for_layout_to_settle(pilot, (button,))
+                assert button.region.height == 1, (size, button.region)
 
     asyncio.run(check())
 
@@ -187,13 +196,10 @@ def test_format_preview_wraps_long_samples_and_close_stays_visible(source, size)
     )
 
     async def check():
-        app = LogAnalyzerApp()
+        app = ScreenHarness()
         async with app.run_test(size=size) as pilot:
-            button = app.query_one("#preview-format")
-            await wait_for_layout_to_settle(pilot, (button,))
-            button.focus()
-            assert button.region.height == 1
-            await pilot.press("enter")
+            screen = FormatPreviewScreen(select_log_source(str(source)))
+            await app.push_screen(screen)
             await wait_for_ui_state(
                 pilot,
                 lambda: isinstance(app.screen, FormatPreviewScreen),
@@ -303,10 +309,10 @@ def test_long_error_reason_remains_scrollable_with_visible_close_button(
     )
 
     async def check():
-        app = LogAnalyzerApp()
+        app = ScreenHarness()
         async with app.run_test(size=(80, 24)) as pilot:
-            app.action_preview_format()
-            screen = app.screen
+            screen = FormatPreviewScreen(select_log_source(str(source)))
+            await app.push_screen(screen)
             await wait_for_ui_state(
                 pilot, lambda: not screen.preview_loading, "error preview not ready"
             )

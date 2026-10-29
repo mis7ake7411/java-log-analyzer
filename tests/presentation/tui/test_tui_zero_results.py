@@ -10,6 +10,7 @@ from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui import views as tui_views
 from log_analyzer.presentation.tui.recent_state import load_recent_tui_state, save_recent_tui_state
 from log_analyzer.presentation.tui import LogAnalyzerApp
+from tui_waits import wait_for_layout_to_settle, wait_for_ui_state
 
 
 def _render_zero_result(diagnostics: ScanDiagnostics) -> str:
@@ -221,21 +222,35 @@ def test_unrestricted_level_disables_controls_without_losing_selection(monkeypat
         async with app.run_test(size=(160, 80)) as pilot:
             await pilot.pause()
             app.action_toggle_advanced_settings()
-            await pilot.pause()
             levels = {"ERROR": True, "WARN": False, "INFO": True, "DEBUG": False, "TRACE": True}
             for level, selected in levels.items():
                 app.query_one(f"#level_{level}").value = selected
 
             unrestricted = app.query_one("#level_unrestricted")
+            panel = app.query_one("#form-panel")
+            # 展開與欄位變更會排入後續刷新；先等幾何就緒才計算捲動目標。
+            await wait_for_layout_to_settle(
+                pilot, (panel, app.query_one("#advanced-settings"), unrestricted)
+            )
             unrestricted.scroll_visible(animate=False, immediate=True)
-            await pilot.pause()
-            form_viewport = app.query_one("#form-panel").scrollable_content_region
+            await wait_for_layout_to_settle(
+                pilot, (panel, unrestricted),
+                lambda: panel.scrollable_content_region.contains_region(unrestricted.region),
+            )
+            form_viewport = panel.scrollable_content_region
             assert unrestricted.region.y >= form_viewport.y
             assert unrestricted.region.y + unrestricted.region.height <= (
                 form_viewport.y + form_viewport.height
             )
-            await pilot.click("#level_unrestricted")
-            await pilot.pause()
+            assert await pilot.click("#level_unrestricted")
+            await wait_for_ui_state(
+                pilot,
+                lambda: unrestricted.value and all(
+                    app.query_one(f"#level_{level}").disabled for level in levels
+                ) and app.query_one("#select_all_levels").disabled
+                and app.query_one("#clear_levels").disabled,
+                "unrestricted level did not finish disabling the level controls",
+            )
             assert unrestricted.value is True
 
             for level, selected in levels.items():
@@ -248,8 +263,15 @@ def test_unrestricted_level_disables_controls_without_losing_selection(monkeypat
             app._set_all_levels(False)
             assert {level: app.query_one(f"#level_{level}").value for level in levels} == levels
 
-            await pilot.click("#level_unrestricted")
-            await pilot.pause()
+            assert await pilot.click("#level_unrestricted")
+            await wait_for_ui_state(
+                pilot,
+                lambda: not unrestricted.value and all(
+                    not app.query_one(f"#level_{level}").disabled for level in levels
+                ) and not app.query_one("#select_all_levels").disabled
+                and not app.query_one("#clear_levels").disabled,
+                "restricted level did not finish enabling the level controls",
+            )
             assert unrestricted.value is False
             for level, selected in levels.items():
                 checkbox = app.query_one(f"#level_{level}")

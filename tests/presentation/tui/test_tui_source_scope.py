@@ -280,7 +280,18 @@ async def _select_scope(pilot, scope_list, path, *, scrollable, displayed=True):
 
 async def _resize_scope(pilot, scope_list, size, *, scrollable):
     await pilot.resize_terminal(*size)
-    await pilot.pause()
+    app = pilot.app
+    await _wait_for_layout_to_settle(
+        pilot,
+        (app.screen, scope_list),
+        lambda: app.screen.region.width == size[0]
+        and app.screen.region.height == size[1]
+        and scope_list.display
+        and scope_list.region.width > 0
+        and scope_list.region.height > 0
+        and scope_list.focusable is scrollable
+        and (scope_list.max_scroll_y > 0) is scrollable,
+    )
     assert scope_list.focusable is scrollable
     assert (scope_list.max_scroll_y > 0) is scrollable
 
@@ -474,35 +485,61 @@ def test_scope_preview_wraps_empty_single_and_many_files_without_overlap(tmp_pat
             (source_dir / f"source-{index}.log").write_text("", encoding="utf-8")
         sources.append((source_dir, file_count))
 
-    async def check_size(size: tuple[int, int]) -> None:
+    async def check_sequence(sizes: tuple[tuple[int, int], ...]) -> None:
         app = LogAnalyzerApp()
-        async with app.run_test(size=size) as pilot:
-            await pilot.pause()
-            for source_dir, file_count in sources:
-                app.query_one("#path", Input).value = str(source_dir)
-                await _wait_for_source_preview(app, pilot, source_dir)
-
-                preview = app.query_one("#source-scope-preview")
-                summary = app.query_one("#source-scope-summary")
-                file_list = app.query_one("#source-scope-list", VerticalScroll)
+        async with app.run_test(size=sizes[0]) as pilot:
+            async def wait_for_size(size: tuple[int, int]) -> None:
+                screen = app.screen
+                form_panel = app.query_one("#form-panel")
                 keyword = app.query_one("#keyword", Input)
-                assert preview.region.y <= summary.region.y
-                assert preview.region.y + preview.region.height >= summary.region.y + summary.region.height
-                assert keyword.region.y >= preview.region.y + preview.region.height
-                if file_count:
-                    assert file_list.display
-                    assert preview.region.y + preview.region.height >= file_list.region.y + file_list.region.height
-                    assert file_list.region.height <= 5
-                else:
-                    assert not file_list.display
-
-                assert preview.region.x >= app.query_one("#form-panel").content_region.x
-                assert preview.region.x + preview.region.width <= (
-                    app.query_one("#form-panel").content_region.x
-                    + app.query_one("#form-panel").content_region.width
+                await _wait_for_layout_to_settle(
+                    pilot,
+                    (screen, form_panel, keyword),
+                    lambda: tuple(app.size) == size
+                    and screen.region.width == size[0]
+                    and screen.region.height == size[1]
+                    and form_panel.region.width > 0
+                    and form_panel.region.height > 0
+                    and form_panel.content_region.width > 0
+                    and keyword.region.width > 0
+                    and keyword.region.height > 0,
                 )
-                if file_count == 7:
-                    assert file_list.max_scroll_y > 0
+                assert tuple(app.size) == size
 
-    for size in ((80, 32), (100, 40), (120, 40), (160, 44), (240, 44)):
-        asyncio.run(check_size(size))
+            async def check_sources_at_size() -> None:
+                for source_dir, file_count in sources:
+                    app.query_one("#path", Input).value = str(source_dir)
+                    await _wait_for_source_preview(app, pilot, source_dir)
+
+                    preview = app.query_one("#source-scope-preview")
+                    summary = app.query_one("#source-scope-summary")
+                    file_list = app.query_one("#source-scope-list", VerticalScroll)
+                    keyword = app.query_one("#keyword", Input)
+                    assert preview.region.y <= summary.region.y
+                    assert preview.region.y + preview.region.height >= summary.region.y + summary.region.height
+                    assert keyword.region.y >= preview.region.y + preview.region.height
+                    if file_count:
+                        assert file_list.display
+                        assert preview.region.y + preview.region.height >= file_list.region.y + file_list.region.height
+                        assert file_list.region.height <= 5
+                    else:
+                        assert not file_list.display
+
+                    assert preview.region.x >= app.query_one("#form-panel").content_region.x
+                    assert preview.region.x + preview.region.width <= (
+                        app.query_one("#form-panel").content_region.x
+                        + app.query_one("#form-panel").content_region.width
+                    )
+                    if file_count == 7:
+                        assert file_list.max_scroll_y > 0
+
+            await wait_for_size(sizes[0])
+            await check_sources_at_size()
+            for size in sizes[1:]:
+                await pilot.resize_terminal(*size)
+                await wait_for_size(size)
+                await check_sources_at_size()
+
+    # 保留窄、寬兩端冷啟動；中間尺寸與寬轉窄由真實 resize 覆蓋。
+    asyncio.run(check_sequence(((80, 32), (100, 40), (120, 40), (160, 44))))
+    asyncio.run(check_sequence(((240, 44), (80, 32))))

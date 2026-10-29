@@ -28,10 +28,40 @@ async def wait_until(
 
 
 async def wait_for_ui_state(pilot, predicate, message, *, timeout=DEFAULT_TIMEOUT):
-    await wait_until(predicate, message, timeout=timeout)
-    await asyncio.wait_for(pilot.pause(), timeout=timeout)
-    # 處理佇列期間條件可能再改變，不以舊狀態當作完成。
-    await wait_until(predicate, message, timeout=timeout)
+    app = pilot.app
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+
+    async def wait_for_stable_state():
+        while True:
+            while not predicate():
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise AssertionError(f"{message} (timeout={timeout}s)")
+                await asyncio.sleep(min(POLL_INTERVAL, remaining))
+
+            await _wait_for_refresh(app)
+            if predicate():
+                return
+
+    task = asyncio.create_task(wait_for_stable_state())
+    try:
+        done, _ = await asyncio.wait({task}, timeout=timeout)
+        if not done:
+            raise AssertionError(f"{message} (timeout={timeout}s)")
+        await task
+    finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+
+async def wait_for_focus_transition(app, previous, *, timeout=DEFAULT_TIMEOUT):
+    await wait_until(
+        lambda: app.focused is not previous,
+        'focus did not change after input',
+        timeout=timeout,
+    )
 
 
 async def set_path_input_and_wait(pilot, path_input, value):
@@ -74,17 +104,27 @@ def _layout_snapshot(widgets):
     )
 
 
+async def _wait_for_refresh(app) -> None:
+    """等候 Textual 處理完目前訊息並完成畫面刷新。"""
+    refreshed = asyncio.Event()
+    if not app.call_after_refresh(refreshed.set):
+        raise RuntimeError("application stopped before layout refresh completed")
+    await refreshed.wait()
+
+
 async def wait_for_layout_to_settle(
     pilot, widgets: Iterable, ready=None, *, timeout=DEFAULT_TIMEOUT
 ):
     widgets = tuple(widgets)
+    app = pilot.app
     last_layout = None
 
     async def settle():
         nonlocal last_layout
         while True:
-            await pilot.pause()
-            await pilot.wait_for_scheduled_animations()
+            await _wait_for_refresh(app)
+            await app.animator.wait_until_complete()
+            await _wait_for_refresh(app)
             layout = _layout_snapshot(widgets)
             is_ready = ready() if ready is not None else all(
                 any(not node.display for node in widget.ancestors_with_self)
@@ -94,7 +134,6 @@ async def wait_for_layout_to_settle(
             if is_ready and layout == last_layout:
                 return
             last_layout = layout if is_ready else None
-            await asyncio.sleep(POLL_INTERVAL)
 
     # wait() 讓框架本身的 TimeoutError 保留原樣；只有本 helper 的期限被轉譯。
     task = asyncio.create_task(settle())
