@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterable
 from unittest.mock import patch
 
 from textual.errors import NoWidget
+from textual.events import Key
 
 
 DEFAULT_TIMEOUT = 5.0
@@ -56,12 +57,22 @@ async def wait_for_ui_state(pilot, predicate, message, *, timeout=DEFAULT_TIMEOU
             await asyncio.gather(task, return_exceptions=True)
 
 
-async def wait_for_focus_transition(app, previous, *, timeout=DEFAULT_TIMEOUT):
-    await wait_until(
+async def press_tab_and_wait_for_focus(pilot, *, timeout=DEFAULT_TIMEOUT):
+    """送出一次 Tab 鍵事件，並等待 Textual 完成焦點切換。"""
+    app = pilot.app
+    previous = app.focused
+    event = Key("tab", "\t")
+    event.set_sender(app)
+    if not app.post_message(event):
+        raise RuntimeError("application stopped before Tab event was scheduled")
+
+    await wait_for_ui_state(
+        pilot,
         lambda: app.focused is not previous,
-        'focus did not change after input',
+        "focus did not change after Tab",
         timeout=timeout,
     )
+    return app.focused
 
 
 async def set_path_input_and_wait(pilot, path_input, value):

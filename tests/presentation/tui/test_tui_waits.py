@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Container
 from textual.screen import ModalScreen
 from textual.widgets import Button
@@ -219,6 +220,129 @@ def test_export_idle_before_start_is_not_completion():
 class WaitHarness(App):
     def compose(self) -> ComposeResult:
         yield Button("Ready", id="run", disabled=True)
+
+
+class TabOrderHarness(App):
+    CSS = "#hidden { display: none; }"
+
+    def compose(self) -> ComposeResult:
+        yield Button("First", id="first")
+        yield Button("Disabled", id="disabled", disabled=True)
+        yield Button("Hidden", id="hidden")
+        yield Button("Last", id="last")
+
+
+class TabOrderModal(ModalScreen):
+    CSS = "#modal-hidden { display: none; }"
+
+    def compose(self) -> ComposeResult:
+        yield Button("Modal first", id="modal-first")
+        yield Button("Modal disabled", id="modal-disabled", disabled=True)
+        yield Button("Modal hidden", id="modal-hidden")
+        yield Button("Modal last", id="modal-last")
+
+
+async def _press_tab_with_helper(pilot, *, timeout=tui_waits.DEFAULT_TIMEOUT):
+    helper = getattr(tui_waits, "press_tab_and_wait_for_focus", None)
+    assert callable(helper), "tui_waits.press_tab_and_wait_for_focus is missing"
+    return await helper(pilot, timeout=timeout)
+
+
+async def _collect_tab_focus_trace(pilot, *, use_helper, count=4):
+    app = pilot.app
+    app.set_focus(None)
+    await wait_for_ui_state(pilot, lambda: app.focused is None, "focus did not reset")
+    trace = []
+    for _ in range(count):
+        if use_helper:
+            await _press_tab_with_helper(pilot)
+        else:
+            await pilot.press("tab")
+        focused = app.focused
+        trace.append(focused.id if focused is not None else None)
+    return tuple(trace)
+
+
+def test_tab_wait_helper_matches_pilot_focus_order_with_modal_boundaries():
+    """確認 Tab 輔助函式沿用 Textual 焦點順序與 Modal 範圍。"""
+    async def collect_traces(*, use_helper):
+        app = TabOrderHarness()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            regular = await _collect_tab_focus_trace(pilot, use_helper=use_helper)
+            await app.push_screen(TabOrderModal())
+            await pilot.pause()
+            modal = await _collect_tab_focus_trace(pilot, use_helper=use_helper)
+            return regular, modal
+
+    async def check():
+        pilot_traces = await collect_traces(use_helper=False)
+        helper_traces = await collect_traces(use_helper=True)
+
+        assert helper_traces == pilot_traces
+        regular, modal = pilot_traces
+        assert regular == ("first", "last", "first", "last")
+        assert modal == (
+            "modal-first",
+            "modal-last",
+            "modal-first",
+            "modal-last",
+        )
+
+    asyncio.run(check())
+
+
+def test_tab_wait_helper_times_out_when_priority_binding_consumes_tab():
+    """確認優先權 binding 攔截 Tab 時會逾時，不會強制切換或重送。"""
+    class InterceptTabHarness(App):
+        BINDINGS = [Binding("tab", "record_tab", "Record Tab", priority=True)]
+
+        def __init__(self):
+            super().__init__()
+            self.tab_count = 0
+
+        def compose(self) -> ComposeResult:
+            yield Button("First", id="first")
+            yield Button("Second", id="second")
+
+        def action_record_tab(self) -> None:
+            self.tab_count += 1
+
+    async def check():
+        app = InterceptTabHarness()
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.set_focus(app.query_one("#first", Button))
+            previous = app.focused
+
+            with pytest.raises(AssertionError, match="focus did not change after Tab"):
+                await _press_tab_with_helper(pilot, timeout=0.02)
+
+            await wait_for_ui_state(
+                pilot,
+                lambda: app.tab_count == 1,
+                "priority Tab binding did not handle the event",
+            )
+            assert app.tab_count == 1
+            assert app.focused is previous
+
+    asyncio.run(check())
+
+
+def test_tab_wait_helper_reports_when_the_event_cannot_be_scheduled():
+    """確認無法排入 Tab 事件時會保留排程錯誤。"""
+    class RefusingApp:
+        focused = None
+
+        def post_message(self, _event):
+            return False
+
+    async def check():
+        pilot = SimpleNamespace(app=RefusingApp())
+        with pytest.raises(RuntimeError, match="application stopped before Tab event"):
+            await tui_waits.press_tab_and_wait_for_focus(pilot)
+
+    asyncio.run(check())
 
 
 def test_button_wait_does_not_click_or_enable_a_disabled_button():

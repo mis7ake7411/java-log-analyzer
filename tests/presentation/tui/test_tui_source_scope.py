@@ -5,6 +5,7 @@ from textual.events import Paste
 from textual.widgets import Input, Static
 
 from tui_waits import (
+    press_tab_and_wait_for_focus as _press_tab_and_wait_for_focus,
     wait_for_ui_state as _wait_for_ui_state,
     wait_for_scheduled_analysis as _wait_for_scheduled_analysis,
     wait_for_layout_to_settle as _wait_for_layout_to_settle,
@@ -326,20 +327,20 @@ def test_source_scope_list_is_keyboard_focusable_only_when_scrollable(tmp_path, 
             path_input = app.query_one("#path", Input)
             path_input.focus()
             for target in ("browse_path", "preview-format", "clear-condition-levels", "select-source-files"):
-                await pilot.press("tab")
+                await _press_tab_and_wait_for_focus(pilot)
                 assert app.focused is app.query_one(f"#{target}")
-            await pilot.press("tab")
+            await _press_tab_and_wait_for_focus(pilot)
             assert app.focused is scope_list
 
             await _select_scope(pilot, scope_list, single_file, scrollable=False)
-            await pilot.press("tab")
+            await _press_tab_and_wait_for_focus(pilot)
             assert app.focused is not scope_list
             await _select_scope(pilot, scope_list, many_files, scrollable=True)
             path_input.focus()
             for target in ("browse_path", "preview-format", "clear-condition-levels", "select-source-files"):
-                await pilot.press("tab")
+                await _press_tab_and_wait_for_focus(pilot)
                 assert app.focused is app.query_one(f"#{target}")
-            await pilot.press("tab")
+            await _press_tab_and_wait_for_focus(pilot)
             assert app.focused is scope_list
 
             for _ in range(2):

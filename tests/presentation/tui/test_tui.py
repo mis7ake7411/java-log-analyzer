@@ -16,8 +16,8 @@ from textual.errors import NoWidget
 from textual.events import Paste
 
 from tui_waits import (
+    press_tab_and_wait_for_focus as _press_tab_and_wait_for_focus,
     set_path_input_and_wait,
-    wait_for_focus_transition as _wait_for_focus_transition,
     wait_for_ui_state as _wait_for_ui_state,
     wait_for_scheduled_analysis as _wait_for_scheduled_analysis,
     wait_for_layout_to_settle as _wait_for_layout_to_settle,
@@ -2504,8 +2504,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(
             for _ in range(11):
                 focused = app.focused
                 sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
-                await pilot.press("tab")
-                await _wait_for_focus_transition(app, focused)
+                await _press_tab_and_wait_for_focus(pilot)
 
             assert sequence == [
                 None,
@@ -2559,8 +2558,7 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
             for _ in range(21):
                 focused = app.focused
                 sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
-                await pilot.press("tab")
-                await _wait_for_focus_transition(app, focused)
+                await _press_tab_and_wait_for_focus(pilot)
 
             assert sequence == [
                 None,
