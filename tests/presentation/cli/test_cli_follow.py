@@ -4,6 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from log_analyzer.application.analysis.service import AnalysisRequest
+from log_analyzer.application.live.conditions import LiveAnalysisRequest
 from log_analyzer.application.live.runner import LiveRunner
 from log_analyzer.presentation.cli import entrypoint as cli
 from log_analyzer.presentation.cli import follow
@@ -52,6 +54,162 @@ def test_follow_flag_is_documented_in_help():
     parser = build_argument_parser(lambda: "1.0.0")
 
     assert "--follow" in parser.format_help()
+
+
+def test_similarity_follow_flags_have_a_default_and_are_follow_only():
+    parser = build_argument_parser(lambda: "1.0.0")
+    args = parser.parse_args(["--follow", "--similar-to", "Database unavailable"])
+
+    assert args.similar_to == "Database unavailable"
+    assert args.similarity_threshold == 80
+    help_text = parser.format_help()
+    assert "--similarity-threshold" in help_text
+    assert "關鍵字" in help_text and "時間" in help_text and "Level" in help_text
+    assert "大小寫" in help_text and "文字相近" in help_text
+
+    invalid_arguments = (
+        ["--similar-to", "Database unavailable"],
+        ["--follow", "--similarity-threshold", "80"],
+        ["--follow", "--similarity-thres", "80"],
+        ["--follow", "--similar-to", "   "],
+        ["--follow", "--similar-to", "ref", "--similarity-threshold", "nan"],
+        ["--follow", "--similar-to", "ref", "--similarity-threshold", "inf"],
+        ["--follow", "--similar-to", "ref", "--similarity-threshold", "100.01"],
+    )
+    for invalid in invalid_arguments:
+        with pytest.raises(SystemExit) as error:
+            parser.parse_args(invalid)
+        assert error.value.code == 2
+
+
+def test_follow_similarity_arguments_filter_real_session_and_keep_base_request(
+    tmp_path,
+):
+    source = tmp_path / "application.log"
+    source.write_bytes(
+        _log("Database unavailable")
+        + _log("database unavailable")
+        + _log("Connection refused")
+    )
+    parser = build_argument_parser(lambda: "1.0.0")
+
+    base_args = parser.parse_args([str(source), "--follow"])
+    base_conditions, _ = follow._resolve_follow_conditions(base_args)
+    assert type(base_conditions) is AnalysisRequest
+
+    args = parser.parse_args(
+        [
+            str(source),
+            "--follow",
+            "--similar-to",
+            "Database unavailable",
+            "--similarity-threshold",
+            "100",
+        ]
+    )
+    validate_follow_arguments(
+        [
+            str(source),
+            "--follow",
+            "--similar-to",
+            "Database unavailable",
+            "--similarity-threshold",
+            "100",
+        ],
+        parser,
+    )
+    conditions, notices = follow._resolve_follow_conditions(args)
+    assert isinstance(conditions, LiveAnalysisRequest)
+    assert conditions.similar_to == "Database unavailable"
+    assert conditions.similarity_threshold == 100
+    assert not notices
+
+    session = follow.LiveSession(conditions, directory=tmp_path)
+    try:
+        session.resume(conditions)
+        events = session.step()
+        assert [event["message"] for event in events] == ["Database unavailable"]
+    finally:
+        session.close()
+
+
+def test_follow_with_similarity_emits_only_matching_raw_event_once(
+    monkeypatch, capsys, tmp_path
+):
+    source = tmp_path / "application.log"
+    initial = (
+        _log("Database unavailable")
+        + _log("database unavailable")
+        + _log("Connection refused")
+    )
+    source.write_bytes(initial)
+    args = build_argument_parser(lambda: "1.0.0").parse_args(
+        [
+            str(source),
+            "--follow",
+            "--similar-to",
+            "Database unavailable",
+            "--similarity-threshold",
+            "100",
+        ]
+    )
+    changed = asyncio.Event()
+    sessions = []
+    delivered = []
+    real_session = follow.LiveSession
+
+    def capture_session(conditions):
+        session = real_session(conditions, directory=tmp_path)
+        sessions.append(session)
+        return session
+
+    class ObservingRunner(LiveRunner):
+        def __init__(self, session, *, on_events=None, on_update=None):
+            def observe_events(events):
+                delivered.extend(events)
+                if on_events is not None:
+                    on_events(events)
+                changed.set()
+
+            def observe_update():
+                if on_update is not None:
+                    on_update()
+                changed.set()
+
+            super().__init__(
+                session, on_events=observe_events, on_update=observe_update
+            )
+
+    monkeypatch.setattr(follow, "LiveSession", capture_session)
+    monkeypatch.setattr(follow, "LiveRunner", ObservingRunner)
+
+    async def run():
+        follow_task = asyncio.create_task(follow.run_follow(args))
+        try:
+            await _wait_for_condition(
+                changed,
+                lambda: bool(sessions)
+                and sessions[0].offset == len(initial)
+                and bool(delivered),
+                "similarity follow did not deliver its initial matching event",
+            )
+            assert [event["message"] for event in delivered] == [
+                "Database unavailable"
+            ]
+            assert capsys.readouterr().out == _log("Database unavailable").decode()
+
+            follow_task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await follow_task
+            assert capsys.readouterr().out == ""
+            assert sessions[0]._closed
+        finally:
+            if not follow_task.done():
+                follow_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await follow_task
+
+    asyncio.run(run())
 
 
 def test_follow_rejects_explicit_batch_export_and_tui_options():

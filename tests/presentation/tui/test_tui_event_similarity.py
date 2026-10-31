@@ -344,7 +344,7 @@ def test_similarity_controls_and_results_fit_narrow_and_wide_screens(tmp_path: P
                 await wait_for_layout_to_settle(
                     pilot,
                     controls,
-                    lambda: all(
+                    lambda: screen.size == size and all(
                         control.display
                         and control.region.width > 0
                         and control.region.height > 0

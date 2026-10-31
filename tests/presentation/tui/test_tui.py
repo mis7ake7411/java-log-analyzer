@@ -75,6 +75,7 @@ def test_tui_loads_structured_responsive_stylesheets():
         "tui.responsive.advanced.tcss",
         "tui.time-range.tcss",
         "tui.live.tcss",
+        "tui.live-similarity.tcss",
     ]
     assert not (Path(__file__).parents[3] / "src/log_analyzer/tcss/tui.responsive.tcss").exists()
 

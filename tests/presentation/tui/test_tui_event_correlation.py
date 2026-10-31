@@ -596,10 +596,14 @@ def test_inputs_results_and_fixed_actions_remain_visible_at_narrow_and_wide_size
             await wait_for_layout_to_settle(pilot, widgets)
             assert_geometry(80, 24)
             await pilot.resize_terminal(160, 40)
-            await wait_for_layout_to_settle(pilot, widgets)
+            await wait_for_layout_to_settle(
+                pilot, widgets, lambda: screen.size == (160, 40)
+            )
             assert_geometry(160, 40)
             await pilot.resize_terminal(80, 24)
-            await wait_for_layout_to_settle(pilot, widgets)
+            await wait_for_layout_to_settle(
+                pilot, widgets, lambda: screen.size == (80, 24)
+            )
             assert_geometry(80, 24)
 
     asyncio.run(run_check())

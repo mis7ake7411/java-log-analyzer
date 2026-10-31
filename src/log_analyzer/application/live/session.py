@@ -9,12 +9,15 @@ from pathlib import Path
 from uuid import uuid4
 
 from log_analyzer.application.analysis.service import AnalysisRequest
+from log_analyzer.application.events.similarity import message_text, score_message
 from log_analyzer.domain.parsing.aggregation import normalize_keyword, should_include
 from log_analyzer.domain.parsing.entries import _is_entry_in_time_range
 from log_analyzer.domain.parsing.incremental import IncrementalEntryParser
 from log_analyzer.domain.timezone import to_local_timezone
 from log_analyzer.infrastructure.sources.incremental import IncrementalFileReader
 from log_analyzer.infrastructure.storage.live_events import LiveEventSnapshot, LiveEventStore
+
+from .conditions import LiveAnalysisRequest
 
 
 # 縮短同步解析與寫入的連續佔用時間，保留暫停與取消的交接點。
@@ -181,7 +184,19 @@ class LiveSession:
             return False
         if not _is_entry_in_time_range(entry, self._start_dt, self._end_dt):
             return False
-        return should_include(entry["full_text"], self._keyword, conditions.ignore_case)
+        if not should_include(
+            entry["full_text"], self._keyword, conditions.ignore_case
+        ):
+            return False
+        if (
+            not isinstance(conditions, LiveAnalysisRequest)
+            or conditions.similar_to is None
+        ):
+            return True
+        return (
+            score_message(conditions.similar_to, message_text(entry))
+            >= conditions.similarity_threshold
+        )
 
     def snapshot(self) -> TrackingSnapshot:
         """固定已保存事件，不讀來源、不 finish、不變更追蹤狀態。"""

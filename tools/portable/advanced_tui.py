@@ -109,6 +109,8 @@ def apply_manual_filters(terminal):
     terminal.wait_text("YYYY-MM-DD")
     fill_visible_input(terminal, "YYYY-MM-DD", "2026-10-24")
     fill_visible_input(terminal, "HH:MM", "10:00:00")
+    # 開始時間後以焦點導航捲到結束日期，不能假設整個時間區塊都在畫面內。
+    terminal.send("\t")
     fill_visible_input(terminal, "YYYY-MM-DD", "2026-10-24")
     fill_visible_input(terminal, "HH:MM", "10:02:00")
     # End time -> ignore case -> sorting; focus scrolls the lower control into view.

@@ -7,6 +7,7 @@ import sys
 from typing import Any
 
 from log_analyzer.application.analysis.service import AnalysisRequest
+from log_analyzer.application.live.conditions import LiveAnalysisRequest
 from log_analyzer.application.live.runner import LiveRunner
 from log_analyzer.application.live.session import LiveSession
 from log_analyzer.domain.log_sources import select_log_source
@@ -46,7 +47,7 @@ def _resolve_follow_conditions(args) -> tuple[AnalysisRequest, tuple[str, ...]]:
         args.pattern,
         selected_files=source.filenames,
     )
-    conditions = AnalysisRequest(
+    condition_values = dict(
         path=source.path,
         start_dt=start_dt,
         end_dt=end_dt,
@@ -57,6 +58,14 @@ def _resolve_follow_conditions(args) -> tuple[AnalysisRequest, tuple[str, ...]]:
         levels=resolve_levels(args.level),
         selected_files=source.filenames,
     )
+    if getattr(args, "similar_to", None) is None:
+        conditions = AnalysisRequest(**condition_values)
+    else:
+        conditions = LiveAnalysisRequest(
+            **condition_values,
+            similar_to=args.similar_to,
+            similarity_threshold=getattr(args, "similarity_threshold", 80.0),
+        )
     notices = tuple(message for message in (source_notice, pattern_notice) if message)
     return conditions, notices
 

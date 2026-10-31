@@ -362,6 +362,33 @@ def test_follow_latest_moves_on_append_but_set_busy_keeps_reading_enabled():
     asyncio.run(run_check())
 
 
+@pytest.mark.parametrize("size", [(80, 24), (160, 44)], ids=["narrow", "wide"])
+def test_follow_checkbox_has_visible_content_and_accepts_click(size):
+    """跟隨最新須有可見內容，且點擊內容可切換跟隨狀態。"""
+    async def run_check():
+        app = _LivePanelApp()
+        async with app.run_test(size=size) as pilot:
+            panel = await _settle_panel(app, pilot)
+            panel.set_session(_FakeSession(_events(1), state="tracking"))
+            follow = app.query_one("#live-follow", Checkbox)
+            await wait_for_layout_to_settle(pilot, (follow,))
+            assert follow.content_region.height >= 1
+            assert follow.content_region.width >= 12
+            assert "跟隨最新" in "".join(
+                follow.render_line(row).text for row in range(follow.size.height)
+            )
+            for selector in ("#live-previous", "#live-next"):
+                assert app.query_one(selector, Button).content_region.height >= 1
+            assert follow.value
+            content = follow.content_region
+            await pilot.click(offset=(content.x + 5, content.y))
+            await wait_for_ui_state(
+                pilot, lambda: not follow.value, "visible follow checkbox did not toggle"
+            )
+
+    asyncio.run(run_check())
+
+
 def test_follow_latest_scrolls_to_latest_event_within_page():
     async def run_check():
         app = _LivePanelApp()

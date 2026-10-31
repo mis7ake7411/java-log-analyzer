@@ -1,6 +1,43 @@
 from __future__ import annotations
 
 import argparse
+from math import isfinite
+import sys
+
+
+class _FollowArgumentParser(argparse.ArgumentParser):
+    """解析完參數後，限制相似篩選只用於 follow。"""
+
+    def parse_args(self, args=None, namespace=None):
+        raw_args = list(sys.argv[1:] if args is None else args)
+        parsed = super().parse_args(raw_args, namespace)
+        option_args = raw_args[: raw_args.index("--")] if "--" in raw_args else raw_args
+        threshold_supplied = any(
+            argument.startswith("--")
+            and "--similarity-threshold".startswith(argument.partition("=")[0])
+            for argument in option_args
+        )
+        if not parsed.follow and (parsed.similar_to is not None or threshold_supplied):
+            self.error("--similar-to 與 --similarity-threshold 僅能搭配 --follow")
+        if parsed.follow and threshold_supplied and parsed.similar_to is None:
+            self.error("--similarity-threshold 必須搭配 --similar-to")
+        return parsed
+
+
+def _parse_similarity_threshold(value: str) -> float:
+    try:
+        threshold = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("相似門檻必須是 0 到 100 的有限數字") from exc
+    if not isfinite(threshold) or not 0 <= threshold <= 100:
+        raise argparse.ArgumentTypeError("相似門檻必須是 0 到 100 的有限數字")
+    return threshold
+
+
+def _parse_similarity_reference(value: str) -> str:
+    if not value.strip():
+        raise argparse.ArgumentTypeError("--similar-to 不可為空白")
+    return value
 
 
 def build_argument_parser(get_package_version):
@@ -12,7 +49,9 @@ def build_argument_parser(get_package_version):
     Returns:
         argparse.ArgumentParser: 已設定來源、分析條件及輸出模式的解析器。
     """
-    parser = argparse.ArgumentParser(prog="log-analyzer", description="Java Logback 日誌分析工具")
+    parser = _FollowArgumentParser(
+        prog="log-analyzer", description="Java Logback 日誌分析工具"
+    )
 
     parser.add_argument(
         "dir",
@@ -41,6 +80,21 @@ def build_argument_parser(get_package_version):
     parser.add_argument("--overwrite", action="store_true", help="明確允許覆蓋已存在的輸出檔案")
     parser.add_argument("--tui", action="store_true", help="啟動互動式介面 (TUI)")
     parser.add_argument("--follow", action="store_true", help="持續追蹤單一日誌檔案的新事件")
+    parser.add_argument(
+        "--similar-to",
+        type=_parse_similarity_reference,
+        help=(
+            "只保留與參考訊息達門檻的完成事件；與關鍵字、時間及 Level 條件取交集。"
+            "相似分數保留大小寫，只代表文字相近，不代表根因相同（僅限 --follow）"
+        ),
+    )
+    parser.add_argument(
+        "--similarity-threshold",
+        type=_parse_similarity_threshold,
+        default=80.0,
+        metavar="NUMBER",
+        help="相似度門檻 0–100；預設 80，需搭配 --similar-to（僅限 --follow）",
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {get_package_version()}")
     return parser
 

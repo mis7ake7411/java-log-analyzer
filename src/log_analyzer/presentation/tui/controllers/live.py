@@ -28,6 +28,9 @@ from log_analyzer.domain.logback.xml import (
     LogbackPatternCandidate,
 )
 from log_analyzer.presentation.tui.components.live_panel import LivePanel
+from log_analyzer.presentation.tui.components.live_similarity import (
+    LiveSimilaritySettings,
+)
 from log_analyzer.presentation.tui.screens.live_event import LiveEventScreen
 from log_analyzer.presentation.tui.screens.live_summary_details import (
     LiveSummaryDetailsScreen,
@@ -80,6 +83,31 @@ class _PendingLivePattern:
 
 class LiveWorkflowMixin:
     """串接即時追蹤，並讓批次與追蹤摘要結果保有獨立生命週期。"""
+
+    def _capture_result_form_identity(self) -> tuple:
+        """將即時相似條件納入即時模式的固定條件識別碼。
+
+        Returns:
+            批次模式原有識別碼，或附加即時相似條件的識別碼。
+
+        Invalid text is represented as an identity rather than raised here so
+        live form change notifications remain safe while the user is editing.
+        """
+        identity = super()._capture_result_form_identity()
+        if getattr(self, "_analysis_mode", "batch") != "live" or not self.is_mounted:
+            return identity
+
+        settings = self.query_one("#live-similarity-settings", LiveSimilaritySettings)
+        try:
+            similarity_identity = settings.get_identity()
+        except ValueError:
+            similarity_identity = (
+                "invalid",
+                self.query_one("#live-similarity-enabled", Checkbox).value,
+                self.query_one("#live-similarity-reference", Input).value,
+                self.query_one("#live-similarity-threshold", Input).value,
+            )
+        return (*identity, ("live_similarity", similarity_identity))
 
     def _initialize_live_workflow(self) -> None:
         self._analysis_mode = "batch"
@@ -189,6 +217,10 @@ class LiveWorkflowMixin:
         if not getattr(self, "is_mounted", False):
             return
         is_live = self._analysis_mode == "live"
+        self.query_one("#run", Button).display = not is_live
+        self.query_one(
+            "#live-similarity-settings", LiveSimilaritySettings
+        ).display = is_live
         show_summary = is_live and self._live_summary_active
         show_live_panel = is_live and not show_summary
         for selector in (
@@ -420,6 +452,58 @@ class LiveWorkflowMixin:
         if self.is_running:
             self.push_screen(LiveEventScreen(message.event))
 
+    def on_live_event_screen_use_as_similarity_reference(
+        self, message: LiveEventScreen.UseAsSimilarityReference
+    ) -> None:
+        """將已保存事件正文帶入相似條件，並要求追蹤先暫停。
+
+        Args:
+            message: 包含已保存事件正文的參考訊息。
+        """
+        session = self._live_session
+        runner = self._live_runner
+        operation = self._live_operation_task
+        busy = operation is not None and not operation.done()
+        if (
+            busy
+            or (runner is not None and runner.running)
+            or (session is not None and session.state in {"tracking", "interrupted"})
+        ):
+            notice = "請先暫停追蹤，再帶入相似參考訊息。"
+            self._set_live_notice(notice)
+            if isinstance(self.screen, LiveEventScreen):
+                self.screen.show_reference_notice(notice)
+            return
+
+        self.query_one(
+            "#live-similarity-settings", LiveSimilaritySettings
+        ).set_reference(message.reference)
+        if isinstance(self.screen, LiveEventScreen):
+            self.pop_screen()
+
+    def on_live_similarity_settings_changed(
+        self, message: LiveSimilaritySettings.Changed
+    ) -> None:
+        """更新即時條件提示，不在暫時無效的輸入期間拋出錯誤。
+
+        Args:
+            message: 相似訊息條件變更通知。
+        """
+        message.stop()
+        if self._analysis_mode != "live":
+            return
+        settings = self.query_one("#live-similarity-settings", LiveSimilaritySettings)
+        try:
+            settings.get_identity()
+        except ValueError:
+            self._set_live_notice("相似訊息條件尚未有效，請修正參考訊息或門檻。")
+            return
+
+        if self._live_session is None:
+            self._set_live_notice("相似訊息條件已更新，開始追蹤時會套用。")
+        elif self._capture_result_form_identity() != self._live_condition_identity:
+            self._set_live_notice("相似訊息條件已變更；請重新分析來源後再套用。")
+
     def _can_schedule_live_operation(self) -> bool:
         task = self._live_operation_task
         if task is not None and not task.done():
@@ -451,8 +535,14 @@ class LiveWorkflowMixin:
 
     async def _run_live_operation(self, name: str, operation) -> None:
         try:
+            # Textual may install an eager task factory. Let the scheduling
+            # caller register this task and publish busy state before an
+            # operation can finish synchronously and publish its final state.
+            await asyncio.sleep(0)
             await operation
         except asyncio.CancelledError:
+            if inspect.iscoroutine(operation):
+                operation.close()
             self._set_live_notice(f"{name}已取消；原追蹤資料仍保留。")
         except AnalysisCancelled:
             self._set_live_notice(f"{name}已取消；原追蹤資料仍保留。")
@@ -570,6 +660,9 @@ class LiveWorkflowMixin:
         )
         if not manual_override:
             request = replace(request, log_pattern=self._analysis_log_pattern)
+        request = self.query_one(
+            "#live-similarity-settings", LiveSimilaritySettings
+        ).as_request(request)
         identity = self._capture_result_form_identity()
         return request, identity, assessment
 
@@ -802,6 +895,8 @@ class LiveWorkflowMixin:
             f"缺口：{gaps}\n"
             f"條件：Level {levels}；關鍵字 {keyword}；忽略大小寫 {request.ignore_case}\n"
             f"時間：{start} 至 {end}\n"
+            f"相似訊息：{getattr(request, 'similar_to', None) or '未啟用'}；"
+            f"門檻 {getattr(request, 'similarity_threshold', 80):g}\n"
             f"Pattern：{request.log_pattern or '預設 Logback'}"
         )
 
@@ -855,6 +950,9 @@ class LiveWorkflowMixin:
             live_busy or application_busy or tracking
         )
         self._set_condition_controls_locked(tracking or live_busy)
+        self.query_one("#live-similarity-settings", LiveSimilaritySettings).set_locked(
+            tracking or live_busy or application_busy
+        )
         self.query_one("#live-panel", LivePanel).set_busy(live_busy)
 
     def action_cancel_analysis(self) -> None:

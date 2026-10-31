@@ -20,6 +20,9 @@ from log_analyzer.presentation.tui.components.layout import (
     _DashboardResultLog,
 )
 from log_analyzer.presentation.tui.components.live_panel import LivePanel
+from log_analyzer.presentation.tui.components.live_similarity import (
+    LiveSimilaritySettings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +64,10 @@ class ViewCompositionMixin:
                 )
                 yield Button("清除", id="clear_keyword")
         yield Static("", classes="field-hint")
+
+        similarity_settings = LiveSimilaritySettings()
+        similarity_settings.display = False
+        yield similarity_settings
 
         yield Button(
             "展開進階設定", id="toggle_advanced_settings", classes="advanced-toggle"
