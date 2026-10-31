@@ -211,10 +211,14 @@ def test_scoped_browser_search_intersects_scope_and_clear_restores_all_groups(so
                 "initial scope not ready",
             )
             assert (
-                "Level ERROR"
+                "Level：ERROR"
                 in screen.query_one("#browser-query-status", Static).render().plain
             )
             assert screen._group_length() == 2
+            assert all(
+                result.matched_logs[index]["level"] == "ERROR"
+                for index in screen._group_indices
+            )
             screen._move_page(1)
             assert screen._group_start == 1
             assert screen._group_page[0]["level"] == "ERROR"
@@ -234,6 +238,7 @@ def test_scoped_browser_search_intersects_scope_and_clear_restores_all_groups(so
             )
             assert screen._scope_level is None
             assert screen._scope_group_index is None
+            assert "Level：" not in screen.query_one("#browser-query-status", Static).render().plain
             assert screen._group_length() == len(result.matched_logs)
             screen._move_page(1)
             assert screen._group_start == 1
