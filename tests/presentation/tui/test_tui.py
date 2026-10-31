@@ -2349,25 +2349,24 @@ def _event_group() -> dict[str, object]:
     }
 
 
-def test_dashboard_browse_button_opens_event_browser():
+def test_dashboard_browse_button_opens_event_browser(tmp_path):
     """情境：查看原文操作應開啟事件瀏覽。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=WIDE_TERMINAL_SIZE) as pilot:
             await pilot.pause()
-            result = SimpleNamespace(
-                total_logs=1,
-                matched_occurrences=1,
-                matched_groups=1,
-                input_path=".",
-                source_states={},
-                matched_logs=[_event_group()],
-            )
+            result = make_analysis_result(tmp_path)
             app._last_result = result
             app._set_result_status("complete", result)
 
-            await pilot.click("#browse-events")
-            await pilot.pause()
+            app._refresh_dashboard_after_resize()
+            assert await pilot.click("#browse-events")
+            await _wait_for_ui_state(
+                pilot,
+                lambda: isinstance(app.screen, EventBrowserScreen)
+                and len(app.screen.query_one("#event-options").options) == 1,
+                "event browser did not show the retained event after dashboard redraw",
+            )
 
             assert isinstance(app.screen, EventBrowserScreen)
             assert len(app.screen.query_one("#event-options").options) == 1
