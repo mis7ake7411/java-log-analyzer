@@ -1,6 +1,8 @@
 import re
 from re import Pattern
 
+from .logback_mdc import make_mdc_group_name
+
 
 DEFAULT_LOGBACK_PATTERN = "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
 TIMESTAMP_PATTERN = r"(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:[\.,]\d{3})?)"
@@ -87,7 +89,7 @@ PASS_THROUGH_PATTERNS = {
     "rEx": r".*",
 }
 
-_PATTERN_TOKEN = re.compile(r"%(-?\d*(?:\.\d+)?)?([A-Za-z]+)(?:\{[^}]*\})?")
+_PATTERN_TOKEN = re.compile(r"%(-?\d*(?:\.\d+)?)?([A-Za-z]+)(?:\{([^{}]*)\})?")
 
 
 class UnsupportedLogbackPatternError(ValueError):
@@ -109,10 +111,10 @@ def compile_logback_pattern(pattern: str) -> Pattern[str]:
 def _build_pattern_regex(pattern: str) -> str:
     regex_parts = ["^"]
     pos = 0
-    for match in _PATTERN_TOKEN.finditer(pattern):
+    for token_index, match in enumerate(_PATTERN_TOKEN.finditer(pattern)):
         literal = pattern[pos:match.start()]
         regex_parts.append(_literal_to_regex(literal))
-        regex_parts.append(_token_to_regex(pattern, match))
+        regex_parts.append(_token_to_regex(pattern, match, token_index))
         pos = match.end()
 
     regex_parts.append(_literal_to_regex(pattern[pos:]))
@@ -120,18 +122,38 @@ def _build_pattern_regex(pattern: str) -> str:
     return "".join(regex_parts)
 
 
-def _token_to_regex(pattern: str, match: re.Match[str]) -> str:
+def _token_to_regex(pattern: str, match: re.Match[str], token_index: int = 0) -> str:
     token = match.group(2)
     if token not in SUPPORTED_TOKENS:
         raise UnsupportedLogbackPatternError(f"不支援的 Logback pattern token：%{token}")
 
     if token == "n":
         return r"\s*"
+    if token in {"X", "mdc"}:
+        return _mdc_token_regex(match, token_index)
     if token in {"logger", "lo", "c"} and _is_logger_followed_by_method(pattern, match.end()):
         return r"(?P<logger>.+\S)\s*"
     if token in FIELD_PATTERNS:
         return FIELD_PATTERNS[token]
     return PASS_THROUGH_PATTERNS[token]
+
+
+def _mdc_token_regex(match: re.Match[str], token_index: int) -> str:
+    format_spec = match.group(1) or ""
+    option = match.group(3)
+    if option is None:
+        key = default = None
+    else:
+        key, separator, default_value = option.partition(":-")
+        default = default_value if separator else None
+
+    group_name = make_mdc_group_name(
+        token_index,
+        key,
+        default,
+        format_spec,
+    )
+    return rf"(?P<{group_name}>.*?)"
 
 
 def _literal_to_regex(literal: str) -> str:

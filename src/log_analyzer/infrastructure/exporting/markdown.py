@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ...domain.parsing.aggregation import normalize_line_numbers
 from .fields import EXPORT_FIELD_LABELS, normalize_export_fields
+from .occurrence_mdc import format_occurrence_detail
 
 
 def render_markdown_report(counts, matched_logs, fields=None) -> str:
@@ -72,8 +73,7 @@ def serialize_markdown_log(index: int, log, fields=None) -> str:
     parts.append("- **事件座標**:\n")
     for occurrence in log.get('occurrences', []):
         parts.append(
-            f"  - {occurrence['filename']}:{occurrence['line_number']} | "
-            f"{occurrence['timestamp']} | {occurrence['thread']}\n"
+            f"  - {format_occurrence_detail(occurrence, markdown=True)}\n"
         )
 
     if log.get('message_body'):
@@ -139,8 +139,7 @@ def _render_markdown_occurrences(label: str, log) -> str:
     if not occurrences:
         return f"- **{label}**:\n  - 無\n"
     details = "".join(
-        f"  - {occurrence['filename']}:{occurrence['line_number']} | "
-        f"{occurrence['timestamp']} | {occurrence['thread']}\n"
+        f"  - {format_occurrence_detail(occurrence, markdown=True)}\n"
         for occurrence in occurrences
     )
     return f"- **{label}**:\n{details}"

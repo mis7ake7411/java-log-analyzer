@@ -42,13 +42,18 @@ class LogEntry(TypedDict, total=False):
     count: int
     stacktrace: str
     stacktrace_lines: list[str]
+    mdc: dict[str, str]
 
 
-class OccurrenceCoordinate(TypedDict):
+class _OccurrenceCoordinateRequired(TypedDict):
     filename: str
     line_number: int
     timestamp: str
     thread: str
+
+
+class OccurrenceCoordinate(_OccurrenceCoordinateRequired, total=False):
+    mdc: dict[str, str]
 
 
 class SourceSnapshot(TypedDict):

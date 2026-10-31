@@ -12,7 +12,7 @@ import pytest
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import VerticalScroll
-from textual.widgets import Input, Select, Static
+from textual.widgets import Button, Input, Select, Static
 
 from tui_waits import wait_for_button_ready, wait_for_ui_state, wait_for_layout_to_settle
 
@@ -215,6 +215,11 @@ def test_browser_query_error_keeps_the_visible_page_and_reports_failure(tmp_path
             assert "stored results unavailable" in browser.query_one("#browser-query-status", Static).render().plain
             assert str(options.options[0].prompt) == before
             assert not search.disabled
+            assert not browser.query_one("#browser-query-scope", Select).disabled
+            assert not browser.query_one("#browser-logger-filter", Input).disabled
+            assert not browser.query_one("#browser-thread-filter", Input).disabled
+            assert not browser.query_one("#browser-source-filter", Input).disabled
+            assert not browser.query_one("#browser-advanced-toggle").disabled
 
     try:
         asyncio.run(run_check())
@@ -229,7 +234,7 @@ def test_closing_browser_cancels_its_active_query(tmp_path, monkeypatch):
     async def run_check():
         entered, finished = asyncio.Event(), asyncio.Event()
 
-        async def delayed_query(*_args):
+        async def delayed_query(*_args, **_kwargs):
             entered.set()
             try:
                 await asyncio.Event().wait()
@@ -245,6 +250,11 @@ def test_closing_browser_cancels_its_active_query(tmp_path, monkeypatch):
             search.focus()
             await pilot.press("enter")
             await wait_for_ui_state(pilot, entered.is_set, "query did not start")
+            assert browser.query_one("#browser-query-scope", Select).disabled
+            assert browser.query_one("#browser-logger-filter", Input).disabled
+            assert browser.query_one("#browser-thread-filter", Input).disabled
+            assert browser.query_one("#browser-source-filter", Input).disabled
+            assert browser.query_one("#browser-advanced-toggle").disabled
             browser.query_one("#close-event-browser").focus()
             await pilot.press("enter")
             await wait_for_ui_state(pilot, finished.is_set, "query was not cancelled on close")
@@ -319,6 +329,209 @@ def test_browser_query_controls_and_actions_fit_short_narrow_and_wide_screens(tm
                 if capture:
                     Path(capture).mkdir(parents=True, exist_ok=True)
                     app.save_screenshot(filename=f"event-query-{size[0]}x{size[1]}.svg", path=capture)
+
+    try:
+        asyncio.run(run_check())
+    finally:
+        result.matched_logs.release()
+
+
+async def _activate_browser_button(app, pilot, selector):
+    button = app.screen.query_one(selector, Button)
+    button.focus()
+    await wait_for_button_ready(app, pilot, selector)
+    await pilot.press("enter")
+
+
+async def _toggle_browser_advanced(app, pilot, browser, advanced, opened):
+    await _activate_browser_button(app, pilot, "#browser-advanced-toggle")
+    await wait_for_ui_state(
+        pilot,
+        lambda: advanced.display is opened,
+        "advanced filter visibility did not change",
+    )
+
+
+async def _select_thread_scope_by_keyboard(pilot, browser):
+    scope = browser.query_one("#browser-query-scope", Select)
+    scope.focus()
+    await pilot.press("enter")
+    await wait_for_ui_state(pilot, lambda: scope.expanded, "scope options did not open")
+    await pilot.press("down", "down", "down", "down")
+    await pilot.press("enter")
+    await wait_for_ui_state(
+        pilot, lambda: scope.value == "thread", "Thread scope was not selected"
+    )
+
+
+async def _type_into_browser_input(pilot, widget, value):
+    widget.focus()
+    await pilot.press(*value)
+    await wait_for_ui_state(
+        pilot, lambda: widget.value == value, f"keyboard input did not reach {widget.id}"
+    )
+
+
+def _browser_status_text(browser):
+    rendered = browser.query_one("#browser-query-status", Static).render()
+    return rendered.plain if isinstance(rendered, Text) else str(rendered)
+
+
+def _assert_browser_filter_text_rows(browser):
+    scope = browser.query_one("#browser-query-scope", Select)
+    scope_current = scope.query_one("SelectCurrent")
+    assert scope_current.content_region.height >= 1
+    for selector in (
+        "#browser-query",
+        "#browser-logger-filter",
+        "#browser-thread-filter",
+        "#browser-source-filter",
+    ):
+        widget = browser.query_one(selector, Input)
+        assert widget.content_region.height >= 1, (selector, widget.region)
+
+
+async def _assert_advanced_browser_layout(app, pilot, browser, *, expects_scroll):
+    advanced = browser.query_one("#browser-advanced", VerticalScroll)
+    scope = browser.query_one("#browser-query-scope", Select)
+    source = browser.query_one("#browser-source-filter", Input)
+    source.focus()
+    options = browser.query_one("#event-options")
+    next_button = browser.query_one("#browser-next")
+    close_button = browser.query_one("#close-event-browser")
+    await wait_for_layout_to_settle(
+        pilot,
+        (advanced, scope, source, options, next_button, close_button),
+        lambda: (
+            (advanced.max_scroll_y > 0 if expects_scroll else advanced.max_scroll_y == 0)
+            and source.is_on_screen
+            and options.region.height > 0
+            and next_button.is_on_screen
+            and close_button.is_on_screen
+        ),
+    )
+    assert source.content_region.height >= 1
+    _assert_browser_filter_text_rows(browser)
+
+
+async def _configure_and_apply_advanced_filters(app, pilot, browser):
+    advanced = browser.query_one("#browser-advanced", VerticalScroll)
+    query = browser.query_one("#browser-query", Input)
+    logger_filter = browser.query_one("#browser-logger-filter", Input)
+    thread_filter = browser.query_one("#browser-thread-filter", Input)
+    source_filter = browser.query_one("#browser-source-filter", Input)
+    await _toggle_browser_advanced(app, pilot, browser, advanced, True)
+    await _assert_advanced_browser_layout(app, pilot, browser, expects_scroll=True)
+    await _select_thread_scope_by_keyboard(pilot, browser)
+    await _type_into_browser_input(pilot, query, "worker")
+    await _type_into_browser_input(pilot, logger_filter, "[red]")
+    await _type_into_browser_input(pilot, thread_filter, "worker")
+    await _type_into_browser_input(pilot, source_filter, "target[1].log")
+    assert browser._group_indices is None
+    await _toggle_browser_advanced(app, pilot, browser, advanced, False)
+    assert browser._group_indices is None
+    assert query.value == "worker"
+    assert browser.query_one("#browser-query-scope", Select).value == "thread"
+    await _toggle_browser_advanced(app, pilot, browser, advanced, True)
+    await _activate_browser_button(app, pilot, "#browser-apply")
+    await wait_for_ui_state(
+        pilot,
+        lambda: browser._group_indices == [1],
+        "combined thread and source filters did not use one occurrence",
+    )
+    status = _browser_status_text(browser)
+    assert "worker" in status
+    assert "target[1].log" in status
+    assert "[red]" in status
+    await _toggle_browser_advanced(app, pilot, browser, advanced, False)
+    assert browser._group_indices == [1]
+    await _toggle_browser_advanced(app, pilot, browser, advanced, True)
+
+
+async def _drill_down_and_clear_advanced_filters(app, pilot, browser):
+    advanced = browser.query_one("#browser-advanced", VerticalScroll)
+    options = browser.query_one("#event-options")
+    options.focus()
+    await pilot.press("enter")
+    await wait_for_ui_state(
+        pilot, lambda: browser._view == "occurrences", "filtered group did not open"
+    )
+    assert not browser.query_one("#browser-controls").display
+    assert not advanced.is_on_screen
+    assert "群組篩選；出現位置列出整個群組" in _browser_status_text(browser)
+
+    await _activate_browser_button(app, pilot, "#browser-back")
+    await wait_for_ui_state(
+        pilot, lambda: browser._view == "groups", "back did not restore groups"
+    )
+    assert advanced.display
+    assert browser._group_indices == [1]
+    assert browser.query_one("#browser-query", Input).value == "worker"
+    assert browser.query_one("#browser-source-filter", Input).value == "target[1].log"
+
+    await _activate_browser_button(app, pilot, "#browser-clear")
+    await wait_for_ui_state(
+        pilot,
+        lambda: browser._group_indices is None,
+        "global clear did not restore unfiltered groups",
+    )
+    assert browser.query_one("#browser-query", Input).value == ""
+    assert browser.query_one("#browser-query-scope", Select).value == "default"
+    assert browser.query_one("#browser-logger-filter", Input).value == ""
+    assert browser.query_one("#browser-thread-filter", Input).value == ""
+    assert browser.query_one("#browser-source-filter", Input).value == ""
+    assert browser.query_one("#browser-order", Select).value == "original"
+    assert not advanced.display
+
+
+async def _check_enter_filter_and_responsive_advanced_layouts(app, pilot, browser):
+    advanced = browser.query_one("#browser-advanced", VerticalScroll)
+    thread_filter = browser.query_one("#browser-thread-filter", Input)
+    await _toggle_browser_advanced(app, pilot, browser, advanced, True)
+    await _type_into_browser_input(pilot, thread_filter, "missing-thread")
+    thread_filter.focus()
+    await pilot.press("enter")
+    await wait_for_ui_state(
+        pilot,
+        lambda: browser._group_indices == [],
+        "Enter did not apply the advanced filter",
+    )
+
+    await pilot.resize_terminal(160, 40)
+    await _assert_advanced_browser_layout(app, pilot, browser, expects_scroll=False)
+    await pilot.resize_terminal(64, 18)
+    await _assert_advanced_browser_layout(app, pilot, browser, expects_scroll=True)
+
+
+def test_browser_advanced_filters_apply_and_restore_across_narrow_layout_and_back(tmp_path):
+    """80x24 layout keeps controls and advanced filters usable."""
+    split_match = _group(
+        0,
+        [
+            _occurrence("target[1].log", 1, thread="unrelated"),
+            _occurrence("other.log", 2, thread="worker-thread"),
+        ],
+    )
+    same_occurrence_match = _group(
+        1,
+        [_occurrence("target[1].log", 3, thread="worker-thread")],
+    )
+    for group in (split_match, same_occurrence_match):
+        group["logger"] = f"com.example.[red].Service{group['logger'][-1]}"
+    result = _result(tmp_path, [split_match, same_occurrence_match])
+
+    async def run_check():
+        app = EventBrowserHarness(result)
+        async with app.run_test(size=(80, 24)) as pilot:
+            browser = app.screen
+            advanced = browser.query_one("#browser-advanced", VerticalScroll)
+            assert browser.query_one("#browser-query-scope", Select).value == "default"
+            assert not advanced.display
+            await _configure_and_apply_advanced_filters(app, pilot, browser)
+            await _drill_down_and_clear_advanced_filters(app, pilot, browser)
+            await _check_enter_filter_and_responsive_advanced_layouts(
+                app, pilot, browser
+            )
 
     try:
         asyncio.run(run_check())
@@ -1007,6 +1220,7 @@ def test_event_browser_preview_actions_are_keyboard_reachable_without_overflow(
         "stacktrace-toggle",
         "browser-back",
         "copy-coordinate",
+        "browser-correlation",
         "close-event-browser",
     )
 

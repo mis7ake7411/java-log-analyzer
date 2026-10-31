@@ -1,5 +1,7 @@
 from __future__ import annotations
 import asyncio
+from dataclasses import dataclass
+from functools import partial
 from math import ceil
 from rich.text import Text
 from textual.app import ComposeResult
@@ -8,7 +10,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, OptionList, Select, Static
 from textual.widgets.option_list import Option
 from log_analyzer.application.analysis_service import AnalysisResult
-from log_analyzer.application.event_query import find_group_indices
+from log_analyzer.application.event_query import EventQueryFilters, find_group_indices
 from log_analyzer.application.source_context_index import SourceContextReader
 from log_analyzer.application.source_preview import SourcePreview, read_source_context
 from log_analyzer.domain.log_types import LogEntry, OccurrenceCoordinate
@@ -21,6 +23,35 @@ from log_analyzer.presentation.tui.event_browser_text import (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class _BrowserQueryDraft:
+    query: str
+    sort_by: str
+    filters: EventQueryFilters
+
+    @property
+    def requires_index(self) -> bool:
+        return bool(
+            self.query
+            or self.sort_by != "original"
+            or self.filters.level is not None
+            or self.filters.group_index is not None
+            or self.filters.logger_filter
+            or self.filters.thread_filter
+            or self.filters.source_filename_filter
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _AppliedBrowserQuery:
+    group_indices: list[int] | None
+    query_sort: str
+    query: str | None
+    group_start: int
+    group_highlight: int
+    filters: EventQueryFilters
+
+
 class EventBrowserScreen(ModalScreen[None]):
     """Browse matched groups and their verified source coordinates."""
 
@@ -31,6 +62,7 @@ class EventBrowserScreen(ModalScreen[None]):
         *,
         initial_level: str | None = None,
         initial_group_index: int | None = None,
+        initial_occurrence_index: int | None = None,
     ) -> None:
         """開啟原結果的瀏覽範圍，篩選只建立索引、不修改原群組。
 
@@ -52,6 +84,12 @@ class EventBrowserScreen(ModalScreen[None]):
         self._active_browser_query: str | None = None
         self._scope_level = initial_level
         self._scope_group_index = initial_group_index
+        self._initial_occurrence_index = initial_occurrence_index
+        self._active_filters = EventQueryFilters(
+            level=initial_level,
+            group_index=initial_group_index,
+        )
+        self._advanced_open = False
         self._query_task: asyncio.Task | None = None
         self._querying = False
         self._group_page: list[LogEntry] = []
@@ -72,22 +110,56 @@ class EventBrowserScreen(ModalScreen[None]):
             yield Static("", id="browser-page")
             yield Static("", id="browser-sort-hint")
             with Container(id="browser-controls"):
-                yield Input(
-                    placeholder="搜尋訊息、Logger 或 Thread", id="browser-query"
-                )
-                with Container(id="browser-query-toolbar"):
+                with Container(id="browser-main-controls"):
+                    yield Input(
+                        placeholder="搜尋訊息、Logger 或 Thread", id="browser-query"
+                    )
+                    with Container(id="browser-query-toolbar"):
+                        yield Select(
+                            [
+                                ("分析原排序", "original"),
+                                ("出現次數最多", "count"),
+                                ("最近出現", "recent"),
+                            ],
+                            value="original",
+                            allow_blank=False,
+                            id="browser-order",
+                        )
+                        yield Button("套用", id="browser-apply")
+                        yield Button(
+                            "清除",
+                            id="browser-clear",
+                            tooltip="清除搜尋、進階條件、排序與摘要範圍",
+                        )
+                        yield Button("進階篩選", id="browser-advanced-toggle")
+                with VerticalScroll(id="browser-advanced"):
                     yield Select(
                         [
-                            ("分析原排序", "original"),
-                            ("出現次數最多", "count"),
-                            ("最近出現", "recent"),
+                            ("預設（訊息、Logger、Thread）", "default"),
+                            ("訊息", "message"),
+                            ("堆疊追蹤", "stacktrace"),
+                            ("Logger", "logger"),
+                            ("Thread", "thread"),
                         ],
-                        value="original",
+                        value="default",
                         allow_blank=False,
-                        id="browser-order",
+                        id="browser-query-scope",
                     )
-                    yield Button("套用", id="browser-apply")
-                    yield Button("清除", id="browser-clear", tooltip="清除搜尋、排序與摘要範圍")
+                    yield Input(
+                        placeholder="Logger 子字串",
+                        tooltip="忽略大小寫的字面子字串條件",
+                        id="browser-logger-filter",
+                    )
+                    yield Input(
+                        placeholder="Thread 子字串",
+                        tooltip="逐次出現位置的忽略大小寫字面子字串條件",
+                        id="browser-thread-filter",
+                    )
+                    yield Input(
+                        placeholder="來源檔名子字串",
+                        tooltip="逐次來源檔名的忽略大小寫字面子字串條件",
+                        id="browser-source-filter",
+                    )
             yield Static("", id="browser-query-status")
             yield OptionList(id="event-options")
             with VerticalScroll(id="browser-preview-content"):
@@ -106,6 +178,7 @@ class EventBrowserScreen(ModalScreen[None]):
                 yield Button("下一頁", id="browser-next")
                 yield Button("返回", id="browser-back")
                 yield Button("複製路徑:行號", id="copy-coordinate", disabled=True)
+                yield Button("MDC 關聯追查", id="browser-correlation")
                 yield Button("關閉", id="close-event-browser")
 
     def on_mount(self) -> None:
@@ -124,7 +197,18 @@ class EventBrowserScreen(ModalScreen[None]):
             self._update_browser_layout()
 
     def _update_browser_layout(self) -> None:
-        self.query_one("#browser-controls").set_class(self.size.width >= 100, "wide")
+        controls = self.query_one("#browser-controls")
+        controls.set_class(self.size.width >= 100, "wide")
+        controls.set_class(self._advanced_open, "advanced-open")
+        self.query_one("#browser-main-controls").set_class(
+            self.size.width >= 100, "wide"
+        )
+        advanced = self.query_one("#browser-advanced", VerticalScroll)
+        advanced.display = self._advanced_open
+        advanced.set_class(self.size.width >= 100, "wide")
+        self.query_one("#browser-advanced-toggle", Button).label = (
+            "收合篩選" if self._advanced_open else "進階篩選"
+        )
         self.query_one("#event-browser-preview-toolbar").set_class(
             self.size.width >= 100, "wide"
         )
@@ -134,7 +218,12 @@ class EventBrowserScreen(ModalScreen[None]):
         )
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id == "browser-query":
+        if event.input.id in {
+            "browser-query",
+            "browser-logger-filter",
+            "browser-thread-filter",
+            "browser-source-filter",
+        }:
             event.stop()
             self._start_query()
 
@@ -144,77 +233,112 @@ class EventBrowserScreen(ModalScreen[None]):
             self._query_task = asyncio.create_task(self._apply_group_query())
 
     async def _apply_group_query(self) -> None:
-        search = self.query_one("#browser-query", Input)
-        order = self.query_one("#browser-order", Select)
-        controls = [
-            search,
-            order,
-            self.query_one("#browser-apply"),
-            self.query_one("#browser-clear"),
-        ]
-        query, sort_by = search.value.strip(), str(order.value)
+        controls = self._query_controls()
         status = self.query_one("#browser-query-status", Static)
-        status.update("正在搜尋已分析結果…")
+        status.update(Text("正在搜尋已分析結果…"))
         for widget in controls:
             widget.disabled = True
         self.query_one("#event-options").disabled = True
         self.query_one("#browser-previous").disabled = True
         self.query_one("#browser-next").disabled = True
-        previous = (
-            self._group_indices,
-            self._query_sort,
-            self._active_browser_query,
-            self._group_start,
-            self._group_highlight,
-        )
+        previous = self._capture_applied_query()
         try:
-            scope = {}
-            if self._scope_level is not None:
-                scope["level"] = self._scope_level
-            if self._scope_group_index is not None:
-                scope["group_index"] = self._scope_group_index
-            indices = (
-                None
-                if not query and sort_by == "original" and not scope
-                else await find_group_indices(self.result.matched_logs, query, sort_by, **scope)
-            )
+            draft = self._query_draft()
+            indices = await self._run_group_query(draft)
             if not self._valid:
                 return
-            self._group_indices = indices
-            self._query_sort = sort_by
-            self._active_browser_query = query or None
-            self._group_start = self._group_highlight = 0
+            self._commit_group_query(draft, indices)
             self._render_group_page()
-            count = len(self.result.matched_logs) if indices is None else len(indices)
-            scope_label = (
-                f"Level {self._scope_level}；" if self._scope_level is not None else
-                f"指定事件 #{self._scope_group_index + 1}；" if self._scope_group_index is not None else ""
-            )
-            status.update(
-                f"{scope_label}瀏覽 {count}/{len(self.result.matched_logs)} 群組；分析結果與匯出內容未變更。"
-                if indices is not None
-                else ""
-            )
+            self._open_initial_occurrence()
+            self._update_query_status()
         except (OSError, ValueError, EOFError) as exc:
-            (
-                self._group_indices,
-                self._query_sort,
-                self._active_browser_query,
-                self._group_start,
-                self._group_highlight,
-            ) = previous
-            status.update(f"無法搜尋：{exc}")
+            self._restore_applied_query(previous)
+            self._update_query_status(error=str(exc))
         finally:
-            self._querying = False
-            if self._valid and self.is_mounted:
-                for widget in controls:
-                    widget.disabled = False
-                self.query_one("#event-options").disabled = False
-                self.query_one("#browser-previous").disabled = self._group_start <= 0
-                self.query_one("#browser-next").disabled = (
-                    self._group_start + self.page_size >= self._group_length()
-                )
-                self.query_one("#event-options").focus()
+            self._finish_group_query(controls)
+
+    def _query_controls(self) -> list:
+        return [
+            self.query_one(selector, widget_type)
+            for selector, widget_type in (
+                ("#browser-query", Input),
+                ("#browser-order", Select),
+                ("#browser-query-scope", Select),
+                ("#browser-logger-filter", Input),
+                ("#browser-thread-filter", Input),
+                ("#browser-source-filter", Input),
+                ("#browser-advanced-toggle", Button),
+                ("#browser-apply", Button),
+                ("#browser-clear", Button),
+            )
+        ]
+
+    def _query_draft(self) -> _BrowserQueryDraft:
+        return _BrowserQueryDraft(
+            query=self.query_one("#browser-query", Input).value.strip(),
+            sort_by=str(self.query_one("#browser-order", Select).value),
+            filters=EventQueryFilters(
+                query_scope=str(
+                    self.query_one("#browser-query-scope", Select).value or "default"
+                ),
+                logger_filter=self.query_one("#browser-logger-filter", Input).value.strip(),
+                thread_filter=self.query_one("#browser-thread-filter", Input).value.strip(),
+                source_filename_filter=self.query_one("#browser-source-filter", Input).value.strip(),
+                level=self._scope_level,
+                group_index=self._scope_group_index,
+            ),
+        )
+
+    async def _run_group_query(self, draft: _BrowserQueryDraft) -> list[int] | None:
+        if not draft.requires_index:
+            return None
+        return await find_group_indices(
+            self.result.matched_logs,
+            draft.query,
+            draft.sort_by,
+            draft.filters,
+        )
+
+    def _capture_applied_query(self) -> _AppliedBrowserQuery:
+        return _AppliedBrowserQuery(
+            group_indices=self._group_indices,
+            query_sort=self._query_sort,
+            query=self._active_browser_query,
+            group_start=self._group_start,
+            group_highlight=self._group_highlight,
+            filters=self._active_filters,
+        )
+
+    def _commit_group_query(
+        self, draft: _BrowserQueryDraft, indices: list[int] | None
+    ) -> None:
+        self._group_indices = indices
+        self._query_sort = draft.sort_by
+        self._active_browser_query = draft.query or None
+        self._active_filters = draft.filters
+        self._group_start = self._group_highlight = 0
+
+    def _restore_applied_query(self, state: _AppliedBrowserQuery) -> None:
+        self._group_indices = state.group_indices
+        self._query_sort = state.query_sort
+        self._active_browser_query = state.query
+        self._group_start = state.group_start
+        self._group_highlight = state.group_highlight
+        self._active_filters = state.filters
+        self._scope_level = state.filters.level
+        self._scope_group_index = state.filters.group_index
+
+    def _finish_group_query(self, controls: list) -> None:
+        self._querying = False
+        if self._valid and self.is_mounted:
+            for widget in controls:
+                widget.disabled = False
+            self.query_one("#event-options").disabled = False
+            self.query_one("#browser-previous").disabled = self._group_start <= 0
+            self.query_one("#browser-next").disabled = (
+                self._group_start + self.page_size >= self._group_length()
+            )
+            self.query_one("#event-options").focus()
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         if not self._valid or event.option_list.id != "event-options":
@@ -247,37 +371,127 @@ class EventBrowserScreen(ModalScreen[None]):
             self._render_preview(self._occurrences[occurrence_index])
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        button_id = event.button.id
-        if button_id == "close-event-browser":
-            self.dismiss()
-        elif button_id == "browser-apply":
-            self._start_query()
-        elif button_id == "browser-clear":
-            self._scope_level = None
-            self._scope_group_index = None
-            self.query_one("#browser-query", Input).value = ""
-            self.query_one("#browser-order", Select).value = "original"
-            self._start_query()
-        elif button_id == "browser-previous":
-            self._move_page(-1)
-        elif button_id == "browser-next":
-            self._move_page(1)
-        elif button_id == "browser-back":
-            if self._view == "preview":
-                self._render_occurrence_page()
-            elif self._view == "occurrences":
-                self._render_group_page()
-            self.query_one("#event-options").focus()
-        elif button_id == "copy-coordinate":
-            self._copy_coordinate()
-        elif button_id == "copy-retained-message":
-            self._copy_retained_message()
-        elif button_id == "copy-full-stacktrace":
-            self._copy_full_stacktrace()
-        elif button_id == "stacktrace-toggle":
-            self._stacktrace_expanded = not self._stacktrace_expanded
-            self._update_retained_details()
-            self.query_one("#stacktrace-toggle", Button).focus()
+        handlers = {
+            "close-event-browser": self.dismiss,
+            "browser-apply": self._start_query,
+            "browser-clear": self._clear_filters,
+            "browser-advanced-toggle": self._toggle_advanced_filters,
+            "browser-previous": partial(self._move_page, -1),
+            "browser-next": partial(self._move_page, 1),
+            "browser-back": self._go_back,
+            "copy-coordinate": self._copy_coordinate,
+            "copy-retained-message": self._copy_retained_message,
+            "copy-full-stacktrace": self._copy_full_stacktrace,
+            "stacktrace-toggle": self._toggle_stacktrace,
+            "browser-correlation": self._open_correlation,
+        }
+        handler = handlers.get(event.button.id)
+        if handler is not None:
+            handler()
+
+    def _clear_filters(self) -> None:
+        self._scope_level = None
+        self._scope_group_index = None
+        for selector, widget_type, value in (
+            ("#browser-query", Input, ""),
+            ("#browser-order", Select, "original"),
+            ("#browser-query-scope", Select, "default"),
+            ("#browser-logger-filter", Input, ""),
+            ("#browser-thread-filter", Input, ""),
+            ("#browser-source-filter", Input, ""),
+        ):
+            self.query_one(selector, widget_type).value = value
+        self._advanced_open = False
+        self._update_browser_layout()
+        self._start_query()
+
+    def _toggle_advanced_filters(self) -> None:
+        self._advanced_open = not self._advanced_open
+        self._update_browser_layout()
+
+    def _go_back(self) -> None:
+        if self._view == "preview":
+            self._render_occurrence_page()
+        elif self._view == "occurrences":
+            self._render_group_page()
+        self.query_one("#event-options").focus()
+
+    def _toggle_stacktrace(self) -> None:
+        self._stacktrace_expanded = not self._stacktrace_expanded
+        self._update_retained_details()
+        self.query_one("#stacktrace-toggle", Button).focus()
+
+    def _open_correlation(self) -> None:
+        from log_analyzer.presentation.tui.screens.event_correlation import (
+            EventCorrelationScreen,
+        )
+
+        initial_key = "traceId"
+        initial_value = ""
+        occurrence = self._selected_occurrence_for_correlation()
+        mdc = occurrence.get("mdc") if occurrence is not None else None
+        if isinstance(mdc, dict):
+            preferred_keys = ["traceId", "requestId", *mdc.keys()]
+            for key in dict.fromkeys(preferred_keys):
+                value = mdc.get(key)
+                if isinstance(key, str) and isinstance(value, str) and value:
+                    initial_key, initial_value = key, value
+                    break
+
+        self.app.push_screen(
+            EventCorrelationScreen(
+                self.result,
+                initial_key=initial_key,
+                initial_value=initial_value,
+            )
+        )
+
+    def _selected_occurrence_for_correlation(self) -> OccurrenceCoordinate | None:
+        if self._view == "preview":
+            return self._current_occurrence
+        if self._view != "occurrences":
+            return None
+
+        highlighted = self.query_one("#event-options", OptionList).highlighted
+        if highlighted is None:
+            return None
+        absolute_index = self._occurrence_start + highlighted
+        if absolute_index < 0 or absolute_index >= len(self._occurrence_order):
+            return None
+        occurrence_index = self._occurrence_order[absolute_index]
+        if occurrence_index < 0 or occurrence_index >= len(self._occurrences):
+            return None
+        return self._occurrences[occurrence_index]
+
+    def _open_initial_occurrence(self) -> None:
+        occurrence_index = self._initial_occurrence_index
+        group_index = self._scope_group_index
+        self._initial_occurrence_index = None
+        if occurrence_index is None or group_index is None or occurrence_index < 0:
+            return
+
+        try:
+            group = self.result.matched_logs[group_index]
+        except (IndexError, OSError, ValueError):
+            return
+        occurrences = group.get("occurrences")
+        if not isinstance(occurrences, list) or occurrence_index >= len(occurrences):
+            return
+
+        self._selected_group = group
+        self._occurrences = occurrences
+        self._occurrence_order = sorted(
+            range(len(occurrences)),
+            key=self._occurrence_sort_key,
+        )
+        try:
+            result_position = self._occurrence_order.index(occurrence_index)
+        except ValueError:
+            return
+        self._occurrence_start = result_position // self.page_size * self.page_size
+        self._occurrence_highlight = result_position % self.page_size
+        self._render_occurrence_page()
+        self._render_preview(occurrences[occurrence_index])
 
     def invalidate(self) -> None:
         """Prevent cached coordinates from being used after their result is released."""
@@ -360,6 +574,73 @@ class EventBrowserScreen(ModalScreen[None]):
             if self._group_indices is None
             else len(self._group_indices)
         )
+
+    def _has_applied_group_filter(self) -> bool:
+        filters = self._active_filters
+        return bool(
+            self._active_browser_query
+            or filters.logger_filter
+            or filters.thread_filter
+            or filters.source_filename_filter
+            or filters.level is not None
+            or filters.group_index is not None
+        )
+
+    def _update_query_status(self, *, error: str | None = None) -> None:
+        text = Text()
+        if error:
+            text.append(f"無法搜尋：{error}\n", style="bold red")
+        parts = self._applied_query_parts()
+        if parts:
+            text.append("條件：", style="bold")
+            text.append("；".join(parts))
+            text.append("\n")
+
+        if self._view == "occurrences":
+            if self._has_applied_group_filter():
+                text.append("群組篩選；出現位置列出整個群組", style="bold yellow")
+        elif self._view == "groups":
+            self._append_group_result_count(text)
+        else:
+            text.plain = ""
+        self.query_one("#browser-query-status", Static).update(text)
+
+    def _applied_query_parts(self) -> list[str]:
+        filters = self._active_filters
+        parts: list[str] = []
+        if self._active_browser_query:
+            scope_labels = {
+                "default": "預設欄位",
+                "message": "訊息",
+                "stacktrace": "堆疊追蹤",
+                "logger": "Logger",
+                "thread": "Thread",
+            }
+            parts.append(
+                f"{scope_labels[filters.query_scope]}：{self._active_browser_query}"
+            )
+        if filters.logger_filter:
+            parts.append(f"Logger：{filters.logger_filter}")
+        if filters.thread_filter:
+            parts.append(f"Thread：{filters.thread_filter}")
+        if filters.source_filename_filter:
+            parts.append(f"來源檔名：{filters.source_filename_filter}")
+        if filters.level is not None:
+            parts.append(f"Level：{filters.level}")
+        if filters.group_index is not None:
+            parts.append(f"事件群組：#{filters.group_index + 1}")
+        return parts
+
+    def _append_group_result_count(self, text: Text) -> None:
+        if self._group_indices is not None:
+            count = len(self._group_indices)
+            text.append(
+                f"瀏覽 {count}/{len(self.result.matched_logs)} 群組；分析結果與匯出內容未變更。"
+            )
+        elif self._has_applied_group_filter():
+            text.append(
+                f"瀏覽 {self._group_length()}/{len(self.result.matched_logs)} 群組；分析結果與匯出內容未變更。"
+            )
 
     def _render_occurrence_page(self) -> None:
         if not self._valid or self._selected_group is None:
@@ -520,7 +801,11 @@ class EventBrowserScreen(ModalScreen[None]):
         self, title: str, options: list[Option], start: int, length: int
     ) -> None:
         self.query_one("#browser-controls").display = self._view == "groups"
-        self.query_one("#browser-query-status").display = self._view == "groups"
+        status = self.query_one("#browser-query-status", Static)
+        status.display = self._view == "groups" or (
+            self._view == "occurrences" and self._has_applied_group_filter()
+        )
+        self._update_query_status()
         self.query_one("#browser-title", Static).update(title)
         first = start + 1 if length else 0
         last = min(start + self.page_size, length)
