@@ -118,12 +118,12 @@ python3 -m venv .venv-portable
 
 要驗證實際壓縮包，可在同一個獨立環境安裝 `tools/portable/requirements-verify.txt`，執行 `tools/portable/verify.py --help` 查看參數。驗證器使用真正的終端機操作，核對上述功能的筆數、內容、行號、分檔大小與雜湊，並保留終端畫面及結果記錄。`--work-dir` 必須指定全新的資料夾，避免覆蓋既有驗證記錄。
 
-例如在 Windows 專案根目錄驗證 1.2.0 成品（Linux 驗證另需可執行 Linux 容器的 Docker）：
+例如在 Windows 專案根目錄驗證 1.3.0 成品（Linux 驗證另需可執行 Linux 容器的 Docker）：
 
 ```powershell
 .\.venv-portable\Scripts\python -m pip install -r tools/portable/requirements-verify.txt
-.\.venv-portable\Scripts\python tools/portable/verify.py --archive dist/portable/log-analyzer-1.2.0-windows-x86_64.zip --expected-version 1.2.0 --work-dir .portable-work/windows-check
-.\.venv-portable\Scripts\python tools/portable/verify.py --archive dist/portable/log-analyzer-1.2.0-linux-x86_64.tar.gz --expected-version 1.2.0 --runtime-image debian:bookworm-slim --work-dir .portable-work/linux-check
+.\.venv-portable\Scripts\python tools/portable/verify.py --archive dist/portable/log-analyzer-1.3.0-windows-x86_64.zip --expected-version 1.3.0 --work-dir .portable-work/windows-check
+.\.venv-portable\Scripts\python tools/portable/verify.py --archive dist/portable/log-analyzer-1.3.0-linux-x86_64.tar.gz --expected-version 1.3.0 --runtime-image debian:bookworm-slim --work-dir .portable-work/linux-check
 ```
 
 ## 啟動方式
