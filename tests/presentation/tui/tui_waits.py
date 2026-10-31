@@ -165,9 +165,10 @@ def _can_click(app, button):
     if not button.display or button.disabled or button.has_class("-active"):
         return False
     region = button.region
-    if region.width <= 1 or region.height <= 1:
+    if region.width <= 0 or region.height <= 0:
         return False
-    x, y = region.x + 1, region.y + 1
+    x = region.x + min(1, region.width - 1)
+    y = region.y + min(1, region.height - 1)
     if not app.screen.region.contains(x, y):
         return False
     try:

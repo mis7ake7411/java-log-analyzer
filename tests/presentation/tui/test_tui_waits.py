@@ -361,6 +361,60 @@ def test_button_wait_does_not_click_or_enable_a_disabled_button():
     asyncio.run(check())
 
 
+@pytest.mark.parametrize(
+    ("width", "height", "expected_point"),
+    [
+        (1, 1, Offset(4, 5)),
+        (1, 3, Offset(4, 6)),
+        (3, 1, Offset(5, 5)),
+        (3, 3, Offset(5, 6)),
+    ],
+    ids=["one-cell", "narrow", "one-row", "larger-button"],
+)
+def test_clickability_uses_an_in_bounds_hit_point(width, height, expected_point):
+    """合法窄按鈕取可見範圍內的點，大按鈕仍使用原本的偏移位置。"""
+    button = SimpleNamespace(
+        display=True,
+        disabled=False,
+        region=Region(4, 5, width, height),
+        has_class=lambda name: name == "-active" and False,
+    )
+
+    class Screen:
+        region = Region(0, 0, 20, 20)
+
+        def get_widget_at(self, x, y):
+            self.point = Offset(x, y)
+            return button, Region(x, y, 1, 1)
+
+    screen = Screen()
+    assert tui_waits._can_click(SimpleNamespace(screen=screen), button)
+    assert screen.point == expected_point
+
+
+def test_clickability_rejects_obscured_and_zero_sized_buttons():
+    """遮擋中的按鈕與沒有正尺寸的區域不得視為可點。"""
+    button = SimpleNamespace(
+        display=True,
+        disabled=False,
+        region=Region(4, 5, 1, 1),
+        has_class=lambda name: name == "-active" and False,
+    )
+
+    class Screen:
+        region = Region(0, 0, 20, 20)
+
+        def get_widget_at(self, x, y):
+            return SimpleNamespace(id="overlay"), Region(x, y, 1, 1)
+
+    app = SimpleNamespace(screen=Screen())
+    assert not tui_waits._can_click(app, button)
+
+    for region in (Region(4, 5, 0, 1), Region(4, 5, 1, 0)):
+        button.region = region
+        assert not tui_waits._can_click(app, button)
+
+
 def test_layout_waits_for_scheduled_animation_before_accepting_equal_regions():
     """情境：接受相同版面前應等待已排程動畫完成。"""
     async def check():

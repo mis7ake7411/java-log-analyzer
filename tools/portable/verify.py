@@ -17,6 +17,7 @@ import zipfile
 from terminal_session import TerminalSession
 from advanced_cli import verify_advanced_cli
 from advanced_tui import verify_advanced_tui
+from live_cli import verify_live_cli
 
 
 def check_archive(archive):
@@ -45,6 +46,7 @@ def check_archive(archive):
         "tui.base.tcss",
         "tui.dialog.tcss",
         "tui.layout.tcss",
+        "tui.live.tcss",
         "tui.responsive.advanced.tcss",
         "tui.responsive.form.tcss",
         "tui.responsive.layout.tcss",
@@ -297,6 +299,7 @@ def main():
         advanced_checks = verify_advanced_cli(target)
         print("Advanced CLI checks passed.", flush=True)
         advanced_checks += verify_advanced_tui(target, root)
+        advanced_checks += verify_live_cli(target, root)
         target.assert_bundle_untouched()
         assert digest == check_archive(archive), "Archive changed during verification"
         report = {

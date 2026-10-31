@@ -14,6 +14,7 @@ from log_analyzer.application.events.query import EventQueryFilters, find_group_
 from log_analyzer.application.events.similarity import message_text as similarity_message_text
 from log_analyzer.infrastructure.sources.context_index import SourceContextReader
 from log_analyzer.application.sources.preview import SourcePreview, read_source_context
+from log_analyzer.application.live.preview import read_tracking_context
 from log_analyzer.domain.log_types import LogEntry, OccurrenceCoordinate
 from log_analyzer.presentation.tui.event_browser_text import (
     STACKTRACE_PREVIEW_LINES,
@@ -705,12 +706,16 @@ class EventBrowserScreen(ModalScreen[None]):
         filename = occurrence.get("filename", "")
         source_states = getattr(self.result, "source_states", {})
         snapshot = source_states.get(filename) if isinstance(filename, str) else None
-        preview = read_source_context(
-            self.result.input_path,
-            occurrence,
-            snapshot,
-            reader=self._source_context_reader,
-        )
+        tracking_snapshot = getattr(self.result, "tracking_snapshot", None)
+        if tracking_snapshot is not None:
+            preview = read_tracking_context(tracking_snapshot, occurrence)
+        else:
+            preview = read_source_context(
+                self.result.input_path,
+                occurrence,
+                snapshot,
+                reader=self._source_context_reader,
+            )
         self._view = "preview"
         self.query_one("#browser-controls").display = False
         self.query_one("#browser-query-status").display = False

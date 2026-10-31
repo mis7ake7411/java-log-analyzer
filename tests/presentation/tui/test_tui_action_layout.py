@@ -215,7 +215,15 @@ def test_completed_dashboard_reflows_with_viewport_width() -> None:
                     _assert_inside(output_panel, app.screen)
                     _assert_inside(result_box, output_panel)
                     _assert_inside(output_actions, output_panel)
-                    for button in output_actions.query("Button"):
+                    visible_buttons = [
+                        button for button in output_actions.query("Button")
+                        if button.display
+                    ]
+                    assert {button.id for button in visible_buttons} == {
+                        "browse-events", "export-result", "clear",
+                    }
+                    assert not app.query_one("#return-live").display
+                    for button in visible_buttons:
                         _assert_inside(button, output_actions)
                         _assert_inside(button, app.screen)
                     content_width = result_box.scrollable_content_region.width

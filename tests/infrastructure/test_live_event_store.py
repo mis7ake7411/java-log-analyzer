@@ -1,5 +1,7 @@
 import json
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 
 import pytest
 
@@ -234,3 +236,45 @@ def test_snapshot_pages_captured_text_after_original_file_is_removed(tmp_path):
         assert not source.exists()
     finally:
         snapshot.release()
+
+
+def test_snapshot_worker_reads_in_batches_without_blocking_appends(tmp_path):
+    store = LiveEventStore(tmp_path)
+    for number in range(150):
+        store.append({"raw_text": f"event-{number}"}, generation=0)
+    snapshot = store.snapshot()
+    first_row_ready = Event()
+    continue_reading = Event()
+
+    def read_snapshot_on_worker():
+        page = iter(snapshot)
+        try:
+            first = next(page)
+        except Exception:
+            first_row_ready.set()
+            raise
+        first_row_ready.set()
+        if not continue_reading.wait(timeout=10):
+            raise TimeoutError("worker did not receive permission to continue")
+        return [first, *page]
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as worker:
+            future = worker.submit(read_snapshot_on_worker)
+            try:
+                assert first_row_ready.wait(timeout=5)
+                if future.done():
+                    future.result()
+
+                assert store.append({"raw_text": "after-cutoff"}, generation=1) == 151
+            finally:
+                continue_reading.set()
+
+            rows = future.result(timeout=10)
+
+        assert len(rows) == 150
+        assert [row["sequence"] for row in rows] == list(range(1, 151))
+        assert all(row["raw_text"] != "after-cutoff" for row in rows)
+    finally:
+        snapshot.release()
+        store.close()

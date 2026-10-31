@@ -74,6 +74,7 @@ def test_tui_loads_structured_responsive_stylesheets():
         "tui.responsive.form.tcss",
         "tui.responsive.advanced.tcss",
         "tui.time-range.tcss",
+        "tui.live.tcss",
     ]
     assert not (Path(__file__).parents[3] / "src/log_analyzer/tcss/tui.responsive.tcss").exists()
 
@@ -2501,13 +2502,14 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(
             )
 
             sequence = []
-            for _ in range(11):
+            for _ in range(12):
                 focused = app.focused
                 sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
                 await _press_tab_and_wait_for_focus(pilot)
 
             assert sequence == [
                 None,
+                "analysis-mode",
                 "path",
                 "browse_path",
                 "preview-format",
@@ -2555,13 +2557,14 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
 
             assert app.query_one("#advanced-settings").has_class("advanced-wide")
             sequence = []
-            for _ in range(21):
+            for _ in range(22):
                 focused = app.focused
                 sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
                 await _press_tab_and_wait_for_focus(pilot)
 
             assert sequence == [
                 None,
+                "analysis-mode",
                 "path",
                 "browse_path",
                 "preview-format",

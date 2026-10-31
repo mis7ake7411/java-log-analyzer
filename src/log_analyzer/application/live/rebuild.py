@@ -36,7 +36,7 @@ async def prepare_replacement(
         ValueError: 來源或分析條件無效。
         asyncio.CancelledError: 使用者取消準備工作。
     """
-    if previous.state not in {"paused", "error"}:
+    if previous.state not in {"paused", "error", "stopped"}:
         raise RuntimeError("請先完成暫停，再重新分析來源")
     candidate = LiveSession(conditions, directory=directory, max_bytes=max_bytes)
     try:

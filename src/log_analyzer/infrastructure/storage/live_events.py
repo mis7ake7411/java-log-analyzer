@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Any
 
 
+_SNAPSHOT_READ_BATCH_SIZE = 100
+
+
 class LiveStorageLimitError(OSError):
     """即時事件的 JSON payload 已超過設定容量。"""
 
@@ -19,8 +22,9 @@ class LiveEventStore:
     """依序保存完成事件，並以固定截止序號建立可分頁快照。
 
     容量只計算每筆事件的 ASCII JSON payload bytes，不包含 SQLite 結構、
-    索引、journal 或檔案系統配置等額外磁碟用量。所有操作須由建立儲存器的
-    同一執行緒呼叫；資料庫連線也由仍有效的快照共用，以支援關閉儲存器後讀取。
+    索引、journal 或檔案系統配置等額外磁碟用量。寫入、直接分頁與生命週期
+    操作須由建立儲存器的同一執行緒呼叫；快照讀取使用獨立的短期唯讀連線，
+    可交給背景執行緒。有效快照保留資料庫檔案，關閉儲存器後仍可讀取。
     """
 
     def __init__(
@@ -244,6 +248,83 @@ class LiveEventStore:
 
         return generate()
 
+    def _iter_snapshot_rows(
+        self,
+        start: int,
+        size: int,
+        cutoff: int,
+    ) -> Iterator[dict[str, Any]]:
+        start = max(0, start)
+        if size <= 0 or cutoff <= 0 or start >= cutoff:
+            return iter(())
+
+        def generate() -> Iterator[dict[str, Any]]:
+            last_sequence = start
+            remaining = size
+            while remaining > 0 and last_sequence < cutoff:
+                connection: sqlite3.Connection | None = None
+                cursor: sqlite3.Cursor | None = None
+                rows: list[tuple[int, int, bytes]] = []
+                try:
+                    connection = self._open_readonly_connection()
+                    cursor = connection.execute(
+                        """
+                        SELECT sequence, generation, payload
+                        FROM live_events
+                        WHERE sequence > ? AND sequence <= ?
+                        ORDER BY sequence
+                        LIMIT ?
+                        """,
+                        (
+                            last_sequence,
+                            cutoff,
+                            min(remaining, _SNAPSHOT_READ_BATCH_SIZE),
+                        ),
+                    )
+                    rows = cursor.fetchall()
+                except sqlite3.Error as error:
+                    raise OSError("無法讀取即時事件快照") from error
+                finally:
+                    close_error: sqlite3.Error | None = None
+                    if cursor is not None:
+                        try:
+                            cursor.close()
+                        except sqlite3.Error as error:
+                            close_error = error
+                    if connection is not None:
+                        try:
+                            connection.close()
+                        except sqlite3.Error as error:
+                            close_error = close_error or error
+                    if close_error is not None:
+                        raise OSError("無法關閉即時事件唯讀連線") from close_error
+
+                if not rows:
+                    break
+
+                for sequence, generation, payload in rows:
+                    last_sequence = int(sequence)
+                    remaining -= 1
+                    event = json.loads(payload.decode("ascii"))
+                    event["sequence"] = last_sequence
+                    event["generation"] = int(generation)
+                    yield event
+
+        return generate()
+
+    def _open_readonly_connection(self) -> sqlite3.Connection:
+        if self._database_path is None:
+            raise RuntimeError("live event database is closed")
+        database_uri = f"{self._database_path.resolve().as_uri()}?mode=ro"
+        try:
+            return sqlite3.connect(
+                database_uri,
+                uri=True,
+                isolation_level=None,
+            )
+        except sqlite3.Error as error:
+            raise OSError("無法開啟即時事件唯讀連線") from error
+
     def _ensure_open(self) -> None:
         if self._closed:
             raise RuntimeError("live event store is closed")
@@ -310,7 +391,7 @@ class LiveEventSnapshot:
     def iter_page(self, start: int, size: int) -> Iterator[dict[str, Any]]:
         """讀取快照範圍內的一頁事件。"""
         self._ensure_active()
-        return self._store._iter_rows(start, size, self._cutoff)
+        return self._store._iter_snapshot_rows(start, size, self._cutoff)
 
     def __iter__(self) -> Iterator[dict[str, Any]]:
         """依序遍歷快照包含的所有事件。"""

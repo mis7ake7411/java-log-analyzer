@@ -62,6 +62,39 @@ def test_rebuild_validation_failure_retains_old_position_and_results(tmp_path):
         old.close()
 
 
+def test_rebuild_after_stop_preserves_old_snapshot_and_publishes_paused_candidate(
+    tmp_path,
+):
+    """停止不會釋放事件暫存；新來源成功前仍可讀舊快照。"""
+    source = tmp_path / "app.log"
+    source.write_bytes(_log("old") + _log("old-tail"))
+    old = _paused_session(source, tmp_path)
+    retained = old.snapshot()
+    old.end()
+    position = old.offset
+    try:
+        new = asyncio.run(
+            rebuild_session(old, old.conditions, directory=tmp_path)
+        )
+        try:
+            assert new.state == "paused"
+            assert new.session_id != old.session_id
+            assert old.state == "stopped"
+            assert old.offset == position
+            assert old.matched == 2
+            assert [event["message"] for event in old.iter_page(0, 10)] == [
+                "old",
+                "old-tail",
+            ]
+            assert [event["message"] for event in retained.events] == ["old"]
+            assert [event["message"] for event in new.iter_page(0, 10)] == ["old"]
+        finally:
+            new.close()
+    finally:
+        retained.release()
+        old.close()
+
+
 def test_rebuild_requires_safe_pause_before_replacing(tmp_path):
     """未交接完的讀取不能直接重建，避免兩個來源讀取者。"""
     source = tmp_path / "app.log"

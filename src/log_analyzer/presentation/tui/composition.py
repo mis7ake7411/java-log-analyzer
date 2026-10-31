@@ -19,6 +19,7 @@ from log_analyzer.presentation.tui.components.layout import (
     _ResponsiveAdvancedSettings,
     _DashboardResultLog,
 )
+from log_analyzer.presentation.tui.components.live_panel import LivePanel
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,15 @@ class ViewCompositionMixin:
 
     def _compose_basic_input_fields(self) -> ComposeResult:
         yield Static("輸入設定", classes="section-title")
+
+        with Container(classes="field field--inline", id="analysis-mode-field"):
+            yield Label("分析模式")
+            yield Select(
+                [("批次分析", "batch"), ("即時追蹤", "live")],
+                value="batch",
+                id="analysis-mode",
+            )
+        yield Static("", classes="field-hint", id="analysis-mode-status", markup=False)
 
         with Container(classes="field"):
             yield Label("Log 來源（檔案或資料夾）")
@@ -214,7 +224,18 @@ class ViewCompositionMixin:
 
     def _compose_result_panel(self) -> ComposeResult:
         with Container(id="output-panel"):
-            yield Static("執行結果", classes="section-title")
+            yield Static("執行結果", classes="section-title", id="output-title")
+            yield Static(
+                "",
+                id="live-summary-metadata",
+                classes="live-summary-metadata",
+                markup=False,
+            )
+            yield Button(
+                "查看完整條件與缺口",
+                id="live-summary-details",
+                classes="live-summary-details",
+            )
             yield Static("", id="result-status")
             yield ResultContextNotice("", id="result-context-notice", markup=False)
             yield _DashboardResultLog(
@@ -237,3 +258,5 @@ class ViewCompositionMixin:
                 yield Button("查看事件原文", id="browse-events", disabled=True)
                 yield Button("匯出結果", id="export-result", disabled=True)
                 yield Button("清除結果", id="clear")
+                yield Button("返回即時追蹤", id="return-live")
+            yield LivePanel(id="live-panel")
