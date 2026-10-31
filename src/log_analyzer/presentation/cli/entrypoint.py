@@ -14,7 +14,7 @@ from ...application.analysis.service import (
 from ...domain.logback.pattern import UnsupportedLogbackPatternError
 from ...domain.log_sources import LogSourceSelection, select_log_source
 from ...infrastructure.exporting import ExportConflictError
-from .args import build_argument_parser
+from .args import build_argument_parser, validate_follow_arguments
 from .runtime import (
     parse_datetime_value,
     resolve_levels,
@@ -277,19 +277,55 @@ def _handle_cli_error(exc: Exception) -> None:
     sys.exit(1)
 
 
-def main():
-    """建立參數解析器，分流 TUI / CLI，並統一處理 CLI 執行錯誤。
+def _run_cli_follow(args) -> None:
+    """以非互動 CLI 啟動單一日誌檔案的持續追蹤。
 
-    parse_args() 會驗證命令列參數；TUI 結束後直接 return，避免接著產生報表。
-    已知與未知的分析錯誤都交給 _handle_cli_error，最後以非零狀態退出。
+    Args:
+        args: argparse 解析後且已通過 follow 相容性檢查的參數。
+
+    Returns:
+        None: 追蹤正常結束後返回。
+
+    Raises:
+        KeyboardInterrupt: asyncio 中斷訊號傳回呼叫端，轉為退出碼 130。
+        Exception: 輸入、讀取、解析或事件輸出失敗。
+    """
+    import asyncio
+
+    from .follow import run_follow
+
+    asyncio.run(run_follow(args))
+
+
+def main():
+    """建立參數解析器，分流 TUI、follow 與批次 CLI。
+
+    先保留原始參數以檢查 follow 的批次匯出互斥選項。follow 在解析預設匯出路徑前執行，
+    批次流程則沿用原本 TUI 判斷、路徑解析及分析錯誤處理。
+
     Returns:
         None: CLI 完成或 TUI 關閉後返回。
 
     Raises:
-        SystemExit: 參數錯誤、help／version，或分析失敗時結束程序。
+        SystemExit: 參數錯誤、help／version、Ctrl+C 或分析失敗時結束程序。
     """
     parser = build_argument_parser(get_package_version)
-    args = parser.parse_args()
+    argv = sys.argv[1:]
+    args = parser.parse_args(argv)
+
+    if args.follow:
+        try:
+            validate_follow_arguments(argv, parser)
+        except ValueError as exc:
+            parser.error(str(exc))
+        try:
+            _run_cli_follow(args)
+        except KeyboardInterrupt:
+            raise SystemExit(130) from None
+        except Exception as exc:  # noqa: BLE001
+            print(f"錯誤：{exc}", file=sys.stderr)
+            raise SystemExit(1) from None
+        return
 
     if _try_run_tui(args):
         return

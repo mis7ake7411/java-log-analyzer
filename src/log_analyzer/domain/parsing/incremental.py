@@ -49,6 +49,7 @@ class IncrementalEntryParser:
         self._line_buffer = ""
         self._line_number = 0
         self._finished = False
+        self._pending_cr = False
 
     @property
     def pending(self) -> LogEntry | None:
@@ -61,6 +62,16 @@ class IncrementalEntryParser:
         """回傳已辨識的實體行數。"""
         return self._line_number
 
+    @property
+    def has_pending_input(self) -> bool:
+        """包含未完成事件、半行或解碼器內尚未組成字元的 bytes。"""
+        return bool(
+            self._accumulator.current_entry is not None
+            or self._line_buffer
+            or self._decoder.getstate()[0]
+            or self._pending_cr
+        )
+
     def feed(self, data: bytes) -> list[LogEntry]:
         """消費一段 bytes，只交出被下一個事件首行結束的事件。"""
         if self._finished:
@@ -68,6 +79,8 @@ class IncrementalEntryParser:
         if not isinstance(data, bytes):
             raise TypeError("data must be bytes")
 
+        if data:
+            self._pending_cr = data.endswith(b"\r")
         decoded = self._decoder.decode(data, final=False)
         return self._consume_decoded(decoded)
 
@@ -76,6 +89,7 @@ class IncrementalEntryParser:
         if self._finished:
             return []
         self._finished = True
+        self._pending_cr = False
 
         emitted = self._consume_decoded(self._decoder.decode(b"", final=True))
         if self._line_buffer:
