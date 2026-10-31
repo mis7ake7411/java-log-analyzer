@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from log_analyzer.domain.log_types import LogEntry, ScanDiagnostics
-from log_analyzer.domain.logback_mdc import extract_mdc
+from log_analyzer.domain.logback.mdc import extract_mdc
 
 from ..timezone import to_local_timezone
 

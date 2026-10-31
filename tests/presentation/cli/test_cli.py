@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from log_analyzer.application.analysis_service import NoMatchingLogsError
+from log_analyzer.application.analysis.service import NoMatchingLogsError
 from log_analyzer.domain.log_types import ScanDiagnostics
 from log_analyzer.presentation.cli import entrypoint as cli
 

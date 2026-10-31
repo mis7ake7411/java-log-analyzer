@@ -1,6 +1,6 @@
 import pytest
 
-from log_analyzer.application.source_preview import read_source_context
+from log_analyzer.application.sources.preview import read_source_context
 from log_analyzer.domain.log_types import OccurrenceCoordinate, SourceSnapshot
 
 

@@ -443,9 +443,13 @@ python benchmarks/analysis_workflow.py --entries 20000 --repeat 3
 
 ## 專案結構
 
-- `src/log_analyzer/application/analysis_service.py`：分析流程與結果組裝
-- `src/log_analyzer/application/evidence_manifest.py`：證據清單與來源／報表雜湊核對
-- `src/log_analyzer/domain/parser.py`：核心解析邏輯
+- `src/log_analyzer/application/analysis/`：分析與匯出使用流程；`service.py` 組裝結果，`summary.py` 彙整摘要，`evidence.py` 核對來源與報表證據
+- `src/log_analyzer/application/events/`：對已保留結果進行搜尋、篩選與 MDC 關聯查詢，不重新分析來源
+- `src/log_analyzer/application/sources/`：來源選取狀態與原文預覽；顯示前核對來源範圍與掃描快照
+- `src/log_analyzer/domain/parser.py`、`domain/parsing/`：解析入口，以及掃描、事件組裝與群組彙整
+- `src/log_analyzer/domain/logback/`：Logback Pattern 編譯、XML 候選格式評估與 MDC 擷取規則
+- `src/log_analyzer/domain/log_types.py`：事件、發生位置與來源快照等共用資料型別
+- `src/log_analyzer/infrastructure/sources/`：來源檔案的稀疏索引與文字讀取，供原文預覽重用
 - `src/log_analyzer/infrastructure/exporting/`：匯出流程、欄位定義與 CSV／JSON／Markdown 實作
 - `src/log_analyzer/infrastructure/recipe_store.py`：使用者本地命名配方儲存
 - `src/log_analyzer/presentation/cli/`：CLI 進入點、參數定義與執行條件處理
@@ -459,10 +463,10 @@ python benchmarks/analysis_workflow.py --entries 20000 --repeat 3
 - `src/log_analyzer/presentation/tui/recent_state.py`：最近一次表單狀態保存
 - `src/log_analyzer/tcss/`：TUI 樣式檔
 - `tests/domain/`：日誌解析、Pattern 與時間處理
-- `tests/application/`：分析服務、來源預覽與證據清單
-- `tests/infrastructure/`：匯出、路徑、命名與配方儲存
+- `tests/application/`：分析服務、事件搜尋／關聯、來源預覽與證據清單
+- `tests/infrastructure/`：來源索引、匯出、路徑、命名與配方儲存
 - `tests/presentation/cli/`、`tests/presentation/tui/`：兩種介面與操作流程
-- `tests/integration/`：跨模組流程與套件相容入口
+- `tests/integration/`：跨模組流程、套件責任邊界與啟動入口
 - `tests/fixtures/`：共用測試資料
 
 ## 適用環境

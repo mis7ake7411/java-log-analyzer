@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from log_analyzer.application.analysis_service import (
+from log_analyzer.application.analysis.service import (
     AnalysisRequest,
     ResultExportOptions,
     analyze_logs,

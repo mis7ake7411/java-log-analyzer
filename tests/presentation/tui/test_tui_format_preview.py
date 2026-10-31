@@ -9,7 +9,7 @@ from log_analyzer.domain.log_sources import select_log_source
 from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui.app import LogAnalyzerApp
 from log_analyzer.presentation.tui.screens.format_preview import FormatPreviewScreen
-from log_analyzer.domain.logback_xml import LogbackPatternAssessment
+from log_analyzer.domain.logback.xml import LogbackPatternAssessment
 from tui_harnesses import ScreenHarness
 from tui_waits import (
     wait_for_layout_to_settle,

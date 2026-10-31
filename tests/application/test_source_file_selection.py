@@ -1,6 +1,6 @@
 import pytest
 
-from log_analyzer.application.source_file_selection import SourceFileSelection
+from log_analyzer.application.sources.selection import SourceFileSelection
 
 
 def test_explicit_selection_is_preserved_until_source_changes(tmp_path):

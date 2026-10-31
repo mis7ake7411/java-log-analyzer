@@ -5,7 +5,7 @@ from copy import deepcopy
 
 import pytest
 
-from log_analyzer.application.event_correlation import find_correlated_occurrences
+from log_analyzer.application.events.correlation import find_correlated_occurrences
 
 
 def _occurrence(

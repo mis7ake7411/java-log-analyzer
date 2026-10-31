@@ -4,7 +4,7 @@ import asyncio
 import pytest
 from textual.widgets import Label
 
-from log_analyzer.application.analysis_service import AnalysisRequest, analyze_logs
+from log_analyzer.application.analysis.service import AnalysisRequest, analyze_logs
 from log_analyzer.infrastructure.recipe_store import RecipeStore
 from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui.recent_state import save_recent_tui_state

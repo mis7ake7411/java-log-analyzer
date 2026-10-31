@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-import log_analyzer.application.analysis_service as analysis_service
+import log_analyzer.application.analysis.service as analysis_service
 from log_analyzer.domain.parser import MatchedLogsStore
-from log_analyzer.application.source_preview import read_source_context
+from log_analyzer.application.sources.preview import read_source_context
 
 
 STANDARD_LOG_PATTERN = "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{0}: %msg%n"

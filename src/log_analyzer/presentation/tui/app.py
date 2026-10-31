@@ -18,7 +18,7 @@ from textual.widgets import (
     Select,
     Static,
 )
-from log_analyzer.application.analysis_service import (
+from log_analyzer.application.analysis.service import (
     DEFAULT_SELECTED_LEVELS,
     AnalysisRequest,
     AnalysisResult,

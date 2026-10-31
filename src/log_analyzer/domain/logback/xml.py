@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 from contextlib import closing
 from itertools import islice
 
-from .text_decoding import (
+from ..text_decoding import (
     SOURCE_TEXT_ENCODING,
     SOURCE_TEXT_ERRORS,
     SOURCE_TEXT_NEWLINE,
@@ -15,9 +15,9 @@ from .text_decoding import (
 from dataclasses import dataclass
 from collections.abc import Iterable
 
-from .logback_mdc import extract_mdc, is_mdc_capture_group
-from .logback_pattern import compile_logback_pattern
-from .log_sources import select_log_source
+from .mdc import extract_mdc, is_mdc_capture_group
+from .pattern import compile_logback_pattern
+from ..log_sources import select_log_source
 
 
 @dataclass

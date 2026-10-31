@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from os import stat_result
 from pathlib import Path, PureWindowsPath
 
-from .source_context_index import SourceContextReader
-from ..domain.log_types import OccurrenceCoordinate, SourceSnapshot
+from log_analyzer.domain.log_types import OccurrenceCoordinate, SourceSnapshot
+from log_analyzer.infrastructure.sources.context_index import SourceContextReader
 
 _UNAVAILABLE_WARNING = "來源已變更、缺少或無法安全讀取，未顯示原始內容。"
 _MISSING_LINE_WARNING = "所選行已不存在，未顯示原始內容。"

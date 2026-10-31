@@ -3,8 +3,8 @@ import logging
 from textual.app import ComposeResult
 from textual.containers import Container
 from textual.widgets import Button, Checkbox, Collapsible, Label, Select, Static
-from log_analyzer.application.analysis_service import DEFAULT_SELECTED_LEVELS
-from log_analyzer.domain.logback_pattern import DEFAULT_LOGBACK_PATTERN
+from log_analyzer.application.analysis.service import DEFAULT_SELECTED_LEVELS
+from log_analyzer.domain.logback.pattern import DEFAULT_LOGBACK_PATTERN
 from log_analyzer.infrastructure.exporting.fields import (
     EXPORT_FIELDS,
     EXPORT_FIELD_LABELS,

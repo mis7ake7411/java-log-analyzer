@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 from tui_waits import wait_for_layout_to_settle
 
-from log_analyzer.application.analysis_service import AnalysisRequest, analyze_logs
+from log_analyzer.application.analysis.service import AnalysisRequest, analyze_logs
 from log_analyzer.infrastructure.recipe_store import RECIPE_FIELDS, RecipeStore
 from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui import LogAnalyzerApp

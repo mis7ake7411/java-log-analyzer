@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from log_analyzer.application.analysis_service import (
+from log_analyzer.application.analysis.service import (
     AnalysisRequest,
     ResultExportOptions,
     analyze_logs,
@@ -20,7 +20,7 @@ from log_analyzer.version import get_package_version
 
 
 def _export_evidence_manifest():
-    module_name = "log_analyzer.application.evidence_manifest"
+    module_name = "log_analyzer.application.analysis.evidence"
     assert importlib.util.find_spec(module_name) is not None, "manifest exporter is missing"
     return importlib.import_module(module_name).export_evidence_manifest
 

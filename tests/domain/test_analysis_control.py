@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from log_analyzer.application import analysis_service
-from log_analyzer.application.analysis_service import AnalysisRequest, analyze_logs
+from log_analyzer.application.analysis import service as analysis_service
+from log_analyzer.application.analysis.service import AnalysisRequest, analyze_logs
 from log_analyzer.domain import parser
 from log_analyzer.domain.parser import ParseOptions, parse_log_directory
 

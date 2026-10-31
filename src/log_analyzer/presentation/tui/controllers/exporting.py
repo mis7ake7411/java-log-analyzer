@@ -5,7 +5,7 @@ from dataclasses import replace
 from functools import partial
 from textual.containers import Container
 from textual.widgets import Button, Checkbox, Input, RichLog, Select, Static
-from log_analyzer.application.analysis_service import (
+from log_analyzer.application.analysis.service import (
     AnalysisResult,
     ResultExportOptions,
     build_output_path,

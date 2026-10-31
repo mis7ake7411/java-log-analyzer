@@ -10,8 +10,8 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, OptionList, Static
 from textual.widgets.option_list import Option
 
-from log_analyzer.application.analysis_service import AnalysisResult
-from log_analyzer.application.event_correlation import (
+from log_analyzer.application.analysis.service import AnalysisResult
+from log_analyzer.application.events.correlation import (
     CorrelatedOccurrence,
     find_correlated_occurrences,
 )

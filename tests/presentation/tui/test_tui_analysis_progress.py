@@ -14,7 +14,7 @@ from tui_waits import (
     wait_until as _wait_until,
 )
 
-from log_analyzer.application.analysis_service import AnalysisRequest, NoMatchingLogsError, analyze_logs
+from log_analyzer.application.analysis.service import AnalysisRequest, NoMatchingLogsError, analyze_logs
 from log_analyzer.domain.log_types import ScanDiagnostics
 from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui import LogAnalyzerApp

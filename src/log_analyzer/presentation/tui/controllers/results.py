@@ -6,7 +6,7 @@ from rich.panel import Panel
 from rich.text import Text
 from textual.containers import Container
 from textual.widgets import Button, Checkbox, Input, RichLog, Static
-from log_analyzer.application.analysis_service import AnalysisResult
+from log_analyzer.application.analysis.service import AnalysisResult
 from log_analyzer.presentation.tui.screens.event_browser import EventBrowserScreen
 from log_analyzer.presentation.tui.views import build_dashboard_view, build_idle_view, analyze_dashboard
 from log_analyzer.presentation.dashboard_navigation import build_dashboard_targets

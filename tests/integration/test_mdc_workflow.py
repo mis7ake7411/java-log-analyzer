@@ -4,14 +4,14 @@ import asyncio
 import json
 from pathlib import Path
 
-from log_analyzer.application.analysis_service import (
+from log_analyzer.application.analysis.service import (
     AnalysisRequest,
     ResultExportOptions,
     analyze_logs,
     export_analysis_bundle,
 )
-from log_analyzer.application.event_correlation import find_correlated_occurrences
-from log_analyzer.application.source_preview import read_source_context
+from log_analyzer.application.events.correlation import find_correlated_occurrences
+from log_analyzer.application.sources.preview import read_source_context
 
 
 def test_retained_mdc_correlates_across_files_and_survives_export(tmp_path):

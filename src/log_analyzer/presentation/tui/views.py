@@ -4,13 +4,13 @@ from rich.table import Table
 from rich.text import Text
 from rich.style import Style
 from log_analyzer.presentation.dashboard_navigation import build_dashboard_targets
-from ...application.analysis_service import AnalysisResult
-from ...application.dashboard_summary import DashboardAnalysis, aggregate_dashboard_summary
+from ...application.analysis.service import AnalysisResult
+from ...application.analysis.summary import DashboardAnalysis, aggregate_dashboard_summary
 from ...domain.log_types import ScanDiagnostics
 from ..encoding_warnings import format_encoding_warning
 from log_analyzer.presentation.scan_diagnostics import format_scan_coverage
 from log_analyzer.presentation.analysis_labels import request_time_range
-from log_analyzer.domain.logback_pattern import DEFAULT_LOGBACK_PATTERN
+from log_analyzer.domain.logback.pattern import DEFAULT_LOGBACK_PATTERN
 from ..error_messages import get_error_hint
 
 def analyze_dashboard(result: AnalysisResult) -> DashboardAnalysis:

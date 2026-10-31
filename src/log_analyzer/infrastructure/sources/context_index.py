@@ -6,7 +6,7 @@ from os import stat_result
 from pathlib import Path
 from typing import TextIO
 
-from ..domain.text_decoding import (
+from log_analyzer.domain.text_decoding import (
     SOURCE_TEXT_ENCODING,
     SOURCE_TEXT_ERRORS,
     SOURCE_TEXT_NEWLINE,

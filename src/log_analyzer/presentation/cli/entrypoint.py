@@ -1,17 +1,17 @@
 """程式入口：解析命令列參數，再選擇 TUI 或一次性的 CLI 分析流程。
 
-閱讀順序：main → _try_run_tui / _run_cli_analysis → application.analysis_service。
+閱讀順序：main → _try_run_tui / _run_cli_analysis → application.analysis.service。
 本層負責輸入與訊息呈現，實際掃描、分組與匯出交由下層處理。
 """
 
 import logging
 import sys
-from ...application.analysis_service import (
+from ...application.analysis.service import (
     AnalysisOptions,
     NoMatchingLogsError,
     run_analysis_with_options,
 )
-from ...domain.logback_pattern import UnsupportedLogbackPatternError
+from ...domain.logback.pattern import UnsupportedLogbackPatternError
 from ...domain.log_sources import LogSourceSelection, select_log_source
 from ...infrastructure.exporting import ExportConflictError
 from .args import build_argument_parser

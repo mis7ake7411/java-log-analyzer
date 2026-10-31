@@ -3,8 +3,8 @@ from __future__ import annotations
 import os
 
 from ..datetime_text import parse_datetime_value
-from ...application.analysis_service import DEFAULT_SELECTED_LEVELS
-from ...domain.logback_xml import assess_logback_patterns
+from ...application.analysis.service import DEFAULT_SELECTED_LEVELS
+from ...domain.logback.xml import assess_logback_patterns
 from ...infrastructure.naming import build_timestamped_name
 
 __all__ = ["parse_datetime_value"]

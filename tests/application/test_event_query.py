@@ -3,7 +3,7 @@ from copy import deepcopy
 
 import pytest
 
-from log_analyzer.application.event_query import EventQueryFilters, find_group_indices
+from log_analyzer.application.events.query import EventQueryFilters, find_group_indices
 
 
 def _groups():

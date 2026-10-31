@@ -23,7 +23,7 @@ from tui_waits import (
     wait_for_layout_to_settle as _wait_for_layout_to_settle,
 )
 
-from log_analyzer.application.analysis_service import AnalysisRequest
+from log_analyzer.application.analysis.service import AnalysisRequest
 from log_analyzer.infrastructure.paths import get_system_root_path
 from log_analyzer.presentation.tui import LogAnalyzerApp
 from log_analyzer.presentation.tui.components.time_range import TimeRangeSettings

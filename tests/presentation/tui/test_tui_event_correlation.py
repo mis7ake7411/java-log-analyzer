@@ -11,7 +11,7 @@ from textual.widgets import Button, Input, OptionList, Static
 
 from tui_waits import wait_for_button_ready, wait_for_layout_to_settle, wait_for_ui_state
 
-from log_analyzer.application.analysis_service import AnalysisResult
+from log_analyzer.application.analysis.service import AnalysisResult
 from log_analyzer.domain.parser import MatchedLogsStore
 from log_analyzer.presentation.tui import LogAnalyzerApp
 from log_analyzer.presentation.tui.screens.event_browser import EventBrowserScreen

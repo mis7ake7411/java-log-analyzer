@@ -10,7 +10,7 @@ from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui.controllers import results as results_module
 from log_analyzer.presentation.tui.app import LogAnalyzerApp
 from log_analyzer.presentation.tui.screens.event_browser import EventBrowserScreen
-from log_analyzer.application.analysis_service import ResultExportOptions, export_analysis_result
+from log_analyzer.application.analysis.service import ResultExportOptions, export_analysis_result
 from tui_waits import (
     wait_for_button_ready,
     wait_for_scheduled_analysis,

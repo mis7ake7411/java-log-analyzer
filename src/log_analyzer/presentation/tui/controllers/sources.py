@@ -14,7 +14,7 @@ from log_analyzer.infrastructure.paths import (
     inspect_file_path,
     validate_pasted_path,
 )
-from log_analyzer.application.source_file_selection import SourceFileSelection
+from log_analyzer.application.sources.selection import SourceFileSelection
 from log_analyzer.presentation.tui.screens.file_selection import (
     SourceFileSelectionScreen,
 )

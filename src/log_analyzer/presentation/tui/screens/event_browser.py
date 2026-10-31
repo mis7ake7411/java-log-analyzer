@@ -9,10 +9,10 @@ from textual.containers import Container, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, OptionList, Select, Static
 from textual.widgets.option_list import Option
-from log_analyzer.application.analysis_service import AnalysisResult
-from log_analyzer.application.event_query import EventQueryFilters, find_group_indices
-from log_analyzer.application.source_context_index import SourceContextReader
-from log_analyzer.application.source_preview import SourcePreview, read_source_context
+from log_analyzer.application.analysis.service import AnalysisResult
+from log_analyzer.application.events.query import EventQueryFilters, find_group_indices
+from log_analyzer.infrastructure.sources.context_index import SourceContextReader
+from log_analyzer.application.sources.preview import SourcePreview, read_source_context
 from log_analyzer.domain.log_types import LogEntry, OccurrenceCoordinate
 from log_analyzer.presentation.tui.event_browser_text import (
     STACKTRACE_PREVIEW_LINES,

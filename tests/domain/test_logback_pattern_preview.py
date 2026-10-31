@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-import log_analyzer.domain.logback_xml as logback_xml
-from log_analyzer.domain.logback_pattern import (
+import log_analyzer.domain.logback.xml as logback_xml
+from log_analyzer.domain.logback.pattern import (
     DEFAULT_LOGBACK_REGEX,
     compile_logback_pattern,
 )
