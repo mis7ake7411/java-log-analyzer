@@ -14,7 +14,7 @@
 
 ## 可攜版
 
-可攜版會將 Python 與所需套件一併打包。使用者解壓縮後即可執行，不需要 Clone 專案、安裝 Python 或啟用虛擬環境。整個 `log-analyzer` 資料夾必須保留，不能只搬走執行檔。
+可攜版會將 Python 與所需套件一併打包。使用者解壓縮後即可執行，不需要 Clone 專案、安裝 Python、安裝 uv 或啟用虛擬環境。uv 只用於從原始碼準備開發與建置環境。整個 `log-analyzer` 資料夾必須保留，不能只搬走執行檔。
 
 | 平台 | 壓縮包 | 解壓後啟動方式 |
 | --- | --- | --- |
@@ -46,40 +46,40 @@
 
 可從 Release 下載壓縮檔後解壓縮，或直接使用原始碼專案
 
-### 2. 建立虛擬環境
+### 2. 準備 uv 與專案環境
+
+先依 [uv 官方安裝說明](https://docs.astral.sh/uv/getting-started/installation/) 安裝 uv，再於專案根目錄執行下列指令；Windows PowerShell 與 Linux 終端機均可使用：
 
 ```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
+uv sync --locked
 ```
 
-Windows 可使用：
+uv 依 `.python-version` 選用 Python 3.12，將專案與依賴安裝到專案的 `.venv`；缺少相容 Python 時可自動下載，不必替換系統的 Python。若原有 `.venv` 是其他版本且需要保留，請先移到其他名稱再同步。
 
-```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\activate
-```
+`uv.lock` 加入 Git，保存完整依賴版本；`.venv/` 不加入 Git。`--locked` 在鎖定檔與專案設定不一致時停止，避免安裝時默默重新選擇版本。
 
-### 3. 安裝依賴
+### 3. 啟動
 
 ```bash
-pip install --upgrade pip setuptools
-pip install -r requirements.txt
+uv run --locked log-analyzer
 ```
 
-安裝完成後可直接使用 `log-analyzer` 指令
+無參數會啟動 TUI；CLI 例如 `uv run --locked log-analyzer ./logs -f json -o report.json`。不需要先啟用虛擬環境。本文其他 `log-analyzer` 指令若從原始碼環境執行，也可加上 `uv run --locked`；可攜版則直接執行其程式。
 
 ## 開發與驗證
 
-安裝完成後，可執行以下檢查：
+需要執行測試或程式碼檢查時，加上 `--extra dev` 安裝開發工具。以下指令都在專案根目錄執行：
 
 ```bash
-ruff check .
-lint-imports --no-cache
-python -m pytest -q
+uv sync --locked --extra dev
+uv run --locked --extra dev ruff check .
+uv run --locked --extra dev lint-imports --no-cache
+uv run --locked --extra dev python -m pytest -q
 ```
 
 原始碼開發與打包統一支援 Python 3.12.x，其他次版本不在支援範圍。GitHub Actions 在 Windows／Linux 的 Python 3.12 上執行 lint 與全部測試，每種系統分為兩組；便攜版使用者仍不需安裝 Python。
+
+CI 使用 `uv sync --locked --extra dev` 安裝測試依賴。可攜版建置使用同一份 `uv.lock` 的 `portable` 套件組；wheel 安裝驗證則從鎖定檔匯出執行依賴約束，保留離開原始碼目錄後的實際安裝檢查。
 
 Import Linter 的規則定義在 `pyproject.toml`，檢查直接與間接引用：
 
@@ -94,7 +94,7 @@ CI 在每種作業系統與 Python 組合的第一個測試分組執行邊界檢
 
 ### 效能量測
 
-`py-spy` 與 Import Linter 都只列在開發依賴，不是可攜版的執行需求。安裝 `requirements.txt` 後，在專案根目錄、啟用專案虛擬環境的終端機執行：
+`py-spy` 與 Import Linter 都只列在開發依賴，不是可攜版的執行需求。執行 `uv sync --locked --extra dev` 後，在專案根目錄、啟用專案虛擬環境的終端機執行（Windows：`.venv\Scripts\activate`；Linux：`source .venv/bin/activate`）：
 
 ```bash
 mkdir -p .profiles
@@ -124,9 +124,9 @@ py-spy record -o .profiles/tui.svg --pid 12345
 
 ### 建置可攜版
 
-Windows 可直接雙擊專案根目錄的 `build-portable.cmd`。腳本會建立或沿用 `.venv-portable`，安裝目前專案及打包工具，再產生 `dist/portable` 下的 ZIP 與校驗檔。需要既有 Python 3.12 與套件下載網路；會優先使用專案 `.venv`，其次尋找 `py -3.12` 或 `python`，不自動安裝系統 Python 或修改 PATH。成功或失敗都會停留畫面，方便查看訊息。
+Windows 安裝 uv 後，可直接雙擊專案根目錄的 `build-portable.cmd`。腳本使用 `uv sync --locked --extra portable --no-editable`，在獨立的 `.venv-portable` 安裝目前專案及鎖定的打包工具，再產生 `dist/portable` 下的 ZIP 與校驗檔。缺少 Python 3.12 時由 uv 下載管理，不替換系統 Python 或修改 PATH。成功或失敗都會停留畫面，方便查看訊息。
 
-若既有 `.venv` 或 `.venv-portable` 使用其他 Python 次版本，請先保留或移開舊環境，再依下方命令以 Python 3.12 建立新環境。腳本遇到不相容版本會在安裝前停止，不自動覆寫既有環境。
+腳本不使用開發用的 `.venv`。若既有 `.venv-portable` 使用其他 Python 次版本，腳本會在同步前停止並保留原目錄；請先將舊環境移到其他名稱，再重新執行。
 
 每次修改程式後，可再次雙擊重新打包；同版本的 ZIP 與校驗檔會被取代，先前已解壓縮的 EXE 不會自動更新，請從新 ZIP 解壓測試。`.venv-portable` 與 `dist` 均已被 Git 忽略。
 
@@ -138,36 +138,19 @@ Linux 則在專案根目錄的終端機執行：
 sh ./build-portable.sh
 ```
 
-Linux 腳本會建立或沿用 `.venv-portable`，安裝目前專案及打包工具，產生 `dist/portable` 下的 `tar.gz` 與校驗檔。需要 Python 3.12（含 `venv`）、`binutils` 與套件下載網路；會優先使用專案 `.venv`，其次尋找 `python3.12` 或 `python3`（仍需為 3.12）。缺少必要工具或任一步驟失敗就會停止，不自動安裝系統套件或修改 PATH。使用 `sh` 執行不需要額外設定腳本執行權限。
+Linux 腳本同樣透過 uv 建立或沿用 `.venv-portable`，產生 `dist/portable` 下的 `tar.gz` 與校驗檔。需要 uv、`binutils` 與套件下載網路；Python 3.12 可由 uv 管理下載。缺少必要工具或任一步驟失敗就會停止，不自動安裝系統套件或修改 PATH。使用 `sh` 執行不需要額外設定腳本執行權限。
 
-Windows 與 Linux 必須各自在對應平台建置。以下命令都在專案根目錄執行，只新增專案內的獨立建置環境與 `dist/portable` 成品，不修改系統 Python 或 PATH。
-
-Windows：
-
-```powershell
-py -3.12 -m venv .venv-portable
-.\.venv-portable\Scripts\python -m pip install . -r tools/portable/requirements-build.txt
-.\.venv-portable\Scripts\python tools/portable/build.py
-```
-
-Linux（另需有 `binutils` 建置工具）：
-
-```bash
-python3.12 -m venv .venv-portable
-.venv-portable/bin/python -m pip install . -r tools/portable/requirements-build.txt
-.venv-portable/bin/python tools/portable/build.py
-```
+Windows 與 Linux 必須各自在對應平台建置。上述腳本都以專案根目錄為工作目錄，只建立專案內的獨立建置環境與 `dist/portable` 成品；uv 另使用使用者帳號下的快取及管理式 Python，不修改系統 Python 或 PATH。
 
 建置環境需要 Python 3.12。工具會核對安裝版本與目前專案版本，產生資料夾式壓縮包及對應 `.sha256`，完成後清除建置暫存；可用 `--output` 指定其他成品目錄。
 
-要驗證實際壓縮包，可在同一個獨立環境安裝 `tools/portable/requirements-verify.txt`，執行 `tools/portable/verify.py --help` 查看參數。驗證器使用真正的終端機操作，核對上述功能的筆數、內容、行號、分檔大小與雜湊，並保留終端畫面及結果記錄。`--work-dir` 必須指定全新的資料夾，避免覆蓋既有驗證記錄。
+要驗證實際壓縮包，可使用 `portable-verify` 套件組安裝鎖定的驗證工具，執行 `tools/portable/verify.py --help` 查看參數。驗證器使用真正的終端機操作，核對上述功能的筆數、內容、行號、分檔大小與雜湊，並保留終端畫面及結果記錄。`--work-dir` 必須指定全新的資料夾，避免覆蓋既有驗證記錄。
 
 例如在 Windows 專案根目錄驗證 1.3.0 成品（Linux 驗證另需可執行 Linux 容器的 Docker）：
 
 ```powershell
-.\.venv-portable\Scripts\python -m pip install -r tools/portable/requirements-verify.txt
-.\.venv-portable\Scripts\python tools/portable/verify.py --archive dist/portable/log-analyzer-1.3.0-windows-x86_64.zip --expected-version 1.3.0 --work-dir .portable-work/windows-check
-.\.venv-portable\Scripts\python tools/portable/verify.py --archive dist/portable/log-analyzer-1.3.0-linux-x86_64.tar.gz --expected-version 1.3.0 --runtime-image debian:bookworm-slim --work-dir .portable-work/linux-check
+uv run --locked --extra portable-verify python tools/portable/verify.py --archive dist/portable/log-analyzer-1.3.0-windows-x86_64.zip --expected-version 1.3.0 --work-dir .portable-work/windows-check
+uv run --locked --extra portable-verify python tools/portable/verify.py --archive dist/portable/log-analyzer-1.3.0-linux-x86_64.tar.gz --expected-version 1.3.0 --runtime-image debian:bookworm-slim --work-dir .portable-work/linux-check
 ```
 
 ## 啟動方式

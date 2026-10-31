@@ -13,6 +13,8 @@ import time
 import pyte
 from wcwidth import wcswidth
 
+from frame_stream import IncompleteSynchronizedFrame, TerminalFrameStream
+
 _INPUT_LEFT_BORDER = "▊"
 _INPUT_RIGHT_BORDER = "▎"
 
@@ -42,6 +44,11 @@ class TerminalSession:
                 os.chdir(cwd)
                 os.execvpe(command[0], command, env)
             fcntl.ioctl(self.master, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
+        self.frame_stream = TerminalFrameStream(
+            feed=self.stream.feed,
+            send=self.send,
+            publish=self.condition.notify_all,
+        )
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
 
@@ -54,13 +61,12 @@ class TerminalSession:
                         chunk = self.process.read(65536)
                     else:
                         chunk = decoder.decode(os.read(self.master, 65536))
-                        if not chunk:
-                            break
+                    if not chunk:
+                        break
                     log.write(chunk)
                     log.flush()
                     with self.condition:
-                        self.stream.feed(chunk)
-                        self.condition.notify_all()
+                        self.frame_stream.feed(chunk)
         except EOFError:
             pass
         except OSError as exc:
@@ -68,9 +74,18 @@ class TerminalSession:
             if os.name == "nt" or exc.errno != 5:
                 self.reader_error = exc
         finally:
+            self._finish_frame_stream()
             self.finished.set()
             with self.condition:
                 self.condition.notify_all()
+
+    def _finish_frame_stream(self):
+        try:
+            with self.condition:
+                self.frame_stream.finish()
+        except IncompleteSynchronizedFrame as exc:
+            if self.reader_error is None:
+                self.reader_error = exc
 
     def text(self):
         with self.condition:
@@ -227,6 +242,8 @@ class TerminalSession:
         if not self.finished.wait(timeout):
             self.capture("exit-timeout")
             raise AssertionError("Terminal application did not exit")
+        if self.reader_error is not None:
+            raise RuntimeError(f"Terminal reader failed: {self.reader_error}")
         if os.name == "nt":
             self.exit_code = self.process.wait()
         else:

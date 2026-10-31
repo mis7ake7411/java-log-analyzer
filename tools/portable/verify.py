@@ -83,6 +83,7 @@ class Target:
             self.environment["PATH"] = str(Path(os.environ["SystemRoot"]) / "System32")
             assert shutil.which("python", path=self.environment["PATH"]) is None
             assert shutil.which("python3", path=self.environment["PATH"]) is None
+            assert shutil.which("uv", path=self.environment["PATH"]) is None
             self.initial_bundle_files = {p.relative_to(self.bundle_dir) for p in self.bundle_dir.rglob("*")}
 
     def _start_container(self):
@@ -102,7 +103,7 @@ class Target:
         try:
             quoted = shlex.quote("/input/" + self.archive.name)
             setup = (
-                "if command -v python >/dev/null 2>&1 || command -v python3 >/dev/null 2>&1; "
+                "if command -v python >/dev/null 2>&1 || command -v python3 >/dev/null 2>&1 || command -v uv >/dev/null 2>&1; "
                 "then exit 91; fi\n"
                 "mkdir /tmp/portable\n"
                 f"tar -xzf {quoted} -C /tmp/portable\n"

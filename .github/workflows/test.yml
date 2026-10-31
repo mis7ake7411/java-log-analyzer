@@ -19,14 +19,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -r requirements.txt
-      - run: ruff check .
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          version: "0.11.12"
+          enable-cache: true
+      - run: uv sync --locked --extra dev
+      - run: uv run --locked --extra dev ruff check .
       - name: Check package responsibility boundaries
         if: matrix.shard == 1
-        run: lint-imports --no-cache
-      - run: python scripts/run_test_shard.py --shard ${{ matrix.shard }}
+        run: uv run --locked --extra dev lint-imports --no-cache
+      - run: uv run --locked --extra dev python scripts/run_test_shard.py --shard ${{ matrix.shard }}
 
   package:
     runs-on: ${{ matrix.os }}
@@ -39,8 +41,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install --upgrade pip build
-      - run: python -m build
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9 # v7
+        with:
+          version: "0.11.12"
+          enable-cache: true
+      - run: uv lock --check
+      - run: uv export --locked --no-dev --no-emit-project --extra portable --format requirements-txt --output-file build-constraints.txt
+      - run: uv build --build-constraints build-constraints.txt
       - name: Verify installed CLI and TUI outside the checkout
         shell: python
         run: |
@@ -60,11 +67,19 @@ jobs:
           with tempfile.TemporaryDirectory(prefix="log-analyzer-package-") as directory:
               root = Path(directory)
               venv = root / "venv"
-              subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True)
+              subprocess.run(["uv", "venv", "--python", sys.executable, str(venv)], check=True)
               bin_dir = venv / ("Scripts" if os.name == "nt" else "bin")
               python = bin_dir / ("python.exe" if os.name == "nt" else "python")
               cli = bin_dir / ("log-analyzer.exe" if os.name == "nt" else "log-analyzer")
-              subprocess.run([str(python), "-m", "pip", "install", str(wheel)], check=True, env=env)
+              constraints = root / "locked-runtime.txt"
+              subprocess.run([
+                  "uv", "export", "--locked", "--no-dev", "--no-emit-project",
+                  "--format", "requirements-txt", "--output-file", str(constraints),
+              ], check=True, env=env)
+              subprocess.run([
+                  "uv", "pip", "install", "--python", str(python),
+                  "--constraint", str(constraints), str(wheel),
+              ], check=True, env=env)
               work = root / "work"
               work.mkdir()
 

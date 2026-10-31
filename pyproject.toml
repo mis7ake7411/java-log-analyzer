@@ -30,6 +30,11 @@ dev = [
     "py-spy==0.4.2",
     "hypothesis==6.170.14",
 ]
+portable = ["PyInstaller==6.22.3"]
+portable-verify = [
+    "pyte==0.8.2",
+    "pywinpty==3.1.0; sys_platform == 'win32'",
+]
 
 [project.scripts]
 log-analyzer = "log_analyzer.presentation.cli:main"

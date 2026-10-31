@@ -1,18 +1,28 @@
 @echo off
 setlocal
+set "BUILD_RESULT="
 pushd "%~dp0"
 if errorlevel 1 exit /b 1
-set "BUILD_PYTHON=%CD%\.venv-portable\Scripts\python.exe"
+set "UV_PROJECT_ENVIRONMENT=%CD%\.venv-portable"
+for /f "delims=" %%L in ('dir /A:L /B 2^>nul') do if /I "%%L"==".venv-portable" goto unsafe_environment
+set "BUILD_PYTHON=%UV_PROJECT_ENVIRONMENT%\Scripts\python.exe"
+
+"%SystemRoot%\System32\where.exe" uv >nul 2>&1
+if errorlevel 1 goto missing_uv
+
+if exist "%UV_PROJECT_ENVIRONMENT%" (
+    if not exist "%BUILD_PYTHON%" goto incompatible_environment
+    "%BUILD_PYTHON%" -c "import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 1)"
+    if errorlevel 1 goto incompatible_environment
+)
 
 echo [1/3] Preparing the project-local build environment (Python 3.12)...
-call :ensure_environment
+echo [2/3] Installing the locked project and portable packaging tools...
+call uv sync --python 3.12 --locked --extra portable --no-editable
 if errorlevel 1 goto failed
-"%BUILD_PYTHON%" -c "import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 'Python 3.12 is required. Recreate .venv-portable with Python 3.12; the existing environment was not changed.')"
-if errorlevel 1 goto failed
-
-echo [2/3] Installing this project and the packaging tools...
-"%BUILD_PYTHON%" -m pip install . -r tools/portable/requirements-build.txt
-if errorlevel 1 goto failed
+if not exist "%BUILD_PYTHON%" goto invalid_synced_environment
+"%BUILD_PYTHON%" -c "import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 1)"
+if errorlevel 1 goto invalid_synced_environment
 
 echo [3/3] Building the Windows portable archive...
 "%BUILD_PYTHON%" -B tools/portable/build.py
@@ -27,32 +37,28 @@ pause
 popd
 exit /b 0
 
-:ensure_environment
-if exist "%BUILD_PYTHON%" exit /b 0
-if exist ".venv\Scripts\python.exe" (
-    ".venv\Scripts\python.exe" -c "import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 'Python 3.12 is required. Recreate .venv with Python 3.12; the existing environment was not changed.')"
-    if errorlevel 1 exit /b 1
-    ".venv\Scripts\python.exe" -m venv .venv-portable
-    exit /b
-)
-py -3.12 -c "import sys; sys.exit(sys.version_info[:2] != (3, 12))" >nul 2>&1
-if not errorlevel 1 (
-    py -3.12 -m venv .venv-portable
-    exit /b
-)
-python -c "import sys; sys.exit(sys.version_info[:2] != (3, 12))" >nul 2>&1
-if errorlevel 1 goto missing_python
-python -m venv .venv-portable
-exit /b
+:unsafe_environment
+echo The selected .venv-portable path is a symlink or junction; it was not changed.
+set "BUILD_RESULT=1"
+goto failed
 
-:missing_python
-echo Python 3.12 is required to build this project.
-echo Install Python for your user account, or repair the project Python environment.
-echo No system Python or PATH settings have been changed.
-exit /b 1
+:incompatible_environment
+echo The existing portable build environment must use Python 3.12 and contain Scripts\python.exe; it was not changed.
+set "BUILD_RESULT=1"
+goto failed
+
+:invalid_synced_environment
+echo uv sync did not create the requested Python 3.12 environment.
+set "BUILD_RESULT=1"
+goto failed
+
+:missing_uv
+echo uv is required. Install it for your user account from https://docs.astral.sh/uv/getting-started/installation/, then rerun.
+set "BUILD_RESULT=1"
+goto failed
 
 :failed
-set "BUILD_RESULT=%ERRORLEVEL%"
+if not defined BUILD_RESULT set "BUILD_RESULT=%ERRORLEVEL%"
 if "%BUILD_RESULT%"=="0" set "BUILD_RESULT=1"
 echo.
 echo Build failed. Review the error above; no later build steps were run.
