@@ -14,18 +14,20 @@ for tool in objdump objcopy; do
     command -v "$tool" >/dev/null 2>&1 || fail "Missing $tool. Install binutils using your distribution's package manager, then rerun."
 done
 
-printf '[1/3] Preparing the project-local build environment (Python 3.10 or newer)...\n'
+printf '[1/3] Preparing the project-local build environment (Python 3.12)...\n'
 build_python="$PWD/.venv-portable/bin/python"
 if [ -x "$build_python" ]; then
     bootstrap="$build_python"
 elif [ -x .venv/bin/python ]; then
     bootstrap="$PWD/.venv/bin/python"
+elif command -v python3.12 >/dev/null 2>&1; then
+    bootstrap=$(command -v python3.12)
 elif command -v python3 >/dev/null 2>&1; then
     bootstrap=$(command -v python3)
 else
-    fail "Python 3.10 or newer with venv support is required. No system packages or PATH settings have been changed."
+    fail "Python 3.12 with venv support is required. No system packages or PATH settings have been changed."
 fi
-"$bootstrap" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else "Python 3.10 or newer is required.")'
+"$bootstrap" -c 'import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else "Python 3.12 is required. Recreate the selected virtual environment with Python 3.12; it was not changed.")'
 if [ ! -x "$build_python" ]; then
     "$bootstrap" -m venv .venv-portable
 fi

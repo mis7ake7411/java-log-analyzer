@@ -4,10 +4,10 @@ pushd "%~dp0"
 if errorlevel 1 exit /b 1
 set "BUILD_PYTHON=%CD%\.venv-portable\Scripts\python.exe"
 
-echo [1/3] Preparing the project-local build environment (Python 3.10 or newer)...
+echo [1/3] Preparing the project-local build environment (Python 3.12)...
 call :ensure_environment
 if errorlevel 1 goto failed
-"%BUILD_PYTHON%" -c "import sys; sys.exit(sys.version_info < (3, 10))"
+"%BUILD_PYTHON%" -c "import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 'Python 3.12 is required. Recreate .venv-portable with Python 3.12; the existing environment was not changed.')"
 if errorlevel 1 goto failed
 
 echo [2/3] Installing this project and the packaging tools...
@@ -30,21 +30,23 @@ exit /b 0
 :ensure_environment
 if exist "%BUILD_PYTHON%" exit /b 0
 if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" -c "import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 'Python 3.12 is required. Recreate .venv with Python 3.12; the existing environment was not changed.')"
+    if errorlevel 1 exit /b 1
     ".venv\Scripts\python.exe" -m venv .venv-portable
     exit /b
 )
-py -3 -c "import sys; sys.exit(sys.version_info < (3, 10))" >nul 2>&1
+py -3.12 -c "import sys; sys.exit(sys.version_info[:2] != (3, 12))" >nul 2>&1
 if not errorlevel 1 (
-    py -3 -m venv .venv-portable
+    py -3.12 -m venv .venv-portable
     exit /b
 )
-python -c "import sys; sys.exit(sys.version_info < (3, 10))" >nul 2>&1
+python -c "import sys; sys.exit(sys.version_info[:2] != (3, 12))" >nul 2>&1
 if errorlevel 1 goto missing_python
 python -m venv .venv-portable
 exit /b
 
 :missing_python
-echo Python 3.10 or newer is required to build this project.
+echo Python 3.12 is required to build this project.
 echo Install Python for your user account, or repair the project Python environment.
 echo No system Python or PATH settings have been changed.
 exit /b 1

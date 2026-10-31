@@ -49,14 +49,14 @@
 ### 2. 建立虛擬環境
 
 ```bash
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 ```
 
 Windows 可使用：
 
 ```powershell
-python -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\activate
 ```
 
@@ -75,14 +75,58 @@ pip install -r requirements.txt
 
 ```bash
 ruff check .
+lint-imports --no-cache
 python -m pytest -q
 ```
 
-GitHub Actions 會在 Python 3.10、3.11 與 3.12 上執行相同的 lint 與測試。
+原始碼開發與打包統一支援 Python 3.12.x，其他次版本不在支援範圍。GitHub Actions 在 Windows／Linux 的 Python 3.12 上執行 lint 與全部測試，每種系統分為兩組；便攜版使用者仍不需安裝 Python。
+
+Import Linter 的規則定義在 `pyproject.toml`，檢查直接與間接引用：
+
+- `domain` 不依賴 `application`、`infrastructure` 或 `presentation`。
+- `infrastructure` 不依賴 `application` 或 `presentation`。
+- `application` 不依賴 `presentation`；仍可使用現有的基礎設施實作。
+- 上述三層都不能依賴 Textual，畫面相關程式留在 `presentation`。
+
+CI 在每種作業系統與 Python 組合的第一個測試分組執行邊界檢查，避免兩個分組重複執行。
+
+日誌解析、時間篩選與 MDC 關聯另有 Hypothesis 屬性測試，會自動產生輸入組合，補充既有固定案例；一般 `python -m pytest -q` 與 CI 都會執行。失敗時保留輸出的最小反例，可用 `python -m pytest <測試檔路徑> --hypothesis-seed=<種子>` 重現特定生成序列（需使用相同套件版本）。本機的 `.hypothesis/` 反例快取不加入 Git；已確認的缺陷仍應補成明確的回歸案例。開發工具使用已驗證的固定版本；調整版本時需重新確認 Python 3.12 與兩種作業系統的相容性。
+
+### 效能量測
+
+`py-spy` 與 Import Linter 都只列在開發依賴，不是可攜版的執行需求。安裝 `requirements.txt` 後，在專案根目錄、啟用專案虛擬環境的終端機執行：
+
+```bash
+mkdir -p .profiles
+py-spy record -o .profiles/analysis.svg -- python -m log_analyzer /path/to/logs
+```
+
+請將日誌路徑換成實際檔案或資料夾；包含空白時加上引號。若要觀察 TUI，使用 `py-spy record -o .profiles/tui.svg -- python -m log_analyzer --tui`，操作分析流程後正常退出。
+
+Windows 虛擬環境的 `python.exe` 可能是啟動器，直接採樣它會出現 `Failed to find python version from target process`。此時在第一個 PowerShell 視窗啟動 TUI 並印出真正的 Python 程序 PID：
+
+```powershell
+python -c "import os, runpy; print('Python PID:', os.getpid(), flush=True); runpy.run_module('log_analyzer', run_name='__main__')" --tui
+```
+
+再於另一個已啟用同一虛擬環境的 PowerShell 視窗、專案根目錄執行（將 `12345` 換成剛才顯示的 PID）：
+
+```powershell
+New-Item -ItemType Directory -Force .profiles
+py-spy record -o .profiles/tui.svg --pid 12345
+```
+
+開始採樣後再操作分析流程，正常退出 TUI 即會寫出採樣檔；也可在採樣視窗按 Ctrl+C 結束記錄。這些命令不修改系統 Python 或 PATH。
+
+用瀏覽器開啟產生的 SVG 可查看各函式的採樣占比。請使用相同資料與操作比較修改前後，並另外記錄總耗時；採樣圖不是精確的單次函式計時。量測結果放在 Git 忽略的 `.profiles/`，CI 不執行效能採樣或設定效能門檻。
+
+優先由 py-spy 啟動目標程序；Linux 若因程序追蹤權限拒絕採樣，請先依 [py-spy 權限說明](https://github.com/benfred/py-spy#when-do-you-need-to-run-as-sudo) 確認環境限制，不需為一般開發變更系統安全設定。
 
 ### 建置可攜版
 
-Windows 可直接雙擊專案根目錄的 `build-portable.cmd`。腳本會建立或沿用 `.venv-portable`，安裝目前專案及打包工具，再產生 `dist/portable` 下的 ZIP 與校驗檔。需要既有 Python 3.10 以上與套件下載網路；會優先使用專案 `.venv`，其次尋找 `py -3` 或 `python`，不自動安裝系統 Python 或修改 PATH。成功或失敗都會停留畫面，方便查看訊息。
+Windows 可直接雙擊專案根目錄的 `build-portable.cmd`。腳本會建立或沿用 `.venv-portable`，安裝目前專案及打包工具，再產生 `dist/portable` 下的 ZIP 與校驗檔。需要既有 Python 3.12 與套件下載網路；會優先使用專案 `.venv`，其次尋找 `py -3.12` 或 `python`，不自動安裝系統 Python 或修改 PATH。成功或失敗都會停留畫面，方便查看訊息。
+
+若既有 `.venv` 或 `.venv-portable` 使用其他 Python 次版本，請先保留或移開舊環境，再依下方命令以 Python 3.12 建立新環境。腳本遇到不相容版本會在安裝前停止，不自動覆寫既有環境。
 
 每次修改程式後，可再次雙擊重新打包；同版本的 ZIP 與校驗檔會被取代，先前已解壓縮的 EXE 不會自動更新，請從新 ZIP 解壓測試。`.venv-portable` 與 `dist` 均已被 Git 忽略。
 
@@ -94,14 +138,14 @@ Linux 則在專案根目錄的終端機執行：
 sh ./build-portable.sh
 ```
 
-Linux 腳本會建立或沿用 `.venv-portable`，安裝目前專案及打包工具，產生 `dist/portable` 下的 `tar.gz` 與校驗檔。需要 Python 3.10 以上（含 `venv`）、`binutils` 與套件下載網路；會優先使用專案 `.venv`，其次尋找 `python3`。缺少必要工具或任一步驟失敗就會停止，不自動安裝系統套件或修改 PATH。使用 `sh` 執行不需要額外設定腳本執行權限。
+Linux 腳本會建立或沿用 `.venv-portable`，安裝目前專案及打包工具，產生 `dist/portable` 下的 `tar.gz` 與校驗檔。需要 Python 3.12（含 `venv`）、`binutils` 與套件下載網路；會優先使用專案 `.venv`，其次尋找 `python3.12` 或 `python3`（仍需為 3.12）。缺少必要工具或任一步驟失敗就會停止，不自動安裝系統套件或修改 PATH。使用 `sh` 執行不需要額外設定腳本執行權限。
 
 Windows 與 Linux 必須各自在對應平台建置。以下命令都在專案根目錄執行，只新增專案內的獨立建置環境與 `dist/portable` 成品，不修改系統 Python 或 PATH。
 
 Windows：
 
 ```powershell
-python -m venv .venv-portable
+py -3.12 -m venv .venv-portable
 .\.venv-portable\Scripts\python -m pip install . -r tools/portable/requirements-build.txt
 .\.venv-portable\Scripts\python tools/portable/build.py
 ```
@@ -109,12 +153,12 @@ python -m venv .venv-portable
 Linux（另需有 `binutils` 建置工具）：
 
 ```bash
-python3 -m venv .venv-portable
+python3.12 -m venv .venv-portable
 .venv-portable/bin/python -m pip install . -r tools/portable/requirements-build.txt
 .venv-portable/bin/python tools/portable/build.py
 ```
 
-建置環境需要 Python 3.10 以上。工具會核對安裝版本與目前專案版本，產生資料夾式壓縮包及對應 `.sha256`，完成後清除建置暫存；可用 `--output` 指定其他成品目錄。
+建置環境需要 Python 3.12。工具會核對安裝版本與目前專案版本，產生資料夾式壓縮包及對應 `.sha256`，完成後清除建置暫存；可用 `--output` 指定其他成品目錄。
 
 要驗證實際壓縮包，可在同一個獨立環境安裝 `tools/portable/requirements-verify.txt`，執行 `tools/portable/verify.py --help` 查看參數。驗證器使用真正的終端機操作，核對上述功能的筆數、內容、行號、分檔大小與雜湊，並保留終端畫面及結果記錄。`--work-dir` 必須指定全新的資料夾，避免覆蓋既有驗證記錄。
 
@@ -471,7 +515,7 @@ python benchmarks/analysis_workflow.py --entries 20000 --repeat 3
 
 ## 適用環境
 
-- Python 3.10+
+- Python 3.12.x
 - Windows / Linux / macOS
 
 ## 授權
