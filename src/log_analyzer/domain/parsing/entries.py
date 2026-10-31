@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from log_analyzer.domain.log_types import LogEntry, ScanDiagnostics
+from log_analyzer.domain.logback_mdc import extract_mdc
 
 from ..timezone import to_local_timezone
 
@@ -124,7 +125,7 @@ def _create_entry(match, filename, line_num):
     logger = match.group("logger")
     message = match.group("message")
 
-    return {
+    entry: LogEntry = {
         "timestamp": timestamp_str,
         "thread": thread,
         "level": level,
@@ -136,6 +137,10 @@ def _create_entry(match, filename, line_num):
         "message_body": "",
         "full_text": message,
     }
+    mdc = extract_mdc(match)
+    if mdc:
+        entry["mdc"] = mdc
+    return entry
 
 def _is_entry_in_time_range(entry, start_time, end_time):
     """以含起訖邊界的方式判斷時間；無法解析的時間不納入結果。

@@ -5,6 +5,7 @@ from io import StringIO
 
 from ...domain.parsing.aggregation import normalize_line_numbers
 from .fields import EXPORT_FIELDS, EXPORT_FIELD_LABELS, normalize_export_fields
+from .occurrence_mdc import format_occurrence_detail
 
 
 def render_csv_report(counts, matched_logs, fields=None) -> str:
@@ -81,8 +82,7 @@ def _csv_field_value(log, field: str):
         return log["stacktrace"].strip()
     if field == "occurrences":
         return "\n".join(
-            f"{occurrence['filename']}:{occurrence['line_number']} | "
-            f"{occurrence['timestamp']} | {occurrence['thread']}"
+            format_occurrence_detail(occurrence)
             for occurrence in log.get("occurrences", [])
         )
     return log[field]

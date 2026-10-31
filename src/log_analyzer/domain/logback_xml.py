@@ -15,6 +15,7 @@ from .text_decoding import (
 from dataclasses import dataclass
 from collections.abc import Iterable
 
+from .logback_mdc import extract_mdc, is_mdc_capture_group
 from .logback_pattern import compile_logback_pattern
 from .log_sources import select_log_source
 
@@ -281,7 +282,17 @@ def _assess_candidate(
                 matched_previews.append(
                     PatternSample(
                         raw=line.rstrip("\r\n")[:500],
-                        fields={key: value[:500] for key, value in match.groupdict().items() if value is not None},
+                        fields={
+                            **{
+                                key: value[:500]
+                                for key, value in match.groupdict().items()
+                                if value is not None and not is_mdc_capture_group(key)
+                            },
+                            **{
+                                f"MDC.{key}": value[:500]
+                                for key, value in extract_mdc(match).items()
+                            },
+                        },
                     )
                 )
         elif len(unmatched_previews) < 3:

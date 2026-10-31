@@ -190,39 +190,30 @@ class LogAnalyzerApp(
         shell = self.query_one("#shell", Container)
         hero = self.query_one("#hero", Container)
         hero_title_row = self.query_one("#hero-title-row", Container)
-        shell.set_class(height <= 32, "short")
+        layout_classes = {"compact": compact, "wide": not compact}
+        shell_classes = {**layout_classes, "short": height <= 32}
+        content_classes = {**layout_classes, "short": height <= 32}
+        class_updates = (
+            (shell, shell_classes),
+            (hero, layout_classes),
+            (content, content_classes),
+            (form_panel, layout_classes),
+            (form_actions, layout_classes),
+            (hero_title_row, layout_classes),
+        )
+        # 六個節點都在 shell 子樹內，先統一更新 class，再由共同 parent 重算一次樣式。
+        styles_changed = False
+        for widget, class_changes in class_updates:
+            if not any(
+                widget.has_class(class_name) != should_have_class
+                for class_name, should_have_class in class_changes.items()
+            ):
+                continue
+            widget.update_classes(class_changes, update=False)
+            styles_changed = True
 
-        if compact:
-            shell.remove_class("wide")
-            shell.add_class("compact")
-            hero.remove_class("wide")
-            hero.add_class("compact")
-            content.remove_class("wide")
-            content.add_class("compact")
-            form_panel.remove_class("wide")
-            form_panel.add_class("compact")
-            form_actions.remove_class("wide")
-            form_actions.add_class("compact")
-            hero_title_row.remove_class("wide")
-            hero_title_row.add_class("compact")
-        else:
-            shell.remove_class("compact")
-            shell.add_class("wide")
-            hero.remove_class("compact")
-            hero.add_class("wide")
-            content.remove_class("compact")
-            content.add_class("wide")
-            form_panel.remove_class("compact")
-            form_panel.add_class("wide")
-            form_actions.remove_class("compact")
-            form_actions.add_class("wide")
-            hero_title_row.remove_class("compact")
-            hero_title_row.add_class("wide")
-
-        if height <= 32:
-            content.add_class("short")
-        else:
-            content.remove_class("short")
+        if styles_changed:
+            shell.update_node_styles()
 
         self.call_after_refresh(self._sync_advanced_layout)
         self.call_after_refresh(self._sync_advanced_layout_after_refresh)

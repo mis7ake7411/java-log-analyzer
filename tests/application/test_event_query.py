@@ -1,7 +1,9 @@
 import asyncio
 from copy import deepcopy
 
-from log_analyzer.application.event_query import find_group_indices
+import pytest
+
+from log_analyzer.application.event_query import EventQueryFilters, find_group_indices
 
 
 def _groups():
@@ -13,6 +15,17 @@ def _groups():
         {"message": "TIMEOUT", "logger": "Other", "thread": "main", "count": 5,
          "last_timestamp": "2026-10-24 12:00:00"},
     ]
+
+
+def _find_with_filters(groups, query, sort_by="original", **filter_values):
+    return asyncio.run(
+        find_group_indices(
+            groups,
+            query,
+            sort_by,
+            EventQueryFilters(**filter_values),
+        )
+    )
 
 
 def test_query_matches_message_logger_and_every_occurrence_thread_without_mutation():
@@ -70,3 +83,154 @@ def test_query_cooperatively_cancels_before_scanning_every_group():
         assert len(consumed) < 1000
 
     asyncio.run(check())
+
+
+def test_query_scope_matches_only_selected_retained_field_and_stacktrace_lines():
+    groups = [
+        {
+            "message": "header text",
+            "message_body": "Body-only 資料",
+            "logger": "com.example.Logger",
+            "thread": "group-thread",
+            "stacktrace": "retained stack marker",
+            "stacktrace_lines": ["ignored line marker"],
+            "occurrences": [{"thread": "occurrence-thread"}],
+        },
+        {
+            "message": "Fallback Straße [x]",
+            "message_body": "",
+            "logger": "other",
+            "thread": "pool",
+            "stacktrace_lines": ["java.lang.RuntimeException", "  at app.Main.run"],
+        },
+    ]
+    before = deepcopy(groups)
+
+    assert _find_with_filters(groups, "body-only", query_scope="message") == [0]
+    assert asyncio.run(
+        find_group_indices(
+            groups, "header text", "original", EventQueryFilters(query_scope="message")
+        )
+    ) == [0]
+    assert _find_with_filters(groups, "fallback", query_scope="message") == [1]
+    assert asyncio.run(
+        find_group_indices(
+            groups,
+            "runtimeexception",
+            "original",
+            EventQueryFilters(query_scope="stacktrace"),
+        )
+    ) == [1]
+    assert asyncio.run(
+        find_group_indices(
+            groups,
+            "ignored line marker",
+            "original",
+            EventQueryFilters(query_scope="stacktrace"),
+        )
+    ) == []
+    assert asyncio.run(
+        find_group_indices(
+            groups,
+            "strasse [x]",
+            "original",
+            EventQueryFilters(query_scope="message"),
+        )
+    ) == [1]
+    assert asyncio.run(
+        find_group_indices(
+            groups, "資料", "original", EventQueryFilters(query_scope="message")
+        )
+    ) == [0]
+    assert groups == before
+
+
+def test_independent_filters_and_thread_source_scope_use_literal_and_same_occurrence():
+    groups = [
+        {
+            "logger": "Straße.Logger",
+            "thread": "main",
+            "filename": "fallback.log",
+            "occurrences": [
+                {"filename": "target[1].log", "thread": "unrelated"},
+                {"filename": "other.log", "thread": "worker-資料"},
+            ],
+        },
+        {
+            "logger": "strasse.logger",
+            "thread": "main",
+            "filename": "other.log",
+            "occurrences": [
+                {"filename": "target[1].log", "thread": "worker-資料"},
+            ],
+        },
+        {
+            "logger": "strasse.logger",
+            "thread": "worker-資料",
+            "filename": "target[1].log",
+            "occurrences": [],
+        },
+    ]
+    before = deepcopy(groups)
+
+    assert _find_with_filters(groups, "", logger_filter="STRASSE") == [0, 1, 2]
+    assert _find_with_filters(groups, "", logger_filter="[1].") == []
+    assert _find_with_filters(
+        groups, "", source_filename_filter="target[1]."
+    ) == [0, 1, 2]
+    assert _find_with_filters(
+        groups,
+        "",
+        thread_filter="worker-資料",
+        source_filename_filter="target[1].",
+    ) == [1]
+    assert _find_with_filters(
+        groups,
+        "worker-資料",
+        query_scope="thread",
+        source_filename_filter="target[1].",
+    ) == [1]
+    assert _find_with_filters(
+        groups,
+        "資料",
+        query_scope="thread",
+        thread_filter="worker",
+        source_filename_filter="target[1].",
+    ) == [1]
+    assert _find_with_filters(groups, "", logger_filter="  ", thread_filter="") == [
+        0,
+        1,
+        2,
+    ]
+    assert groups == before
+
+
+def test_advanced_query_keeps_level_and_group_constraints_and_validates_scope_early():
+    groups = [
+        {"level": "ERROR", "logger": "Service", "count": 1},
+        {"level": "WARN", "logger": "Service", "count": 9},
+        {"level": "ERROR", "logger": "Service", "count": 4},
+    ]
+
+    assert asyncio.run(
+        find_group_indices(
+            groups,
+            "",
+            "count",
+            EventQueryFilters(level=" error ", query_scope="logger", logger_filter="serv"),
+        )
+    ) == [2, 0]
+    assert asyncio.run(
+        find_group_indices(
+            groups,
+            "",
+            "original",
+            EventQueryFilters(level="WARN", group_index=1, logger_filter="service"),
+        )
+    ) == [1]
+    with pytest.raises(ValueError, match="搜尋欄位"):
+        asyncio.run(
+            find_group_indices(
+                [], "", "original", EventQueryFilters(query_scope="unknown")
+            )
+        )

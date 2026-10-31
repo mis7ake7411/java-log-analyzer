@@ -114,18 +114,25 @@ class GroupedLog:
             "logger": self.logger,
             "filename": self.filename,
             "occurrences": [
-                {
-                    "filename": occurrence["filename"],
-                    "line_number": occurrence["line_number"],
-                    "timestamp": occurrence["timestamp"],
-                    "thread": occurrence["thread"],
-                }
+                _occurrence_to_dict(occurrence)
                 for occurrence in self.occurrences
             ],
             "message": self.message,
             "message_body": self.message_body,
             "stacktrace": self.stacktrace,
         }
+
+
+def _occurrence_to_dict(occurrence: OccurrenceCoordinate) -> dict:
+    result = {
+        "filename": occurrence["filename"],
+        "line_number": occurrence["line_number"],
+        "timestamp": occurrence["timestamp"],
+        "thread": occurrence["thread"],
+    }
+    if occurrence.get("mdc"):
+        result["mdc"] = dict(occurrence["mdc"])
+    return result
 
 
 def normalize_keyword(keyword, ignore_case):
@@ -215,6 +222,8 @@ def add_to_grouped_logs(grouped_logs, entry):
         "timestamp": entry["timestamp"],
         "thread": entry["thread"],
     }
+    if entry.get("mdc"):
+        occurrence["mdc"] = dict(entry["mdc"])
 
     if key in grouped_logs:
         grouped_logs[key].count += 1

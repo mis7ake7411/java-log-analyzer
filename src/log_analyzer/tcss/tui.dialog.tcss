@@ -229,6 +229,15 @@
     layout: vertical;
 }
 
+#browser-controls.advanced-open {
+    height: 9;
+}
+
+#browser-main-controls {
+    height: 6;
+    layout: vertical;
+}
+
 #browser-query {
     width: 1fr;
     height: 3;
@@ -251,6 +260,15 @@
 
 #browser-controls.wide {
     height: 3;
+    layout: vertical;
+}
+
+#browser-controls.wide.advanced-open {
+    height: 5;
+}
+
+#browser-main-controls.wide {
+    height: 3;
     layout: horizontal;
 }
 
@@ -258,9 +276,59 @@
     width: 42;
 }
 
+#browser-advanced {
+    display: none;
+    height: 3;
+    max-height: 3;
+    min-height: 0;
+    padding: 0;
+    border: none;
+}
+
+#browser-advanced Select,
+#browser-advanced Input {
+    width: 1fr;
+    height: 1;
+    min-height: 1;
+    padding: 0;
+    margin: 0;
+}
+
+#browser-advanced Input {
+    border: none;
+    background: #111827;
+}
+
+#browser-advanced Input:focus {
+    background: #263c55;
+}
+
+#browser-advanced Select > SelectCurrent {
+    height: 1;
+    min-height: 1;
+    padding: 0;
+    border: none;
+    background: #111827;
+}
+
+#browser-advanced Select:focus > SelectCurrent {
+    background: #263c55;
+    text-style: bold;
+}
+
+#browser-advanced.wide {
+    height: 2;
+    max-height: 2;
+    layout: grid;
+    grid-size: 2 2;
+    grid-columns: 1fr 1fr;
+    grid-rows: 1 1;
+    grid-gutter: 0 1;
+}
+
 #browser-query-status {
     height: auto;
-    max-height: 2;
+    max-height: 3;
     overflow-y: auto;
     color: #fbbf24;
 }
@@ -272,6 +340,15 @@
 
 #event-browser-card.short #event-options {
     min-height: 1;
+}
+
+#event-browser-card.short #browser-controls.advanced-open {
+    height: 9;
+}
+
+#event-browser-card.short #browser-advanced {
+    height: 3;
+    max-height: 3;
 }
 
 #event-browser-card.short #event-browser-actions {
@@ -422,5 +499,87 @@
 }
 
 #recipe-actions #recipe-close {
+    margin-right: 0;
+}
+
+#mdc-correlation-dialog {
+    align: center middle;
+    background: rgba(15, 23, 42, 0.78);
+}
+
+#mdc-correlation-card {
+    width: 96%;
+    height: 92%;
+    border: round #38bdf8;
+    background: #0b1220;
+    padding: 0 1;
+}
+
+#mdc-correlation-title {
+    height: auto;
+    text-style: bold;
+    color: #f8fafc;
+}
+
+#mdc-correlation-hint {
+    height: auto;
+    max-height: 2;
+    color: #94a3b8;
+}
+
+#mdc-correlation-fields {
+    width: 1fr;
+    height: 3;
+    layout: horizontal;
+}
+
+#mdc-key,
+#mdc-value {
+    width: 1fr;
+    min-width: 1;
+    height: 3;
+    margin-right: 1;
+}
+
+#mdc-value {
+    margin-right: 0;
+}
+
+#correlation-status {
+    height: auto;
+    min-height: 1;
+    max-height: 3;
+    color: #fbbf24;
+    overflow: auto;
+}
+
+#correlation-page {
+    height: auto;
+    color: #94a3b8;
+}
+
+#correlation-options {
+    height: 1fr;
+    min-height: 1;
+    border: round #334155;
+    background: #111827;
+    padding: 0 1;
+}
+
+#correlation-actions {
+    dock: bottom;
+    height: auto;
+    layout: horizontal;
+    margin-top: 1;
+}
+
+#correlation-actions Button {
+    width: 1fr;
+    min-width: 4;
+    height: auto;
+    margin: 0 1 0 0;
+}
+
+#correlation-actions #correlation-close {
     margin-right: 0;
 }

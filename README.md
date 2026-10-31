@@ -118,12 +118,12 @@ python3 -m venv .venv-portable
 
 要驗證實際壓縮包，可在同一個獨立環境安裝 `tools/portable/requirements-verify.txt`，執行 `tools/portable/verify.py --help` 查看參數。驗證器使用真正的終端機操作，核對上述功能的筆數、內容、行號、分檔大小與雜湊，並保留終端畫面及結果記錄。`--work-dir` 必須指定全新的資料夾，避免覆蓋既有驗證記錄。
 
-例如在 Windows 專案根目錄驗證 1.2.0 成品（Linux 驗證另需可執行 Linux 容器的 Docker）：
+例如在 Windows 專案根目錄驗證 1.3.0 成品（Linux 驗證另需可執行 Linux 容器的 Docker）：
 
 ```powershell
 .\.venv-portable\Scripts\python -m pip install -r tools/portable/requirements-verify.txt
-.\.venv-portable\Scripts\python tools/portable/verify.py --archive dist/portable/log-analyzer-1.2.0-windows-x86_64.zip --expected-version 1.2.0 --work-dir .portable-work/windows-check
-.\.venv-portable\Scripts\python tools/portable/verify.py --archive dist/portable/log-analyzer-1.2.0-linux-x86_64.tar.gz --expected-version 1.2.0 --runtime-image debian:bookworm-slim --work-dir .portable-work/linux-check
+.\.venv-portable\Scripts\python tools/portable/verify.py --archive dist/portable/log-analyzer-1.3.0-windows-x86_64.zip --expected-version 1.3.0 --work-dir .portable-work/windows-check
+.\.venv-portable\Scripts\python tools/portable/verify.py --archive dist/portable/log-analyzer-1.3.0-linux-x86_64.tar.gz --expected-version 1.3.0 --runtime-image debian:bookworm-slim --work-dir .portable-work/linux-check
 ```
 
 ## 啟動方式
@@ -217,7 +217,9 @@ TUI 結果與 CLI 完成訊息會列出各檔事件起始行、堆疊行、其�
 ### 查看事件原文
 
 - 群組頁可搜尋已分析結果中的訊息、Logger 或 Thread，按 Enter 或「套用」後更新；Thread 搜尋包含群組內各次出現的執行緒。
-- 可選擇分析原排序、出現次數最多或最近出現。最近出現以逐次紀錄中的最大時間為準，不受來源檔案順序影響。「清除」恢復完整群組與分析原排序。
+- 展開進階篩選後，可將搜尋文字限定於訊息、堆疊、Logger 或 Thread，並另外指定 Logger、Thread 與來源檔名條件。文字採不分大小寫的字面包含比對，不是正規表示式；非空條件必須同時符合，Thread 與來源檔名須符合同一次出現紀錄。
+- 篩選只決定列出哪些群組；進入群組後仍列出完整出現位置。訊息與堆疊搜尋使用分析保留的群組代表內容，不會重新搜尋每筆原文。收合進階篩選不會移除已套用條件；將個別欄位清空後套用可解除該條件。
+- 可選擇分析原排序、出現次數最多或最近出現。最近出現以逐次紀錄中的最大時間為準，不受來源檔案順序影響。「清除」解除搜尋、進階篩選與摘要帶入的範圍，恢復完整群組與分析原排序。
 - 搜尋與排序只影響瀏覽，摘要與匯出仍使用原分析結果。搜尋期間可關閉視窗取消工作；讀取失敗會保留可見頁面並提示原因。
 - 事件群組清單分行顯示層級、次數、時間、訊息及來源，保留分析時的排序方式。
 - 選擇群組後，出現位置按時間由早到晚排列；時間相同時按檔名、行號排序。
@@ -236,7 +238,8 @@ XML Pattern 取樣、實際分析與原文預覽使用相同的替代方式。�
 
 按「管理分析配方」可保存多份常用條件：
 
-- 輸入名稱後按「儲存目前條件」；使用相同名稱會更新該配方，其他配方不受影響。
+- 輸入尚未使用的名稱後按「另存新配方」，保存目前條件；同名配方已存在時不會覆寫。
+- 修改已載入或已儲存的配方後，按「更新目前配方」保存變更。更新目標是畫面標示的目前配方，不是清單中剛選取的另一份配方；要更新另一份，請先套用它。
 - 選擇配方並按「套用」，回填來源、Pattern／XML、時間、關鍵字與大小寫、Level 及排序設定。套用不會自動分析，也不會替換目前結果；確認條件後再按「開始分析」。舊配方的顯示模式值會忽略，統一自動排版。
 - 選擇配方並按「刪除」，只移除選中的配方。
 
@@ -368,9 +371,26 @@ log-analyzer --version
 勾選「手動覆寫 Pattern」後可貼上 `logback.xml` 的 `<pattern>` 內容，但目前只支援常見 token；超出支援範圍時，工具會提示不支援的項目。CLI 可使用 `--pattern` 或 `--logback-xml`。
 
 - 會解析成欄位：`%d` / `%date`、`%thread` / `%t`、`%level` / `%le` / `%p`、`%logger` / `%lo` / `%c`、`%msg` / `%message` / `%m`
-- 可接受但不納入輸出欄位：`%file`、`%line` / `%L`、`%class`、`%method` / `%M`、`%caller`、`%mdc` / `%X`、`%ex` / `%throwable` / `%xEx` / `%wEx` / `%wex` / `%rootException` / `%rEx`、`%n`
+- MDC：`%X{key}` / `%mdc{key}` 保留各次事件的識別碼，例如 `traceId`、`requestId`；也接受標準 `key=value, key2=value2` 形式的 `%X` / `%mdc`。
+- 可接受但不納入輸出欄位：`%file`、`%line` / `%L`、`%class`、`%method` / `%M`、`%caller`、`%ex` / `%throwable` / `%xEx` / `%wEx` / `%wex` / `%rootException` / `%rEx`、`%n`
 - 日期格式目前支援 `yyyy-MM-dd HH:mm:ss.SSS`、`yyyy-MM-dd HH:mm:ss,SSS`，以及無毫秒的 `yyyy-MM-dd HH:mm:ss`
 - 不支援複雜轉換函式與條件式 Pattern，例如 `%replace(...)`、`%clr(...)`
+
+### MDC／traceId 關聯追查
+
+日誌必須已輸出 MDC，並使用對應 XML 或手動 Pattern，例如：
+
+```text
+%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger - [traceId=%X{traceId}] [requestId=%X{requestId}] %msg%n
+```
+
+分析完成後，從事件瀏覽開啟「MDC 關聯追查」，輸入 key（預設 `traceId`）與值。關聯查詢區分大小寫並精確比對，同一識別碼跨檔案的出現紀錄會按時間排列；選取紀錄可查看該次來源內容。自訂 key 也可使用，不限於 `traceId`／`requestId`。
+
+- 關聯範圍是**本次分析保留的事件**，不會重新掃描檔案；分析時排除的 Level、時間或關鍵字結果不會自動補回，因此不一定包含完整請求流程。
+- MDC 保存在每次出現紀錄中，相同訊息但不同識別碼不會因群組合併而混在一起。查詢不改變原摘要或匯出範圍。
+- 未輸出 MDC 的日誌不會從訊息文字猜測識別碼。空值、等於 Pattern 明確預設值（如 `%X{traceId:-none}`）、同名衝突值及設定最大寬度截斷的值，不用於關聯。
+- 裸 `%X` 的文字格式無法可靠區分值內的分隔符號；含複雜值時，請使用明確的 `%X{key}` 並以清楚的分隔符號隔開各欄位。
+- JSON 的 `occurrences` 保留可選的 `mdc` 物件；CSV／Markdown 在發生位置附上 MDC。選擇匯出欄位時需保留「發生位置」，才會包含逐次 MDC。
 
 ## 匯出行為
 
