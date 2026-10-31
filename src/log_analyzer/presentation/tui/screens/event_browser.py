@@ -11,6 +11,7 @@ from textual.widgets import Button, Input, OptionList, Select, Static
 from textual.widgets.option_list import Option
 from log_analyzer.application.analysis.service import AnalysisResult
 from log_analyzer.application.events.query import EventQueryFilters, find_group_indices
+from log_analyzer.application.events.similarity import message_text as similarity_message_text
 from log_analyzer.infrastructure.sources.context_index import SourceContextReader
 from log_analyzer.application.sources.preview import SourcePreview, read_source_context
 from log_analyzer.domain.log_types import LogEntry, OccurrenceCoordinate
@@ -94,6 +95,7 @@ class EventBrowserScreen(ModalScreen[None]):
         self._querying = False
         self._group_page: list[LogEntry] = []
         self._selected_group: LogEntry | None = None
+        self._selected_group_index: int | None = None
         self._occurrences: list[OccurrenceCoordinate] = []
         self._occurrence_order: list[int] = []
         self._occurrence_start = 0
@@ -167,6 +169,7 @@ class EventBrowserScreen(ModalScreen[None]):
                 yield Static("", id="source-encoding-notice")
                 with Container(id="event-browser-preview-toolbar"):
                     yield Button("複製代表訊息", id="copy-retained-message")
+                    yield Button("尋找相似事件", id="browser-similarity")
                     yield Button("複製完整堆疊", id="copy-full-stacktrace")
                     yield Button("展開堆疊", id="stacktrace-toggle")
                 yield Static("", id="source-path")
@@ -352,6 +355,12 @@ class EventBrowserScreen(ModalScreen[None]):
             if page_index < 0 or page_index >= len(self._group_page):
                 return
             self._selected_group = self._group_page[page_index]
+            page_position = self._group_start + page_index
+            self._selected_group_index = (
+                self._group_indices[page_position]
+                if self._group_indices is not None
+                else page_position
+            )
             self._group_highlight = page_index
             occurrences = self._selected_group.get("occurrences")
             self._occurrences = occurrences if isinstance(occurrences, list) else []
@@ -384,6 +393,7 @@ class EventBrowserScreen(ModalScreen[None]):
             "copy-full-stacktrace": self._copy_full_stacktrace,
             "stacktrace-toggle": self._toggle_stacktrace,
             "browser-correlation": self._open_correlation,
+            "browser-similarity": self._open_similarity,
         }
         handler = handlers.get(event.button.id)
         if handler is not None:
@@ -446,6 +456,22 @@ class EventBrowserScreen(ModalScreen[None]):
             )
         )
 
+    def _open_similarity(self) -> None:
+        if self._selected_group is None or self._selected_group_index is None:
+            return
+
+        from log_analyzer.presentation.tui.screens.event_similarity import (
+            EventSimilarityScreen,
+        )
+
+        self.app.push_screen(
+            EventSimilarityScreen(
+                self.result,
+                similarity_message_text(self._selected_group),
+                exclude_index=self._selected_group_index,
+            )
+        )
+
     def _selected_occurrence_for_correlation(self) -> OccurrenceCoordinate | None:
         if self._view == "preview":
             return self._current_occurrence
@@ -479,6 +505,7 @@ class EventBrowserScreen(ModalScreen[None]):
             return
 
         self._selected_group = group
+        self._selected_group_index = group_index
         self._occurrences = occurrences
         self._occurrence_order = sorted(
             range(len(occurrences)),
@@ -501,6 +528,7 @@ class EventBrowserScreen(ModalScreen[None]):
         self._group_indices = None
         self._group_page.clear()
         self._selected_group = None
+        self._selected_group_index = None
         self._occurrences = []
         self._occurrence_order.clear()
         self._source_context_reader.clear()
@@ -530,6 +558,7 @@ class EventBrowserScreen(ModalScreen[None]):
             return
         self._view = "groups"
         self._selected_group = None
+        self._selected_group_index = None
         self._occurrences = []
         self._occurrence_order.clear()
         self._occurrence_start = 0

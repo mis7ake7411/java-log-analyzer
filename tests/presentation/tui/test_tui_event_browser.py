@@ -1216,6 +1216,7 @@ def test_event_browser_preview_actions_are_keyboard_reachable_without_overflow(
     )
     action_ids = (
         "copy-retained-message",
+        "browser-similarity",
         "copy-full-stacktrace",
         "stacktrace-toggle",
         "browser-back",
