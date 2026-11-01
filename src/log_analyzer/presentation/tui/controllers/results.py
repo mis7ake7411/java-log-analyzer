@@ -10,9 +10,10 @@ from log_analyzer.presentation.tui.screens.event_browser import EventBrowserScre
 from log_analyzer.presentation.tui.views import build_dashboard_view, build_idle_view, analyze_dashboard
 from log_analyzer.presentation.dashboard_navigation import build_dashboard_targets
 from log_analyzer.presentation.tui.screens.summary_navigation import SummaryNavigationScreen
+from log_analyzer.presentation.tui.components.dashboard_card import dashboard_card
 from log_analyzer.presentation.tui.dashboard_styles import (
     DASHBOARD_PALETTE,
-    dashboard_card,
+    DashboardCardCategory,
 )
 from log_analyzer.presentation.analysis_labels import export_result_context
 
@@ -103,6 +104,7 @@ class ResultStateMixin:
                 "本次掃描編碼提醒",
                 padding=(0, 1),
                 expand=True,
+                category=DashboardCardCategory.CONTEXT,
             ),
             dashboard,
         )

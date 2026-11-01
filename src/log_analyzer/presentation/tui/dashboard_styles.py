@@ -1,11 +1,11 @@
 """Dashboard 專用 Rich 色票與卡片外觀。"""
 
 from dataclasses import dataclass
+from enum import Enum
+from collections.abc import Mapping
+from types import MappingProxyType
 
-from rich.console import RenderableType
-from rich.panel import Panel
 from rich.style import Style
-from rich.text import Text
 
 
 @dataclass(frozen=True)
@@ -83,23 +83,46 @@ class DashboardPalette:
 DASHBOARD_PALETTE = DashboardPalette()
 
 
-def dashboard_card(
-    content: RenderableType,
-    title: str | Text,
-    *,
-    padding: tuple[int, int] = (0, 1),
-    expand: bool = True,
-    palette: DashboardPalette = DASHBOARD_PALETTE,
-) -> Panel:
-    """建立外觀一致、可獨立交給 Rich Console 繪製的卡片。"""
-    title_text = (
-        Text(title, style=palette.title_style) if isinstance(title, str) else title
-    )
-    return Panel(
-        content,
-        title=title_text,
-        border_style=palette.border_style,
-        style=palette.panel_style,
-        padding=padding,
-        expand=expand,
-    )
+class DashboardCardCategory(str, Enum):
+    SUMMARY = "summary"
+    CONTEXT = "context"
+    DISTRIBUTION = "distribution"
+    EVENTS = "events"
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardCategoryAppearance:
+    title: str
+    border: str
+
+    @property
+    def title_style(self) -> Style:
+        return Style(color=self.title, bold=True)
+
+    @property
+    def border_style(self) -> Style:
+        return Style(color=self.border)
+
+
+DASHBOARD_CATEGORY_APPEARANCES: Mapping[
+    DashboardCardCategory, DashboardCategoryAppearance
+] = MappingProxyType(
+    {
+        DashboardCardCategory.SUMMARY: DashboardCategoryAppearance(
+            title="#7DD3FC",
+            border="#365B70",
+        ),
+        DashboardCardCategory.CONTEXT: DashboardCategoryAppearance(
+            title="#C4B5FD",
+            border="#57506E",
+        ),
+        DashboardCardCategory.DISTRIBUTION: DashboardCategoryAppearance(
+            title="#5EEAD4",
+            border="#2F6260",
+        ),
+        DashboardCardCategory.EVENTS: DashboardCategoryAppearance(
+            title="#FCD34D",
+            border="#6B5937",
+        ),
+    }
+)
