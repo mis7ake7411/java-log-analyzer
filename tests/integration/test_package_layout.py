@@ -136,3 +136,101 @@ def test_tui_package_stylesheets_resolve_inside_log_analyzer_package():
     app = importlib.import_module("log_analyzer.presentation.tui.app").LogAnalyzerApp
 
     assert all(Path(path).is_file() for path in app.CSS_PATH)
+
+
+def test_application_and_domain_modules_live_in_canonical_packages():
+    """搬移後的分析、事件、來源與 Logback 模組應位於對應責任套件。"""
+    module_paths = {
+        "log_analyzer.application.analysis.service": "application/analysis/service.py",
+        "log_analyzer.application.analysis.summary": "application/analysis/summary.py",
+        "log_analyzer.application.analysis.evidence": "application/analysis/evidence.py",
+        "log_analyzer.application.events.query": "application/events/query.py",
+        "log_analyzer.application.events.correlation": "application/events/correlation.py",
+        "log_analyzer.application.sources.selection": "application/sources/selection.py",
+        "log_analyzer.application.sources.preview": "application/sources/preview.py",
+        "log_analyzer.infrastructure.sources.context_index": "infrastructure/sources/context_index.py",
+        "log_analyzer.domain.logback.pattern": "domain/logback/pattern.py",
+        "log_analyzer.domain.logback.xml": "domain/logback/xml.py",
+        "log_analyzer.domain.logback.mdc": "domain/logback/mdc.py",
+    }
+    symbol_names = {
+        "log_analyzer.application.analysis.service": (
+            "AnalysisRequest",
+            "AnalysisResult",
+            "run_analysis_with_options",
+        ),
+        "log_analyzer.application.analysis.summary": (
+            "DashboardAnalysis",
+            "aggregate_dashboard_summary",
+        ),
+        "log_analyzer.application.analysis.evidence": ("export_evidence_manifest",),
+        "log_analyzer.application.events.query": (
+            "EventQueryFilters",
+            "find_group_indices",
+        ),
+        "log_analyzer.application.events.correlation": (
+            "CorrelatedOccurrence",
+            "find_correlated_occurrences",
+        ),
+        "log_analyzer.application.sources.selection": ("SourceFileSelection",),
+        "log_analyzer.application.sources.preview": (
+            "SourcePreview",
+            "read_source_context",
+        ),
+        "log_analyzer.infrastructure.sources.context_index": ("SourceContextReader",),
+        "log_analyzer.domain.logback.pattern": (
+            "UnsupportedLogbackPatternError",
+            "compile_logback_pattern",
+        ),
+        "log_analyzer.domain.logback.xml": (
+            "LogbackPatternAssessment",
+            "assess_logback_patterns",
+        ),
+        "log_analyzer.domain.logback.mdc": ("make_mdc_group_name", "extract_mdc"),
+    }
+    packages = {
+        "log_analyzer.application.analysis": "application/analysis",
+        "log_analyzer.application.events": "application/events",
+        "log_analyzer.application.sources": "application/sources",
+        "log_analyzer.infrastructure.sources": "infrastructure/sources",
+        "log_analyzer.domain.logback": "domain/logback",
+    }
+
+    modules = {name: importlib.import_module(name) for name in module_paths}
+    for name, relative_path in module_paths.items():
+        module = modules[name]
+        assert Path(module.__file__).resolve() == (_SOURCE_PACKAGE / relative_path).resolve()
+        assert module.__package__ == name.rpartition(".")[0]
+        for symbol_name in symbol_names[name]:
+            assert getattr(module, symbol_name).__module__ == name
+
+    assert (
+        modules["log_analyzer.application.sources.preview"].SourceContextReader
+        is modules[
+            "log_analyzer.infrastructure.sources.context_index"
+        ].SourceContextReader
+    )
+
+    for name, relative_path in packages.items():
+        package = importlib.import_module(name)
+        package_path = (_SOURCE_PACKAGE / relative_path).resolve()
+        assert Path(package.__file__).resolve() == package_path / "__init__.py"
+        assert Path(next(iter(package.__path__))).resolve() == package_path
+        assert package.__doc__
+
+    _assert_legacy_flat_modules_are_absent(
+        "application/analysis_service.py",
+        "application/dashboard_summary.py",
+        "application/evidence_manifest.py",
+        "application/event_query.py",
+        "application/event_correlation.py",
+        "application/source_file_selection.py",
+        "application/source_preview.py",
+        "application/source_context_index.py",
+        "domain/logback_pattern.py",
+        "domain/logback_xml.py",
+        "domain/logback_mdc.py",
+    )
+    test_root = Path(__file__).parents[1]
+    assert not (test_root / "application/test_source_context_index.py").exists()
+    assert (test_root / "infrastructure/test_source_context_index.py").is_file()

@@ -10,24 +10,22 @@ from types import SimpleNamespace
 
 import pytest
 from rich.text import Text
-from textual.app import App, ComposeResult
+from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.widgets import Button, Input, Select, Static
 
 from tui_waits import wait_for_button_ready, wait_for_ui_state, wait_for_layout_to_settle
+from tui_harnesses import StyledApp
 
-from log_analyzer.application.analysis_service import AnalysisResult
-from log_analyzer.application.source_preview import read_source_context
+from log_analyzer.application.analysis.service import AnalysisResult
+from log_analyzer.application.sources.preview import read_source_context
 from log_analyzer.domain.parser import MatchedLogsStore
-from log_analyzer.presentation.tui import LogAnalyzerApp
 from log_analyzer.presentation.tui.event_browser_text import highlight_literal
 from log_analyzer.presentation.tui.screens.event_browser import EventBrowserScreen
 from log_analyzer.presentation.tui.screens import event_browser as browser_module
 
 
-class EventBrowserHarness(App[None]):
-    CSS_PATH = LogAnalyzerApp.CSS_PATH
-
+class EventBrowserHarness(StyledApp):
     def __init__(self, result: AnalysisResult) -> None:
         self.result = result
         super().__init__()
@@ -37,6 +35,58 @@ class EventBrowserHarness(App[None]):
 
     def on_mount(self) -> None:
         self.push_screen(EventBrowserScreen(self.result))
+
+
+def test_tracking_browser_uses_retained_raw_after_source_deleted(tmp_path, monkeypatch):
+    """真實選取追蹤事件時只讀快照；來源消失仍保留原文與返回操作。"""
+    from dataclasses import fields
+
+    from log_analyzer.application.analysis.service import AnalysisRequest
+    from log_analyzer.application.live.session import LiveSession
+
+    source = tmp_path / "app.log"
+    raw = "2026-10-31 12:00:00.000 [main] ERROR sample.App - retained-only\n"
+    source.write_text(raw * 2, encoding="utf-8")
+    session = LiveSession(AnalysisRequest(str(source)), directory=tmp_path)
+    session.resume()
+    session.step()
+    snapshot = session.snapshot()
+    session.close()
+    source.unlink()
+    coordinate = {**_occurrence("app.log", 1), "sequence": 1, "generation": 0}
+    base = _result(tmp_path, [_group(0, [coordinate])])
+    result = SimpleNamespace(
+        **{field.name: getattr(base, field.name) for field in fields(base)},
+        tracking_snapshot=snapshot,
+    )
+
+    def forbid_source_read(*args, **kwargs):
+        raise AssertionError("追蹤原文不得重新讀取來源")
+
+    monkeypatch.setattr(browser_module, "read_source_context", forbid_source_read)
+
+    async def run_check():
+        app = EventBrowserHarness(result)
+        async with app.run_test(size=(100, 38)) as pilot:
+            browser = app.screen
+            await wait_for_ui_state(pilot, lambda: browser.query_one("#event-options").option_count == 1, "groups not ready")
+            browser.query_one("#event-options").focus()
+            await pilot.press("enter")
+            await wait_for_ui_state(pilot, lambda: browser._view == "occurrences", "occurrences not ready")
+            await pilot.press("enter")
+            await wait_for_ui_state(pilot, lambda: browser._view == "preview", "preview not ready")
+            assert browser._current_preview.lines == ((1, raw.strip()),)
+            assert "retained-only" in browser.query_one("#source-context", Static).render().plain
+            assert "世代 0" in browser.query_one("#source-path", Static).render().plain
+            await wait_for_button_ready(app, pilot, "#browser-back")
+            browser.query_one("#browser-back").focus()
+            await pilot.press("enter")
+            await wait_for_ui_state(pilot, lambda: browser._view == "occurrences", "return did not restore occurrences")
+    try:
+        asyncio.run(run_check())
+    finally:
+        base.matched_logs.release()
+        snapshot.release()
 
 
 def _occurrence(
@@ -1216,6 +1266,7 @@ def test_event_browser_preview_actions_are_keyboard_reachable_without_overflow(
     )
     action_ids = (
         "copy-retained-message",
+        "browser-similarity",
         "copy-full-stacktrace",
         "stacktrace-toggle",
         "browser-back",

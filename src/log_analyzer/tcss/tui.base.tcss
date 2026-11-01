@@ -227,7 +227,8 @@ Button.-primary:focus {
     text-style: bold;
 }
 
-/* Compact overview actions retain a single line in every interaction state. */
+/* Compact actions retain a text row when the shared focus style adds a border. */
+#select-source-files,
 #condition-overview .condition-clear,
 #condition-overview #preview-format {
     border: none;

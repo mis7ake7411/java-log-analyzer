@@ -1,16 +1,17 @@
 from rich.console import Group
 from rich.panel import Panel
-from rich.table import Table
 from rich.text import Text
-from rich.style import Style
-from log_analyzer.presentation.dashboard_navigation import build_dashboard_targets
-from ...application.analysis_service import AnalysisResult
-from ...application.dashboard_summary import DashboardAnalysis, aggregate_dashboard_summary
+from log_analyzer.presentation.tui.components.dashboard import DashboardView
+from log_analyzer.presentation.tui.components.dashboard_card import dashboard_card
+from log_analyzer.presentation.tui.dashboard_styles import (
+    DASHBOARD_PALETTE,
+    DashboardCardCategory,
+)
+from log_analyzer.presentation.tui.components.scan_coverage import build_scan_coverage_text
+from ...application.analysis.service import AnalysisResult
+from ...application.analysis.summary import DashboardAnalysis, aggregate_dashboard_summary
 from ...domain.log_types import ScanDiagnostics
 from ..encoding_warnings import format_encoding_warning
-from log_analyzer.presentation.scan_diagnostics import format_scan_coverage
-from log_analyzer.presentation.analysis_labels import request_time_range
-from log_analyzer.domain.logback_pattern import DEFAULT_LOGBACK_PATTERN
 from ..error_messages import get_error_hint
 
 def analyze_dashboard(result: AnalysisResult) -> DashboardAnalysis:
@@ -25,11 +26,16 @@ def analyze_dashboard(result: AnalysisResult) -> DashboardAnalysis:
 def build_idle_view() -> Panel:
     return _build_status_panel(
         "結果區",
-        "cyan",
         (
-            Text("尚未產生分析結果", style="bold cyan"),
-            Text("請先在上方填入條件，然後按「開始分析」", style="white"),
-            Text("Enter 開始分析，c 清除結果，q 離開", style="dim"),
+            Text("尚未產生分析結果", style=DASHBOARD_PALETTE.secondary_bold_style),
+            Text(
+                "請先在上方填入條件，然後按「開始分析」",
+                style=DASHBOARD_PALETTE.value_style,
+            ),
+            Text(
+                "Enter 開始分析，c 清除結果，q 離開",
+                style=DASHBOARD_PALETTE.secondary_style,
+            ),
         ),
     )
 
@@ -37,11 +43,13 @@ def build_idle_view() -> Panel:
 def build_loading_view() -> Panel:
     return _build_status_panel(
         "執行中",
-        "cyan",
         (
-            Text("分析中，請稍候...", style="bold cyan"),
-            Text("正在掃描 Log 目錄並套用條件", style="white"),
-            Text("大型資料夾可能需要較久時間", style="dim"),
+            Text("分析中，請稍候...", style=DASHBOARD_PALETTE.secondary_bold_style),
+            Text(
+                "正在掃描 Log 目錄並套用條件",
+                style=DASHBOARD_PALETTE.value_style,
+            ),
+            Text("大型資料夾可能需要較久時間", style=DASHBOARD_PALETTE.secondary_style),
         ),
     )
 
@@ -49,11 +57,13 @@ def build_loading_view() -> Panel:
 def build_error_view(title: str, message: str) -> Panel:
     return _build_status_panel(
         "執行失敗",
-        "red",
         (
-            Text(title, style="bold red"),
-            Text(message, style="white"),
-            Text(get_error_hint(title, message), style="dim"),
+            Text(title, style=DASHBOARD_PALETTE.error_style),
+            Text(message, style=DASHBOARD_PALETTE.value_style),
+            Text(
+                get_error_hint(title, message),
+                style=DASHBOARD_PALETTE.secondary_style,
+            ),
         ),
     )
 
@@ -74,23 +84,34 @@ def build_zero_result_view(diagnostics: ScanDiagnostics) -> Panel:
 
     panel = _build_status_panel(
         "沒有符合資料",
-        "yellow",
         (
-            Text("沒有符合資料", style="bold yellow"),
-            Text(reason, style="white"),
-            Text(f"掃描 Log 檔案：{diagnostics.files_scanned}", style="cyan"),
-            Text(f"符合 Pattern 的事件：{diagnostics.parsed_entries}", style="cyan"),
-            Text(f"時間範圍後：{diagnostics.after_time}", style="cyan"),
-            Text(f"Level 後：{diagnostics.after_level}", style="cyan"),
-            Text(f"關鍵字後：{diagnostics.after_keyword}", style="cyan"),
+            Text("沒有符合資料", style=DASHBOARD_PALETTE.warning_style),
+            Text(reason, style=DASHBOARD_PALETTE.value_style),
+            Text(
+                f"掃描 Log 檔案：{diagnostics.files_scanned}",
+                style=DASHBOARD_PALETTE.value_style,
+            ),
+            Text(
+                f"符合 Pattern 的事件：{diagnostics.parsed_entries}",
+                style=DASHBOARD_PALETTE.value_style,
+            ),
+            Text(f"時間範圍後：{diagnostics.after_time}", style=DASHBOARD_PALETTE.value_style),
+            Text(f"Level 後：{diagnostics.after_level}", style=DASHBOARD_PALETTE.value_style),
+            Text(f"關鍵字後：{diagnostics.after_keyword}", style=DASHBOARD_PALETTE.value_style),
         ),
     )
     encoding_warning = format_encoding_warning(diagnostics)
     if encoding_warning:
-        panel.renderable = Group(panel.renderable, Text(encoding_warning, style="yellow"))
-    coverage = format_scan_coverage(diagnostics)
+        panel.renderable = Group(
+            panel.renderable,
+            Text(encoding_warning, style=DASHBOARD_PALETTE.warning_style),
+        )
+    coverage = build_scan_coverage_text(diagnostics)
     if coverage:
-        panel.renderable = Group(panel.renderable, Text(coverage))
+        panel.renderable = Group(
+            panel.renderable,
+            coverage,
+        )
     return panel
 
 
@@ -107,112 +128,15 @@ def build_dashboard_view(
     *,
     navigation_generation: int | None = None,
 ) -> Group:
-    """產生摘要；互動入口只用於 TUI，靜態呈現不附帶操作指令。
+    """Build the legacy Rich dashboard API; compact remains compatibility-only.
 
-    Args:
-        result: 已完成的分析結果。
-        compact: 保留既有呼叫介面，版面依實際可用寬度調整。
-        navigation_generation: TUI 結果世代；None 產生一般靜態摘要。
-
-    Returns:
-        可交給 RichLog 或 Console 繪製的摘要群組。
+    DashboardView lays out rows from the active console width.
     """
     analysis = analyze_dashboard(result)
-    targets = (
-        build_dashboard_targets(result, analysis)
-        if navigation_generation is not None else ()
-    )
-    has_export = bool(result.exported_files)
-    export_state = (
-        f"已匯出 {result.format_name.upper()}"
-        if has_export
-        else "未匯出"
-    )
-    status_line = Text("分析完成", style="bold green")
-    status_line.append(" · ")
-    status_line.append(export_state, style="magenta" if has_export else "dim")
-    if navigation_generation is not None:
-        status_line.append(" · d 摘要導覽", style="bold cyan")
-    overview = Panel(
-        status_line,
-        border_style="green",
-        padding=(0, 1),
-        title="執行狀態",
-        expand=True,
-    )
-    exception_panel = _build_exception_summary_panel(analysis.exception_summary)
-    hotspot_panel = _build_time_hotspot_panel(analysis.time_hotspots)
-    distribution_panel = _build_logger_thread_distribution_panel(
-        analysis.logger_summary,
-        analysis.thread_summary,
-    )
-
-    metric_cards = [
-        _metric_card("總 Log", str(result.total_logs), "cyan", "整體筆數"),
-        _metric_card("群組", str(result.matched_groups), "green", "符合條件的事件群組"),
-        _metric_card("命中", str(result.matched_occurrences), "yellow", "條件觸發總次數"),
-    ]
-
-    metadata = Table.grid(padding=(0, 1), expand=True)
-    metadata.add_column(style="bold cyan", width=12)
-    metadata.add_column(ratio=1, no_wrap=False, overflow="fold")
-    encoding_warning = format_encoding_warning(getattr(result, "diagnostics", None))
-    if encoding_warning:
-        metadata.add_row("讀取提醒", Text(encoding_warning, style="yellow"))
-    analysis_request = getattr(result, "analysis_request", None)
-    selected_path = getattr(analysis_request, "path", None)
-    metadata.add_row("Log 來源", Text(selected_path or result.input_path))
-    if analysis_request is not None:
-        metadata.add_row("時間區間", Text(request_time_range(analysis_request)))
-        metadata.add_row("Pattern", Text(getattr(analysis_request, "log_pattern", None) or DEFAULT_LOGBACK_PATTERN))
-    metadata.add_row(
-        "輸出檔案",
-        Text("\n".join(result.exported_files) if has_export else "尚未匯出"),
-    )
-    if len(result.exported_files) > 1:
-        metadata.add_row("分割檔案", f"{len(result.exported_files)} 個")
-    metadata.add_row("關鍵字", Text(result.keyword))
-    levels = getattr(result, "selected_levels", ())
-    selected_levels = ", ".join(levels) if levels else "全部"
-    metadata.add_row("Log 層級", Text(selected_levels))
-    metadata.add_row("排序方式", "Level 分組" if result.sort_by == "level" else "時間排序")
-    metadata.add_row("忽略大小寫", "是" if result.ignore_case else "否")
-
-    level_content = _build_level_distribution(result, targets, navigation_generation)
-
-    summary_panel_items = [
-        Panel(
-            metadata,
-            title="分析資訊",
-            border_style="blue",
-            padding=(0, 1),
-            expand=True,
-        ),
-        Panel(
-            level_content,
-            title="Level 分布",
-            border_style="green",
-            padding=(0, 1),
-            expand=True,
-        ),
-    ]
-    summary_panels = Group(*summary_panel_items, fit=False)
-
-    return Group(
-        overview,
-        _ResponsivePanelRow(metric_cards, minimum_panel_width=24),
-        summary_panels,
-        *(
-            [_build_top_events_panel(analysis.top_events, targets, navigation_generation)]
-            if getattr(analysis, "top_events", ()) else []
-        ),
-        *(
-            [Panel(Text(coverage), title="逐檔解析診斷", border_style="yellow")]
-            if (coverage := format_scan_coverage(getattr(result, "diagnostics", None))) else []
-        ),
-        exception_panel,
-        hotspot_panel,
-        distribution_panel,
+    return DashboardView(
+        result,
+        analysis,
+        navigation_generation=navigation_generation,
     )
 
 
@@ -222,229 +146,10 @@ def _status_text(message: str, color: str) -> Text:
     return text
 
 
-def _build_status_panel(title: str, border_style: str, lines: tuple[Text, ...]) -> Panel:
-    return Panel(Group(*lines), title=title, border_style=border_style, padding=(1, 2))
-
-
-def _metric_card(title: str, value: str, accent: str, caption: str) -> Panel:
-    body = Group(
-        Text(value, style=f"bold {accent}"),
-        Text(caption, style="dim"),
-    )
-    return Panel(body, title=title, border_style=accent, padding=(0, 1), expand=True)
-
-
-class _ResponsivePanelRow:
-    """寬度足夠時以等寬欄排列面板，否則將面板逐一堆疊。"""
-
-    _COLUMN_GAP = 1
-
-    def __init__(self, panels: list[Panel], minimum_panel_width: int) -> None:
-        self.panels = panels
-        self.minimum_panel_width = minimum_panel_width
-
-    def __rich_console__(self, console, options):
-        minimum_width = (
-            len(self.panels) * self.minimum_panel_width
-            + max(0, len(self.panels) - 1) * 2 * self._COLUMN_GAP
-        )
-        if options.max_width >= minimum_width:
-            row = Table.grid(expand=True, padding=(0, self._COLUMN_GAP))
-            for _ in self.panels:
-                row.add_column(ratio=1, min_width=self.minimum_panel_width)
-            row.add_row(*self.panels)
-            yield row
-        else:
-            yield Group(*self.panels, fit=False)
-
-
-class _ProgressBar:
-    """依照表格分配的欄寬繪製以最大筆數為基準的長條。"""
-
-    def __init__(self, value: int, maximum: int, *, action: str | None = None) -> None:
-        self.value = value
-        self.maximum = maximum
-        self.action = action
-
-    def __rich_console__(self, console, options):
-        width = max(0, options.max_width)
-        if width == 0:
-            return
-        filled = 0
-        if self.maximum > 0 and self.value > 0:
-            filled = min(width, max(1, round(self.value / self.maximum * width)))
-        yield Text("█" * filled + "░" * (width - filled), style=Style(color="green") + _dashboard_link_style(self.action))
-
-
-def _dashboard_link_style(action: str | None) -> Style:
-    """附上程式產生的入口編號，避免將日誌文字拼成操作指令。"""
-    return Style(color="cyan", underline=True, meta={"@click": action}) if action else Style()
-
-
-def _build_level_distribution(result, targets, generation: int | None) -> Group:
-    """以同一入口標記 Level 文字、筆數、比例及長條。"""
-    indices = {
-        target.level: index for index, target in enumerate(targets)
-        if target.level is not None
-    }
-    table = Table.grid(expand=True, padding=(0, 1))
-    table.add_column(style="bold", width=7, no_wrap=True)
-    table.add_column(justify="right", width=7, no_wrap=True)
-    table.add_column(justify="right", width=8, no_wrap=True)
-    table.add_column(ratio=1, min_width=1)
-    table.add_row(
-        Text("Level", style="dim"), Text("筆數", style="dim"),
-        Text("占比", style="dim"), Text("相對最高", style="dim"),
-    )
-    if result.level_summary:
-        maximum = max(count for _, count in result.level_summary)
-        total = sum(count for _, count in result.level_summary)
-        for level, count in result.level_summary:
-            action = (
-                f"app.open_dashboard_target({generation}, {indices[level]})"
-                if level in indices else None
-            )
-            style = _dashboard_link_style(action)
-            table.add_row(
-                Text(str(level), style=style), Text(str(count), style=style),
-                Text(f"{count / total * 100 if total else 0:.1f}%", style=style),
-                _ProgressBar(count, maximum, action=action),
-            )
-    else:
-        table.add_row("N/A", "-", "", "沒有可顯示的統計")
-    return Group(table, Text("占比以本次結果的總筆數計算；長條以最高筆數為滿格。", style="dim"))
-
-
-def _build_top_events_panel(events, targets, generation: int | None) -> Panel:
-    """顯示已有摘要的前五個事件，以原群組索引連到精確的事件清單。"""
-    indices = {
-        target.group_index: index for index, target in enumerate(targets)
-        if target.group_index is not None
-    }
-    table = Table.grid(expand=True, padding=(0, 1))
-    table.add_column(ratio=1, overflow="fold")
-    table.add_column(width=10, justify="right")
-    for event in events:
-        action = (
-            f"app.open_dashboard_target({generation}, {indices[event.group_index]})"
-            if event.group_index in indices else None
-        )
-        style = _dashboard_link_style(action)
-        table.add_row(
-            Text(f"{event.level} · {event.message}", style=style),
-            Text(f"{event.count} 次", style=style),
-        )
-    return Panel(table, title="高頻事件（前 5 項）", border_style="cyan", padding=(0, 1), expand=True)
-
-
-def _build_exception_summary_panel(summary: tuple[tuple[str, int, int], ...]) -> Panel:
-    body = Table.grid(expand=True)
-    body.add_column(style="bold red", ratio=2)
-    body.add_column(justify="right", width=10)
-    body.add_column(justify="right", width=10)
-
-    if summary:
-        for signature, group_count, occurrence_count in summary[:5]:
-            body.add_row(signature, f"{group_count} 群組", f"{occurrence_count} 次")
-        footer = Text(f"共 {len(summary)} 種例外群組", style="dim")
-        return Panel(Group(body, footer), title="例外群組摘要", border_style="red", padding=(1, 2))
-
-    return Panel(
-        Group(
-            Text("尚未偵測到例外群組", style="bold red"),
-            Text("目前結果沒有可歸類的 stacktrace 或例外標題", style="dim"),
-        ),
-        title="例外群組摘要",
-        border_style="red",
+def _build_status_panel(title: str, lines: tuple[Text, ...]) -> Panel:
+    return dashboard_card(
+        Group(*lines),
+        title,
         padding=(1, 2),
-    )
-
-
-def _build_time_hotspot_panel(summary: tuple[tuple[str, int, int], ...]) -> Panel:
-    body = Table.grid(expand=True)
-    body.add_column(style="bold yellow", ratio=2)
-    body.add_column(justify="right", width=10)
-    body.add_column(justify="right", width=10)
-
-    if summary:
-        for bucket, group_count, occurrence_count in summary[:5]:
-            body.add_row(bucket, f"{group_count} 群組", f"{occurrence_count} 次")
-        footer = Text(f"共 {len(summary)} 個時段", style="dim")
-        return Panel(Group(body, footer), title="時間熱點", border_style="yellow", padding=(1, 2))
-
-    return Panel(
-        Group(
-            Text("尚未偵測到時間熱點", style="bold yellow"),
-            Text("目前結果沒有可用的時間戳記", style="dim"),
-        ),
-        title="時間熱點",
-        border_style="yellow",
-        padding=(1, 2),
-    )
-
-
-def _build_logger_thread_distribution_panel(
-    logger_summary: tuple[tuple[str, int, int], ...],
-    thread_summary: tuple[tuple[str, int, int], ...],
-) -> Panel:
-
-    logger_table = _distribution_table("Logger", logger_summary, "blue")
-    thread_table = _distribution_table("Thread", thread_summary, "magenta")
-
-    if logger_summary or thread_summary:
-        distribution_content = _ResponsivePanelRow(
-            [logger_table, thread_table],
-            minimum_panel_width=40,
-        )
-        return Panel(
-            distribution_content,
-            title="Logger / Thread 分布",
-            border_style="blue",
-            padding=(1, 2),
-            expand=True,
-        )
-
-    return Panel(
-        Group(
-            Text("尚未偵測到 Logger / Thread 分布", style="bold blue"),
-            Text("目前結果沒有足夠的 logger 或 thread 資訊", style="dim"),
-        ),
-        title="Logger / Thread 分布",
-        border_style="blue",
-        padding=(1, 2),
-        expand=True,
-    )
-
-
-def _distribution_table(
-    label: str,
-    summary: tuple[tuple[str, int, int], ...],
-    accent: str,
-) -> Panel:
-    body = Table.grid(expand=True)
-    body.add_column(style=f"bold {accent}", ratio=2)
-    body.add_column(justify="right", width=10)
-    body.add_column(justify="right", width=10)
-
-    if summary:
-        for value, group_count, occurrence_count in summary[:5]:
-            body.add_row(value, f"{group_count} 群組", f"{occurrence_count} 次")
-        footer = Text(f"共 {len(summary)} 個 {label}", style="dim")
-        return Panel(
-            Group(body, footer),
-            title=label,
-            border_style=accent,
-            padding=(1, 1),
-            expand=True,
-        )
-
-    return Panel(
-        Group(
-            Text(f"尚無 {label}", style=f"bold {accent}"),
-            Text("目前沒有可顯示的分布資訊", style="dim"),
-        ),
-        title=label,
-        border_style=accent,
-        padding=(1, 1),
-        expand=True,
+        category=DashboardCardCategory.SUMMARY,
     )

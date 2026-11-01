@@ -6,22 +6,20 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
-from textual.app import App, ComposeResult
+from textual.app import ComposeResult
 from textual.widgets import Button, Input, OptionList, Static
 
 from tui_waits import wait_for_button_ready, wait_for_layout_to_settle, wait_for_ui_state
+from tui_harnesses import StyledApp
 
-from log_analyzer.application.analysis_service import AnalysisResult
+from log_analyzer.application.analysis.service import AnalysisResult
 from log_analyzer.domain.parser import MatchedLogsStore
-from log_analyzer.presentation.tui import LogAnalyzerApp
 from log_analyzer.presentation.tui.screens.event_browser import EventBrowserScreen
 from log_analyzer.presentation.tui.screens.event_correlation import EventCorrelationScreen
 from log_analyzer.presentation.tui.screens import event_correlation as correlation_module
 
 
-class CorrelationHarness(App[None]):
-    CSS_PATH = LogAnalyzerApp.CSS_PATH
-
+class CorrelationHarness(StyledApp):
     def __init__(self, result: AnalysisResult, *, start_browser: bool = False) -> None:
         self.result = result
         self.start_browser = start_browser
@@ -596,10 +594,14 @@ def test_inputs_results_and_fixed_actions_remain_visible_at_narrow_and_wide_size
             await wait_for_layout_to_settle(pilot, widgets)
             assert_geometry(80, 24)
             await pilot.resize_terminal(160, 40)
-            await wait_for_layout_to_settle(pilot, widgets)
+            await wait_for_layout_to_settle(
+                pilot, widgets, lambda: screen.size == (160, 40)
+            )
             assert_geometry(160, 40)
             await pilot.resize_terminal(80, 24)
-            await wait_for_layout_to_settle(pilot, widgets)
+            await wait_for_layout_to_settle(
+                pilot, widgets, lambda: screen.size == (80, 24)
+            )
             assert_geometry(80, 24)
 
     asyncio.run(run_check())

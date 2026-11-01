@@ -1,10 +1,11 @@
 from log_analyzer.presentation.tui.controllers import exporting as exporting_module
 from log_analyzer.presentation.tui.controllers import patterns as patterns_module
 import asyncio
+import pytest
 from pathlib import Path
-from tui_waits import wait_for_layout_to_settle
+from tui_waits import wait_for_button_ready, wait_for_layout_to_settle, wait_for_ui_state
 
-from log_analyzer.application.analysis_service import AnalysisRequest, analyze_logs
+from log_analyzer.application.analysis.service import AnalysisRequest, analyze_logs
 from log_analyzer.infrastructure.recipe_store import RECIPE_FIELDS, RecipeStore
 from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui import LogAnalyzerApp
@@ -497,7 +498,10 @@ def test_modal_enter_does_not_run_actions_and_escape_closes(tmp_path, monkeypatc
     asyncio.run(run_check())
 
 
-def test_corrupt_recipe_file_stays_unchanged_after_save_and_delete_attempts(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "size", [(80, 24), (100, 30), (140, 60)], ids=["80x24", "100x30", "140x60"]
+)
+def test_corrupt_recipe_file_stays_unchanged_after_save_and_delete_attempts(tmp_path, monkeypatch, size):
     """情境：配方檔損壞時保存與刪除嘗試都不得改寫。"""
     monkeypatch.chdir(tmp_path)
     store_path = tmp_path / "recipes.json"
@@ -512,21 +516,42 @@ def test_corrupt_recipe_file_stays_unchanged_after_save_and_delete_attempts(tmp_
 
     async def run_check() -> None:
         app = LogAnalyzerApp()
-        async with app.run_test(size=(100, 30)) as pilot:
-            await pilot.pause()
-            await pilot.click("#manage-recipes")
-            await pilot.pause()
+        async with app.run_test(size=size) as pilot:
+            async def click_recipe_action(selector):
+                button = app.screen.query_one(selector)
+                button.scroll_visible(animate=False)
+                await wait_for_button_ready(app, pilot, selector)
+                assert await pilot.click(selector)
+
+            await wait_for_button_ready(app, pilot, "#manage-recipes")
+            assert await pilot.click("#manage-recipes")
+            await wait_for_ui_state(
+                pilot,
+                lambda: bool(app.screen.query("#recipe-status")),
+                "recipe manager did not open",
+            )
             screen = app.screen
             assert "讀取配方失敗" in screen.query_one("#recipe-status").render().plain
 
             screen.query_one("#recipe-name").value = "Cannot replace corrupt file"
-            await pilot.click("#recipe-save")
-            await pilot.pause()
+            await click_recipe_action("#recipe-save")
+            await wait_for_ui_state(
+                pilot,
+                lambda: (
+                    "JSON" in screen.query_one("#recipe-status").render().plain
+                    and "讀取配方失敗" not in screen.query_one("#recipe-status").render().plain
+                ),
+                "save attempt did not report the corrupt JSON file",
+            )
             assert "JSON" in screen.query_one("#recipe-status").render().plain
             assert store_path.read_bytes() == corrupt_bytes
 
-            await pilot.click("#recipe-delete")
-            await pilot.pause()
+            await click_recipe_action("#recipe-delete")
+            await wait_for_ui_state(
+                pilot,
+                lambda: "請先選擇" in screen.query_one("#recipe-status").render().plain,
+                "delete attempt did not report the missing selection",
+            )
             assert "請先選擇" in screen.query_one("#recipe-status").render().plain
             assert store_path.read_bytes() == corrupt_bytes
 

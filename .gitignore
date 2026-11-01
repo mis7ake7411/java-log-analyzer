@@ -2,6 +2,9 @@
 .worktrees/
 .idea/
 .venv/
+.profiles/
+.import_linter_cache/
+.hypothesis/
 .venv-portable/
 .portable-work/
 

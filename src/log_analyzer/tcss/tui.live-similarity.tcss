@@ -1,0 +1,55 @@
+LiveSimilaritySettings {
+    width: 1fr;
+    height: auto;
+    min-width: 0;
+    min-height: 0;
+    margin: 0 0 1 0;
+}
+
+#live-similarity-enabled {
+    width: 1fr;
+    height: auto;
+    min-width: 0;
+    min-height: 1;
+    margin: 0;
+}
+
+#live-similarity-details {
+    width: 1fr;
+    height: auto;
+    min-width: 0;
+    min-height: 0;
+    padding: 0 0 0 2;
+    layout: vertical;
+}
+
+#live-similarity-details Label {
+    width: 1fr;
+    height: auto;
+    min-width: 0;
+    min-height: 1;
+    color: #cbd5e1;
+}
+
+#live-similarity-reference,
+#live-similarity-threshold {
+    width: 1fr;
+    min-width: 0;
+}
+
+#live-similarity-hint {
+    width: 1fr;
+    height: auto;
+    min-width: 0;
+    min-height: 1;
+    margin-top: 1;
+    color: #94a3b8;
+    text-wrap: wrap;
+}
+
+LiveEventScreen #live-event-use-as-similarity-reference,
+LiveEventScreen #live-event-close {
+    width: 1fr;
+    min-width: 0;
+    max-width: 100%;
+}

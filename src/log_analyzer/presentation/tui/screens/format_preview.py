@@ -10,9 +10,9 @@ from textual.containers import Container, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
-from log_analyzer.domain import logback_xml
+from log_analyzer.domain.logback import xml as logback_xml
 from log_analyzer.domain.log_sources import LogSourceSelection
-from log_analyzer.domain.logback_pattern import DEFAULT_LOGBACK_PATTERN
+from log_analyzer.domain.logback.pattern import DEFAULT_LOGBACK_PATTERN
 
 
 class FormatPreviewScreen(ModalScreen[None]):

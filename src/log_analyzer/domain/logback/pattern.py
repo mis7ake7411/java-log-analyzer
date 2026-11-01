@@ -1,7 +1,7 @@
 import re
 from re import Pattern
 
-from .logback_mdc import make_mdc_group_name
+from .mdc import make_mdc_group_name
 
 
 DEFAULT_LOGBACK_PATTERN = "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

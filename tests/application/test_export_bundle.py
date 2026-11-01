@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from log_analyzer.application.analysis_service import (
+from log_analyzer.application.analysis.service import (
     AnalysisRequest,
     AnalysisResult,
     ResultExportOptions,
@@ -100,7 +100,7 @@ def test_export_analysis_bundle_publishes_reports_and_manifest_together(tmp_path
 
 def test_bundle_manifest_failure_leaves_no_new_reports_or_metadata_changes(tmp_path, monkeypatch):
     """情境：清單建立失敗時不得留下新報表或更改結果中繼資料。"""
-    import log_analyzer.application.evidence_manifest as evidence_manifest
+    import log_analyzer.application.analysis.evidence as evidence_manifest
 
     result = _result(tmp_path / "logs")
     output = tmp_path / "report.csv"

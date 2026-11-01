@@ -6,8 +6,8 @@ from typing import get_type_hints
 import pytest
 from rich.console import Console
 
-import log_analyzer.application.analysis_service as analysis_service
-from log_analyzer.application.analysis_service import (
+import log_analyzer.application.analysis.service as analysis_service
+from log_analyzer.application.analysis.service import (
     AnalysisRequest,
     AnalysisOptions,
     AnalysisResult,

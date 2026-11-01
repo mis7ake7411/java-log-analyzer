@@ -17,6 +17,8 @@ import zipfile
 from terminal_session import TerminalSession
 from advanced_cli import verify_advanced_cli
 from advanced_tui import verify_advanced_tui
+from live_cli import verify_live_cli, verify_live_similarity_cli
+from live_tui import verify_live_tui, verify_live_similarity_tui
 
 
 def check_archive(archive):
@@ -45,6 +47,8 @@ def check_archive(archive):
         "tui.base.tcss",
         "tui.dialog.tcss",
         "tui.layout.tcss",
+        "tui.live.tcss",
+        "tui.live-similarity.tcss",
         "tui.responsive.advanced.tcss",
         "tui.responsive.form.tcss",
         "tui.responsive.layout.tcss",
@@ -83,6 +87,7 @@ class Target:
             self.environment["PATH"] = str(Path(os.environ["SystemRoot"]) / "System32")
             assert shutil.which("python", path=self.environment["PATH"]) is None
             assert shutil.which("python3", path=self.environment["PATH"]) is None
+            assert shutil.which("uv", path=self.environment["PATH"]) is None
             self.initial_bundle_files = {p.relative_to(self.bundle_dir) for p in self.bundle_dir.rglob("*")}
 
     def _start_container(self):
@@ -102,7 +107,7 @@ class Target:
         try:
             quoted = shlex.quote("/input/" + self.archive.name)
             setup = (
-                "if command -v python >/dev/null 2>&1 || command -v python3 >/dev/null 2>&1; "
+                "if command -v python >/dev/null 2>&1 || command -v python3 >/dev/null 2>&1 || command -v uv >/dev/null 2>&1; "
                 "then exit 91; fi\n"
                 "mkdir /tmp/portable\n"
                 f"tar -xzf {quoted} -C /tmp/portable\n"
@@ -196,7 +201,7 @@ def verify_first_session(target, input_path, root, name):
         terminal.wait_text("單一檔案")
         terminal.click("管理分析配方")
         terminal.wait_text("輸入配方名稱")
-        terminal.paste(name)
+        terminal.fill_focused_input("輸入配方名稱", name)
         terminal.click("另存新配方")
         terminal.wait_text("已另存新配方")
         terminal.capture("recipe-saved")
@@ -260,6 +265,26 @@ def verify_tui(target, input_path, root):
     target.assert_bundle_untouched()
 
 
+def verify_live_scenarios(archive, root, runtime_image):
+    """讓獨立即時情境使用全新設定，避免繼承批次驗證的配方與篩選。"""
+    checks = []
+    scenarios = (
+        ("live", verify_live_cli, verify_live_tui),
+        ("live-similarity", verify_live_similarity_cli, verify_live_similarity_tui),
+    )
+    for name, cli_check, tui_check in scenarios:
+        evidence = root / name
+        evidence.mkdir()
+        target = Target(archive, evidence, runtime_image)
+        try:
+            checks += cli_check(target, evidence)
+            checks += tui_check(target, evidence)
+            target.assert_bundle_untouched()
+        finally:
+            target.close()
+    return checks
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--archive", type=Path, required=True)
@@ -296,6 +321,7 @@ def main():
         advanced_checks = verify_advanced_cli(target)
         print("Advanced CLI checks passed.", flush=True)
         advanced_checks += verify_advanced_tui(target, root)
+        advanced_checks += verify_live_scenarios(archive, root, args.runtime_image)
         target.assert_bundle_untouched()
         assert digest == check_archive(archive), "Archive changed during verification"
         report = {

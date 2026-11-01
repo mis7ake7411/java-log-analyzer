@@ -1,5 +1,5 @@
 from __future__ import annotations
-from log_analyzer.domain.logback_pattern import DEFAULT_LOGBACK_PATTERN
+from log_analyzer.domain.logback.pattern import DEFAULT_LOGBACK_PATTERN
 
 
 def request_time_range(request) -> str:

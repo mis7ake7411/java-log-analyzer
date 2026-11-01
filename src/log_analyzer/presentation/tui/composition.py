@@ -3,8 +3,8 @@ import logging
 from textual.app import ComposeResult
 from textual.containers import Container
 from textual.widgets import Button, Checkbox, Collapsible, Label, Select, Static
-from log_analyzer.application.analysis_service import DEFAULT_SELECTED_LEVELS
-from log_analyzer.domain.logback_pattern import DEFAULT_LOGBACK_PATTERN
+from log_analyzer.application.analysis.service import DEFAULT_SELECTED_LEVELS
+from log_analyzer.domain.logback.pattern import DEFAULT_LOGBACK_PATTERN
 from log_analyzer.infrastructure.exporting.fields import (
     EXPORT_FIELDS,
     EXPORT_FIELD_LABELS,
@@ -18,6 +18,10 @@ from log_analyzer.version import get_package_version
 from log_analyzer.presentation.tui.components.layout import (
     _ResponsiveAdvancedSettings,
     _DashboardResultLog,
+)
+from log_analyzer.presentation.tui.components.live_panel import LivePanel
+from log_analyzer.presentation.tui.components.live_similarity import (
+    LiveSimilaritySettings,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,6 +37,15 @@ class ViewCompositionMixin:
 
     def _compose_basic_input_fields(self) -> ComposeResult:
         yield Static("輸入設定", classes="section-title")
+
+        with Container(classes="field field--inline", id="analysis-mode-field"):
+            yield Label("分析模式")
+            yield Select(
+                [("批次分析", "batch"), ("即時追蹤", "live")],
+                value="batch",
+                id="analysis-mode",
+            )
+        yield Static("", classes="field-hint", id="analysis-mode-status", markup=False)
 
         with Container(classes="field"):
             yield Label("Log 來源（檔案或資料夾）")
@@ -51,6 +64,10 @@ class ViewCompositionMixin:
                 )
                 yield Button("清除", id="clear_keyword")
         yield Static("", classes="field-hint")
+
+        similarity_settings = LiveSimilaritySettings()
+        similarity_settings.display = False
+        yield similarity_settings
 
         yield Button(
             "展開進階設定", id="toggle_advanced_settings", classes="advanced-toggle"
@@ -214,7 +231,18 @@ class ViewCompositionMixin:
 
     def _compose_result_panel(self) -> ComposeResult:
         with Container(id="output-panel"):
-            yield Static("執行結果", classes="section-title")
+            yield Static("執行結果", classes="section-title", id="output-title")
+            yield Static(
+                "",
+                id="live-summary-metadata",
+                classes="live-summary-metadata",
+                markup=False,
+            )
+            yield Button(
+                "查看完整條件與缺口",
+                id="live-summary-details",
+                classes="live-summary-details",
+            )
             yield Static("", id="result-status")
             yield ResultContextNotice("", id="result-context-notice", markup=False)
             yield _DashboardResultLog(
@@ -237,3 +265,5 @@ class ViewCompositionMixin:
                 yield Button("查看事件原文", id="browse-events", disabled=True)
                 yield Button("匯出結果", id="export-result", disabled=True)
                 yield Button("清除結果", id="clear")
+                yield Button("返回即時追蹤", id="return-live")
+            yield LivePanel(id="live-panel")

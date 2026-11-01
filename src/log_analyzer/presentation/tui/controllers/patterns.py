@@ -6,8 +6,8 @@ from xml.etree.ElementTree import ParseError
 from textual.containers import Container
 from textual.widgets import Checkbox, Collapsible, Input, Static
 from log_analyzer.domain.log_sources import LogSourceSelection, select_log_source
-from log_analyzer.domain.logback_pattern import DEFAULT_LOGBACK_PATTERN
-from log_analyzer.domain.logback_xml import (
+from log_analyzer.domain.logback.pattern import DEFAULT_LOGBACK_PATTERN
+from log_analyzer.domain.logback.xml import (
     LogbackPatternAssessment,
     LogbackPatternCandidate,
     assess_logback_patterns,

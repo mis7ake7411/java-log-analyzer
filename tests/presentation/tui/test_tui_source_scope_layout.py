@@ -1,9 +1,11 @@
 import asyncio
+from pathlib import Path
 
 import pytest
 from textual.app import App, ComposeResult
 from textual.containers import VerticalScroll
-from textual.widgets import Input, Static
+from textual.widgets import Button, Input, Static
+from tui_waits import wait_for_layout_to_settle
 
 from log_analyzer.domain.log_sources import select_log_source
 from log_analyzer.presentation.tui.components.source_scope import SourceScopePreview
@@ -14,6 +16,32 @@ class _SourceScopeHarness(App):
         yield Input(id="before")
         yield SourceScopePreview()
         yield Input(id="keyword")
+
+
+@pytest.mark.parametrize("size", [(80, 24), (160, 44)], ids=["narrow", "wide"])
+def test_select_files_label_survives_click_with_application_focus_styles(tmp_path, size):
+    """實際共用焦點樣式下，點擊與移開焦點都不能裁掉選取檔案文字。"""
+    class StyledHarness(_SourceScopeHarness):
+        CSS_PATH = Path(__file__).resolve().parents[3] / "src/log_analyzer/tcss/tui.base.tcss"
+
+    (tmp_path / "sample.log").write_text("", encoding="utf-8")
+
+    async def check():
+        app = StyledHarness()
+        async with app.run_test(size=size) as pilot:
+            app.query_one(SourceScopePreview).show_source(select_log_source(str(tmp_path)))
+            button = app.query_one("#select-source-files", Button)
+            await wait_for_layout_to_settle(pilot, (button,))
+            assert await pilot.click(button)
+            await wait_for_layout_to_settle(pilot, (button,))
+            assert app.focused is button
+            assert button.content_region.height >= 1
+            assert "選取檔案" in "".join(button.render_line(y).text for y in range(button.size.height))
+            app.query_one("#keyword", Input).focus()
+            await wait_for_layout_to_settle(pilot, (button,))
+            assert "選取檔案" in "".join(button.render_line(y).text for y in range(button.size.height))
+
+    asyncio.run(check())
 
 
 def _text(widget: Static) -> str:

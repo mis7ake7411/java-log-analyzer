@@ -8,10 +8,10 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
-from ..infrastructure.exporting.fields import normalize_export_fields
-from ..infrastructure.exporting.transaction import ExportTransaction
-from ..version import get_package_version
-from .analysis_service import AnalysisResult, ResultExportOptions
+from log_analyzer.infrastructure.exporting.fields import normalize_export_fields
+from log_analyzer.infrastructure.exporting.transaction import ExportTransaction
+from log_analyzer.version import get_package_version
+from .service import AnalysisResult, ResultExportOptions
 
 _HASH_CHUNK_SIZE = 1024 * 1024
 _VERIFICATION_LIMITATION = (

@@ -13,9 +13,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
-from log_analyzer.application.analysis_service import AnalysisRequest, analyze_logs
-from log_analyzer.application.source_context_index import SourceContextReader
-from log_analyzer.application.source_preview import read_source_context
+from log_analyzer.application.analysis.service import AnalysisRequest, analyze_logs
+from log_analyzer.infrastructure.sources.context_index import SourceContextReader
+from log_analyzer.application.sources.preview import read_source_context
 from log_analyzer.domain.analysis_control import AnalysisCancelled, AnalysisControl
 from log_analyzer.presentation.tui.screens.event_browser import EventBrowserScreen
 

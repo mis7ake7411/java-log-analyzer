@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from .analysis_control import AnalysisControl
-from .logback_pattern import DEFAULT_LOGBACK_REGEX, compile_logback_pattern
+from .logback.pattern import DEFAULT_LOGBACK_REGEX, compile_logback_pattern
 from .log_sources import select_log_source
 from .matched_logs_store import MatchedLogsStore
 from .parsing import aggregation, entries as entry_assembly, scanner

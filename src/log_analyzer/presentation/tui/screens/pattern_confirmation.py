@@ -3,7 +3,7 @@ from textual.containers import Container
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 from textual.containers import VerticalScroll
-from log_analyzer.domain.logback_xml import (
+from log_analyzer.domain.logback.xml import (
     LogbackPatternAssessment,
     LogbackPatternCandidate,
 )

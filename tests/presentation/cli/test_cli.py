@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from log_analyzer.application.analysis_service import NoMatchingLogsError
-from log_analyzer.domain.log_types import ScanDiagnostics
+from log_analyzer.application.analysis.service import NoMatchingLogsError
+from log_analyzer.domain.log_types import FileScanCoverage, ScanDiagnostics
 from log_analyzer.presentation.cli import entrypoint as cli
 
 
@@ -28,6 +28,41 @@ def test_cli_success_warns_when_invalid_utf8_was_replaced(capsys):
     assert "UTF-8" in output
     assert "�" in output
     assert "3" in output
+
+
+def test_cli_success_prints_plain_scan_coverage_with_literal_sample(capsys):
+    """情境：CLI 應原樣輸出逐檔診斷，不解析樣本中的 Rich 標記。"""
+    result = _analysis_result()
+    result.diagnostics = ScanDiagnostics(
+        files_scanned=1,
+        parsed_entries=1,
+        after_time=1,
+        after_level=1,
+        after_keyword=1,
+        file_coverage=[
+            FileScanCoverage(
+                filename="app12.log",
+                total_lines=2,
+                parsed_entries=1,
+                unrecognized_lines=1,
+                unrecognized_samples=[(2, "[red]literal[/red]")],
+            )
+        ],
+    )
+
+    cli._print_analysis_result(
+        result,
+        SimpleNamespace(format="csv", max_export_mb=None, split_by_level=False),
+    )
+
+    output = capsys.readouterr().out
+    expected_coverage = (
+        "掃描 1 個檔案、2 個實體行；未辨識／疑似不同格式 1 行。\n"
+        "app12.log：事件 1；堆疊 0；訊息續行 0；空行 0；未辨識 1\n"
+        "  第 2 行：[red]literal[/red]\n"
+        "分類在篩選前計算；續行採啟發式辨識，不能作為完整解析成功率。"
+    )
+    assert expected_coverage in output
 
 
 def test_cli_zero_result_warns_when_invalid_utf8_was_replaced(capsys):

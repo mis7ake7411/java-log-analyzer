@@ -14,7 +14,7 @@
 
 ## 可攜版
 
-可攜版會將 Python 與所需套件一併打包。使用者解壓縮後即可執行，不需要 Clone 專案、安裝 Python 或啟用虛擬環境。整個 `log-analyzer` 資料夾必須保留，不能只搬走執行檔。
+可攜版會將 Python 與所需套件一併打包。使用者解壓縮後即可執行，不需要 Clone 專案、安裝 Python、安裝 uv 或啟用虛擬環境。uv 只用於從原始碼準備開發與建置環境。整個 `log-analyzer` 資料夾必須保留，不能只搬走執行檔。
 
 | 平台 | 壓縮包 | 解壓後啟動方式 |
 | --- | --- | --- |
@@ -46,43 +46,87 @@
 
 可從 Release 下載壓縮檔後解壓縮，或直接使用原始碼專案
 
-### 2. 建立虛擬環境
+### 2. 準備 uv 與專案環境
+
+先依 [uv 官方安裝說明](https://docs.astral.sh/uv/getting-started/installation/) 安裝 uv，再於專案根目錄執行下列指令；Windows PowerShell 與 Linux 終端機均可使用：
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+uv sync --locked
 ```
 
-Windows 可使用：
+uv 依 `.python-version` 選用 Python 3.12，將專案與依賴安裝到專案的 `.venv`；缺少相容 Python 時可自動下載，不必替換系統的 Python。若原有 `.venv` 是其他版本且需要保留，請先移到其他名稱再同步。
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\activate
-```
+`uv.lock` 加入 Git，保存完整依賴版本；`.venv/` 不加入 Git。`--locked` 在鎖定檔與專案設定不一致時停止，避免安裝時默默重新選擇版本。
 
-### 3. 安裝依賴
+### 3. 啟動
 
 ```bash
-pip install --upgrade pip setuptools
-pip install -r requirements.txt
+uv run --locked log-analyzer
 ```
 
-安裝完成後可直接使用 `log-analyzer` 指令
+無參數會啟動 TUI；CLI 例如 `uv run --locked log-analyzer ./logs -f json -o report.json`。不需要先啟用虛擬環境。本文其他 `log-analyzer` 指令若從原始碼環境執行，也可加上 `uv run --locked`；可攜版則直接執行其程式。
 
 ## 開發與驗證
 
-安裝完成後，可執行以下檢查：
+需要執行測試或程式碼檢查時，加上 `--extra dev` 安裝開發工具。以下指令都在專案根目錄執行：
 
 ```bash
-ruff check .
-python -m pytest -q
+uv sync --locked --extra dev
+uv run --locked --extra dev ruff check .
+uv run --locked --extra dev lint-imports --no-cache
+uv run --locked --extra dev python -m pytest -q
 ```
 
-GitHub Actions 會在 Python 3.10、3.11 與 3.12 上執行相同的 lint 與測試。
+原始碼開發與打包統一支援 Python 3.12.x，其他次版本不在支援範圍。GitHub Actions 在 Windows／Linux 的 Python 3.12 上執行 lint 與全部測試，每種系統分為兩組；便攜版使用者仍不需安裝 Python。
+
+CI 使用 `uv sync --locked --extra dev` 安裝測試依賴。可攜版建置使用同一份 `uv.lock` 的 `portable` 套件組；wheel 安裝驗證則從鎖定檔匯出執行依賴約束，保留離開原始碼目錄後的實際安裝檢查。
+
+Import Linter 的規則定義在 `pyproject.toml`，檢查直接與間接引用：
+
+- `domain` 不依賴 `application`、`infrastructure` 或 `presentation`。
+- `infrastructure` 不依賴 `application` 或 `presentation`。
+- `application` 不依賴 `presentation`；仍可使用現有的基礎設施實作。
+- 上述三層都不能依賴 Textual，畫面相關程式留在 `presentation`。
+
+CI 在每種作業系統與 Python 組合的第一個測試分組執行邊界檢查，避免兩個分組重複執行。
+
+日誌解析、時間篩選與 MDC 關聯另有 Hypothesis 屬性測試，會自動產生輸入組合，補充既有固定案例；一般 `python -m pytest -q` 與 CI 都會執行。失敗時保留輸出的最小反例，可用 `python -m pytest <測試檔路徑> --hypothesis-seed=<種子>` 重現特定生成序列（需使用相同套件版本）。本機的 `.hypothesis/` 反例快取不加入 Git；已確認的缺陷仍應補成明確的回歸案例。開發工具使用已驗證的固定版本；調整版本時需重新確認 Python 3.12 與兩種作業系統的相容性。
+
+### 效能量測
+
+`py-spy` 與 Import Linter 都只列在開發依賴，不是可攜版的執行需求。執行 `uv sync --locked --extra dev` 後，在專案根目錄、啟用專案虛擬環境的終端機執行（Windows：`.venv\Scripts\activate`；Linux：`source .venv/bin/activate`）：
+
+```bash
+mkdir -p .profiles
+py-spy record -o .profiles/analysis.svg -- python -m log_analyzer /path/to/logs
+```
+
+請將日誌路徑換成實際檔案或資料夾；包含空白時加上引號。若要觀察 TUI，使用 `py-spy record -o .profiles/tui.svg -- python -m log_analyzer --tui`，操作分析流程後正常退出。
+
+Windows 虛擬環境的 `python.exe` 可能是啟動器，直接採樣它會出現 `Failed to find python version from target process`。此時在第一個 PowerShell 視窗啟動 TUI 並印出真正的 Python 程序 PID：
+
+```powershell
+python -c "import os, runpy; print('Python PID:', os.getpid(), flush=True); runpy.run_module('log_analyzer', run_name='__main__')" --tui
+```
+
+再於另一個已啟用同一虛擬環境的 PowerShell 視窗、專案根目錄執行（將 `12345` 換成剛才顯示的 PID）：
+
+```powershell
+New-Item -ItemType Directory -Force .profiles
+py-spy record -o .profiles/tui.svg --pid 12345
+```
+
+開始採樣後再操作分析流程，正常退出 TUI 即會寫出採樣檔；也可在採樣視窗按 Ctrl+C 結束記錄。這些命令不修改系統 Python 或 PATH。
+
+用瀏覽器開啟產生的 SVG 可查看各函式的採樣占比。請使用相同資料與操作比較修改前後，並另外記錄總耗時；採樣圖不是精確的單次函式計時。量測結果放在 Git 忽略的 `.profiles/`，CI 不執行效能採樣或設定效能門檻。
+
+優先由 py-spy 啟動目標程序；Linux 若因程序追蹤權限拒絕採樣，請先依 [py-spy 權限說明](https://github.com/benfred/py-spy#when-do-you-need-to-run-as-sudo) 確認環境限制，不需為一般開發變更系統安全設定。
 
 ### 建置可攜版
 
-Windows 可直接雙擊專案根目錄的 `build-portable.cmd`。腳本會建立或沿用 `.venv-portable`，安裝目前專案及打包工具，再產生 `dist/portable` 下的 ZIP 與校驗檔。需要既有 Python 3.10 以上與套件下載網路；會優先使用專案 `.venv`，其次尋找 `py -3` 或 `python`，不自動安裝系統 Python 或修改 PATH。成功或失敗都會停留畫面，方便查看訊息。
+Windows 安裝 uv 後，可直接雙擊專案根目錄的 `build-portable.cmd`。腳本使用 `uv sync --locked --extra portable --no-editable`，在獨立的 `.venv-portable` 安裝目前專案及鎖定的打包工具，再產生 `dist/portable` 下的 ZIP 與校驗檔。缺少 Python 3.12 時由 uv 下載管理，不替換系統 Python 或修改 PATH。成功或失敗都會停留畫面，方便查看訊息。
+
+腳本不使用開發用的 `.venv`。若既有 `.venv-portable` 使用其他 Python 次版本，腳本會在同步前停止並保留原目錄；請先將舊環境移到其他名稱，再重新執行。
 
 每次修改程式後，可再次雙擊重新打包；同版本的 ZIP 與校驗檔會被取代，先前已解壓縮的 EXE 不會自動更新，請從新 ZIP 解壓測試。`.venv-portable` 與 `dist` 均已被 Git 忽略。
 
@@ -94,36 +138,19 @@ Linux 則在專案根目錄的終端機執行：
 sh ./build-portable.sh
 ```
 
-Linux 腳本會建立或沿用 `.venv-portable`，安裝目前專案及打包工具，產生 `dist/portable` 下的 `tar.gz` 與校驗檔。需要 Python 3.10 以上（含 `venv`）、`binutils` 與套件下載網路；會優先使用專案 `.venv`，其次尋找 `python3`。缺少必要工具或任一步驟失敗就會停止，不自動安裝系統套件或修改 PATH。使用 `sh` 執行不需要額外設定腳本執行權限。
+Linux 腳本同樣透過 uv 建立或沿用 `.venv-portable`，產生 `dist/portable` 下的 `tar.gz` 與校驗檔。需要 uv、`binutils` 與套件下載網路；Python 3.12 可由 uv 管理下載。缺少必要工具或任一步驟失敗就會停止，不自動安裝系統套件或修改 PATH。使用 `sh` 執行不需要額外設定腳本執行權限。
 
-Windows 與 Linux 必須各自在對應平台建置。以下命令都在專案根目錄執行，只新增專案內的獨立建置環境與 `dist/portable` 成品，不修改系統 Python 或 PATH。
+Windows 與 Linux 必須各自在對應平台建置。上述腳本都以專案根目錄為工作目錄，只建立專案內的獨立建置環境與 `dist/portable` 成品；uv 另使用使用者帳號下的快取及管理式 Python，不修改系統 Python 或 PATH。
 
-Windows：
+建置環境需要 Python 3.12。工具會核對安裝版本與目前專案版本，產生資料夾式壓縮包及對應 `.sha256`，完成後清除建置暫存；可用 `--output` 指定其他成品目錄。
 
-```powershell
-python -m venv .venv-portable
-.\.venv-portable\Scripts\python -m pip install . -r tools/portable/requirements-build.txt
-.\.venv-portable\Scripts\python tools/portable/build.py
-```
+要驗證實際壓縮包，可使用 `portable-verify` 套件組安裝鎖定的驗證工具，執行 `tools/portable/verify.py --help` 查看參數。驗證器使用真正的終端機操作，核對上述功能的筆數、內容、行號、分檔大小與雜湊，並保留終端畫面及結果記錄。`--work-dir` 必須指定全新的資料夾，避免覆蓋既有驗證記錄。
 
-Linux（另需有 `binutils` 建置工具）：
-
-```bash
-python3 -m venv .venv-portable
-.venv-portable/bin/python -m pip install . -r tools/portable/requirements-build.txt
-.venv-portable/bin/python tools/portable/build.py
-```
-
-建置環境需要 Python 3.10 以上。工具會核對安裝版本與目前專案版本，產生資料夾式壓縮包及對應 `.sha256`，完成後清除建置暫存；可用 `--output` 指定其他成品目錄。
-
-要驗證實際壓縮包，可在同一個獨立環境安裝 `tools/portable/requirements-verify.txt`，執行 `tools/portable/verify.py --help` 查看參數。驗證器使用真正的終端機操作，核對上述功能的筆數、內容、行號、分檔大小與雜湊，並保留終端畫面及結果記錄。`--work-dir` 必須指定全新的資料夾，避免覆蓋既有驗證記錄。
-
-例如在 Windows 專案根目錄驗證 1.3.0 成品（Linux 驗證另需可執行 Linux 容器的 Docker）：
+例如在 Windows 專案根目錄驗證 1.4.0 成品（Linux 驗證另需可執行 Linux 容器的 Docker）：
 
 ```powershell
-.\.venv-portable\Scripts\python -m pip install -r tools/portable/requirements-verify.txt
-.\.venv-portable\Scripts\python tools/portable/verify.py --archive dist/portable/log-analyzer-1.3.0-windows-x86_64.zip --expected-version 1.3.0 --work-dir .portable-work/windows-check
-.\.venv-portable\Scripts\python tools/portable/verify.py --archive dist/portable/log-analyzer-1.3.0-linux-x86_64.tar.gz --expected-version 1.3.0 --runtime-image debian:bookworm-slim --work-dir .portable-work/linux-check
+uv run --locked --extra portable-verify python tools/portable/verify.py --archive dist/portable/log-analyzer-1.4.0-windows-x86_64.zip --expected-version 1.4.0 --work-dir .portable-work/windows-check
+uv run --locked --extra portable-verify python tools/portable/verify.py --archive dist/portable/log-analyzer-1.4.0-linux-x86_64.tar.gz --expected-version 1.4.0 --runtime-image debian:bookworm-slim --work-dir .portable-work/linux-check
 ```
 
 ## 啟動方式
@@ -170,6 +197,31 @@ log-analyzer /path/to/logs
 分析期間會顯示目前階段、檔案與已處理行數。可按「取消分析」或 `Ctrl+X` 要求停止；顯示「取消中」時，請等目前工作結束後再重新分析。取消不會強制終止執行緒，單次檔案讀取或排序仍可能需要一些時間。
 
 分析尚未停止時，不可開始第二次分析或匯出。若原本已有成功結果，取消後仍可瀏覽及匯出該份結果；畫面會提示保留的是上次結果，並非本次條件的分析結果。
+
+### 即時追蹤與固定快照
+
+將「分析模式」切到「即時追蹤」，選擇單一本機、未壓縮日誌檔案，再開啟追蹤開關。首次會讀取既有內容；追蹤期間來源、Pattern 與篩選條件會鎖定。條件中的時間區間固定於本次工作階段，不會隨現在時間持續滑動。
+
+| 操作 | 資料與行為 |
+| --- | --- |
+| 關閉／再次開啟追蹤開關 | 暫停／接續同一工作階段；保留讀取位置、半行與待完成堆疊，接續時補讀新增內容 |
+| 跟隨最新 | 只控制清單捲動；關閉後仍持續讀取，以新增筆數提示，不搶走閱讀位置 |
+| 查看追蹤摘要 | 固定按下按鈕時已完成且保留的事件，按需分組；不讀原檔，也不強制完成尾端 |
+| 返回即時追蹤 | 保留清單閱讀位置；再次查看摘要才取得新的截止點 |
+| 重新分析來源 | 從目前來源依目前條件重建；成功後取代本次追蹤並維持暫停，失敗或取消保留舊結果 |
+| 結束追蹤 | 完成已讀尾端並停止接收，保留結果供閱讀與摘要；之後需重新分析來源才能建立新追蹤 |
+
+暫停後可以修改條件，但必須「重新分析來源」才能套用新條件，不能直接接續舊結果。暫停後切回批次模式，按「開始分析」會依批次條件重新讀取來源；批次結果與追蹤工作階段各自保存。
+
+需要依訊息內容追蹤時，可勾選「相似訊息」，輸入參考訊息與 0–100 的門檻，預設為 80。也可先暫停追蹤，從已保存事件的詳細頁按「帶入相似參考」；這只會填入正文，不會自動接續或重新分析。
+
+相似比對會統一正文中的空白，保留大小寫，不比較堆疊、時間、Logger 或 MDC。啟用後，事件須同時符合相似度、關鍵字、Level 與時間條件；「忽略大小寫」只影響關鍵字。每筆新完成事件才評分，暫時停在檔尾的未完成事件仍需等待下一個事件或明確結束追蹤。分數代表文字相似程度，不代表相同根因，也不會自動合併群組。
+
+矮視窗會固定追蹤開關與「重新分析來源」操作列，其餘狀態、摘要操作與事件可在內部區塊捲動閱讀；聚焦該區塊後也可使用 PageDown／PageUp。
+
+追蹤摘要會標示原條件、擷取時間、截止序號、待完成內容及資料缺口。匯出使用正在查看的同一份快照，不混入之後新增事件。只保留 ERROR 的工作階段不能從摘要找回 INFO；零筆時也不會暗中重讀來源。追蹤原文是當時保存的內容，來源刪除或輪替後仍可閱讀；座標包含來源世代，不能直接視為目前檔案的同一行。
+
+第一版不保存跨次啟動的接續位置。暫存容量限制以事件 JSON payload 計算，預設 256 MiB；不包含 SQLite 與摘要的額外空間。達到限制或寫入失敗時停止接收並保留已保存結果，不自動刪除歷史事件。離開程式會釋放本次暫存。
 
 ### 輸入與篩選
 
@@ -228,6 +280,12 @@ TUI 結果與 CLI 完成訊息會列出各檔事件起始行、堆疊行、其�
 - 來源檔案若已變更或無法核對，會顯示警告並停用座標複製，不會將舊的分析內容當成已核對原文。
 - 結果分頁使用位置索引，跳到後面的頁面不必從頭讀取所有事件。原文預覽首次定位仍需掃描到目標行，後續在同一瀏覽視窗內查看附近或較早位置時，會重用稀疏索引；每次仍核對來源檔案狀態。
 
+### 尋找相似事件
+
+在事件詳細頁按「尋找相似事件」，會帶入該事件的訊息正文；也可修改參考文字與門檻後再按「尋找」。門檻範圍為 0–100，預設 80。比對會收斂空白、保留大小寫，不比較時間、Level、Logger、MDC、來源座標或例外堆疊。
+
+候選依文字相似分數遞減排列，同分維持原結果順序，並排除帶入參考的原事件群組。查找只使用本次保留的結果，不重讀來源、不合併群組，也不改變摘要與匯出。MDC 關聯仍採 key/value 精確比對；相似分數不代表兩筆事件具有相同根因。
+
 ### 日誌編碼
 
 來源日誌以 UTF-8 讀取，支援檔案開頭的 BOM。遇到無效的 UTF-8 位元組時，會以 `�` 呈現並提示受影響的檔案數與行數，不會默默刪除內容。計數包含未符合 Pattern 的行與例外堆疊；原本就合法存在的 `�` 不算解碼錯誤。
@@ -255,7 +313,27 @@ XML Pattern 取樣、實際分析與原文預覽使用相同的替代方式。�
 
 ## CLI 使用範例
 
-CLI 維持一次分析並匯出，不需經過 TUI 的匯出確認步驟；既有參數與預設全欄位輸出不變。來源可指定單一檔案或資料夾；執行前會列出來源模式、檔案數與完整檔名。支援 `.log`、`.txt`、`.out`（副檔名大小寫不拘），資料夾只掃描目前層，不遞迴子目錄。
+CLI 預設一次分析並匯出，不需經過 TUI 的匯出確認步驟；既有參數與預設全欄位輸出不變。來源可指定單一檔案或資料夾；執行前會列出來源模式、檔案數與完整檔名。支援 `.log`、`.txt`、`.out`（副檔名大小寫不拘），資料夾只掃描目前層，不遞迴子目錄。持續寫入的單一檔案可使用下方的 `--follow`。
+
+### 持續追蹤單一檔案
+
+```bash
+log-analyzer application.log --follow -k SQLException --level ERROR
+```
+
+也可指定參考訊息，只保留正文達到相似門檻的新完成事件：
+
+```bash
+log-analyzer application.log --follow --similar-to "Failed to connect to database" --similarity-threshold 80
+```
+
+`--similar-to` 與 `--similarity-threshold` 僅能搭配 `--follow`；明確指定門檻時必須同時提供參考訊息。門檻為 0–100 的有限數字，預設 80。若也指定關鍵字、Level 或時間，事件須同時符合所有條件；相似比對保留大小寫，`--ignore-case` 只影響關鍵字。相似條件不改變 stdout 的原始事件內容。
+
+首次啟動包含檔案已有內容，之後只讀取新增資料。可搭配既有固定時間、Level、關鍵字及 XML／手動 Pattern；不支援資料夾、多檔案或壓縮檔。已完成且命中的事件寫入 stdout，追蹤狀態與錯誤寫入 stderr；不會自動產生報表，不能搭配批次匯出專用參數。
+
+讀到暫時的檔尾不代表最後事件已完成：後面可能還有 Exception 堆疊，因此尾端會保持待完成，直到下一個事件起始行或使用者結束追蹤。按 Ctrl+C 會結束已讀內容、交付符合條件的尾端一次並釋放資源，退出碼為 130。重新執行是新的工作階段，會從頭讀取。
+
+來源輪替、截斷或暫時遺失時會重新核對檔案身分；無法取得的舊資料會提示可能缺口。這不保證能補回已被外部程式刪除或覆寫的內容。
 
 ### 基本分析
 
@@ -441,11 +519,27 @@ python benchmarks/analysis_workflow.py --entries 20000 --repeat 3
 
 比較前後結果時，請使用相同資料量、Python 版本與執行環境，多輪取中位數。分析時間包含 tracemalloc 的成本，記憶體數字是 Python 配置峰值，並非程序 RSS；取消延遲僅代表掃描階段。這些數字不保證所有來源、硬碟與終端機的效能，也不作為 CI 的固定時間門檻。
 
+即時追蹤可在專案根目錄執行：
+
+```text
+uv run python benchmarks/live_workflow.py --entries 2000 --chunk-entries 100 --write-interval-ms 20
+```
+
+這項量測比較追加後完整重掃、增量讀取與按需摘要，核對最終事件與群組數，並記錄 CPU、Python 配置峰值、暫存大小、來源讀取量及待處理資料量。摘要另檢查是否嘗試讀取來源。輸出中的事件完成延遲與面板更新樣本分開記錄；面板樣本不代表實體終端機完成繪製，未對應的樣本也會列出。
+
+完整重掃基準會等當次分析結束再追加下一批，可能延後原定寫入時間；增量路徑另含面板更新，因此不能直接用兩者總耗時宣稱加速比例。量測只使用合成資料，個別結果留在本地，不加入 Git。
+
 ## 專案結構
 
-- `src/log_analyzer/application/analysis_service.py`：分析流程與結果組裝
-- `src/log_analyzer/application/evidence_manifest.py`：證據清單與來源／報表雜湊核對
-- `src/log_analyzer/domain/parser.py`：核心解析邏輯
+- `src/log_analyzer/application/analysis/`：分析與匯出使用流程；`service.py` 組裝結果，`summary.py` 彙整摘要，`evidence.py` 核對來源與報表證據
+- `src/log_analyzer/application/events/`：對已保留結果進行搜尋、篩選與 MDC 關聯查詢，不重新分析來源
+- `src/log_analyzer/application/live/`：即時追蹤工作階段、固定條件、暫停／接續、重新分析與快照摘要
+- `src/log_analyzer/application/sources/`：來源選取狀態與原文預覽；顯示前核對來源範圍與掃描快照
+- `src/log_analyzer/domain/parser.py`、`domain/parsing/`：解析入口，以及掃描、事件組裝與群組彙整
+- `src/log_analyzer/domain/logback/`：Logback Pattern 編譯、XML 候選格式評估與 MDC 擷取規則
+- `src/log_analyzer/domain/log_types.py`：事件、發生位置與來源快照等共用資料型別
+- `src/log_analyzer/infrastructure/sources/`：來源索引、原文讀取，以及檔案監看與增量讀取
+- `src/log_analyzer/infrastructure/storage/`：磁碟事件儲存、固定截止點快照與追蹤摘要
 - `src/log_analyzer/infrastructure/exporting/`：匯出流程、欄位定義與 CSV／JSON／Markdown 實作
 - `src/log_analyzer/infrastructure/recipe_store.py`：使用者本地命名配方儲存
 - `src/log_analyzer/presentation/cli/`：CLI 進入點、參數定義與執行條件處理
@@ -459,15 +553,15 @@ python benchmarks/analysis_workflow.py --entries 20000 --repeat 3
 - `src/log_analyzer/presentation/tui/recent_state.py`：最近一次表單狀態保存
 - `src/log_analyzer/tcss/`：TUI 樣式檔
 - `tests/domain/`：日誌解析、Pattern 與時間處理
-- `tests/application/`：分析服務、來源預覽與證據清單
-- `tests/infrastructure/`：匯出、路徑、命名與配方儲存
+- `tests/application/`：分析服務、事件搜尋／關聯、來源預覽與證據清單
+- `tests/infrastructure/`：來源索引、匯出、路徑、命名與配方儲存
 - `tests/presentation/cli/`、`tests/presentation/tui/`：兩種介面與操作流程
-- `tests/integration/`：跨模組流程與套件相容入口
+- `tests/integration/`：跨模組流程、套件責任邊界與啟動入口
 - `tests/fixtures/`：共用測試資料
 
 ## 適用環境
 
-- Python 3.10+
+- Python 3.12.x
 - Windows / Linux / macOS
 
 ## 授權

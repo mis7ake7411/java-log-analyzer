@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from log_analyzer.domain.logback_xml import (
+from log_analyzer.domain.logback.xml import (
     assess_logback_patterns,
     find_best_logback_pattern,
 )

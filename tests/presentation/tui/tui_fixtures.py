@@ -1,4 +1,4 @@
-from log_analyzer.application.analysis_service import AnalysisRequest, analyze_logs
+from log_analyzer.application.analysis.service import AnalysisRequest, analyze_logs
 
 
 def make_analysis_result(tmp_path):

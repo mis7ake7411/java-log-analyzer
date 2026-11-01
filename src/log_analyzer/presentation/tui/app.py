@@ -18,7 +18,7 @@ from textual.widgets import (
     Select,
     Static,
 )
-from log_analyzer.application.analysis_service import (
+from log_analyzer.application.analysis.service import (
     DEFAULT_SELECTED_LEVELS,
     AnalysisRequest,
     AnalysisResult,
@@ -37,12 +37,14 @@ from log_analyzer.presentation.tui.form_values import (
     get_default_output_name_text,
     parse_datetime_range_inputs,
 )
+from log_analyzer.presentation.tui.dashboard_styles import DASHBOARD_PALETTE
 from log_analyzer.presentation.tui.controllers.sources import SourceControllerMixin
 from log_analyzer.presentation.tui.controllers.conditions import ConditionsControllerMixin
 from log_analyzer.presentation.tui.controllers.patterns import PatternSetupMixin
 from log_analyzer.presentation.tui.controllers.analysis import AnalysisLifecycleMixin
 from log_analyzer.presentation.tui.controllers.exporting import ExportWorkflowMixin
 from log_analyzer.presentation.tui.controllers.results import ResultStateMixin
+from log_analyzer.presentation.tui.controllers.live import LiveWorkflowMixin
 from log_analyzer.presentation.tui.composition import ViewCompositionMixin
 from log_analyzer.presentation.tui.controllers.analysis import _PendingPatternAnalysis
 from log_analyzer.infrastructure.paths import get_system_root_path
@@ -79,6 +81,7 @@ __all__ = ["get_system_root_path"]
 
 
 class LogAnalyzerApp(
+    LiveWorkflowMixin,
     ConditionsControllerMixin,
     SourceControllerMixin,
     PatternSetupMixin,
@@ -98,7 +101,15 @@ class LogAnalyzerApp(
         str(_PACKAGE_ROOT / "tcss" / "tui.responsive.form.tcss"),
         str(_PACKAGE_ROOT / "tcss" / "tui.responsive.advanced.tcss"),
         str(_PACKAGE_ROOT / "tcss" / "tui.time-range.tcss"),
+        str(_PACKAGE_ROOT / "tcss" / "tui.live.tcss"),
+        str(_PACKAGE_ROOT / "tcss" / "tui.live-similarity.tcss"),
     ]
+
+    def get_css_variables(self) -> dict[str, str]:
+        variables = super().get_css_variables()
+        variables.update(DASHBOARD_PALETTE.css_variables)
+        return variables
+
     _last_result: AnalysisResult | None = None
     _result_state = "idle"
     _advanced_settings_visible: bool = False
@@ -150,12 +161,14 @@ class LogAnalyzerApp(
         self._sync_layout(self.size.width, self.size.height)
         self._set_result_status("idle")
         self._set_analysis_cancel_button(False)
+        self._initialize_live_workflow()
         self.update_path_preview(path_input.value)
         self.update_path_preview(
             output_path_input.value, "#output-path-status", require_writable=True
         )
 
-    def on_unmount(self) -> None:
+    async def on_unmount(self) -> None:
+        await self._shutdown_live_workflow()
         control = getattr(self, "_analysis_control", None)
         if control is not None:
             control.cancel()
@@ -300,6 +313,9 @@ class LogAnalyzerApp(
             self._sync_level_controls()
 
     def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "analysis-mode":
+            self._handle_analysis_mode_changed(event.value)
+            return
         if event.select.id == "sort_by":
             self._schedule_recipe_feedback_refresh()
             self.call_after_refresh(self._sync_result_context_notice)
@@ -336,6 +352,12 @@ class LogAnalyzerApp(
             return
         if button_id == "confirm-export":
             await self.action_confirm_export()
+            return
+        if button_id == "return-live":
+            self._return_to_live()
+            return
+        if button_id == "live-summary-details":
+            self.action_show_tracking_details()
             return
 
         actions = {

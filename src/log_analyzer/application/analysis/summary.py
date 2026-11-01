@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from heapq import heappush, heapreplace
 
-from ..domain.analysis_control import AnalysisControl
+from log_analyzer.domain.analysis_control import AnalysisControl
 from log_analyzer.domain.log_types import LogEntry, OccurrenceCoordinate
 
 _TOP_EVENT_LIMIT = 5

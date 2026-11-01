@@ -10,8 +10,8 @@ import struct
 import threading
 import time
 
-import pyte
-from wcwidth import wcswidth
+
+from frame_stream import IncompleteSynchronizedFrame, TerminalFrameStream
 
 _INPUT_LEFT_BORDER = "▊"
 _INPUT_RIGHT_BORDER = "▎"
@@ -19,6 +19,8 @@ _INPUT_RIGHT_BORDER = "▎"
 
 class TerminalSession:
     def __init__(self, command, cwd: Path, env, evidence: Path, *, dimensions=(45, 160)):
+        import pyte
+
         rows, columns = dimensions
         self.evidence = evidence
         evidence.mkdir(parents=True, exist_ok=True)
@@ -42,6 +44,11 @@ class TerminalSession:
                 os.chdir(cwd)
                 os.execvpe(command[0], command, env)
             fcntl.ioctl(self.master, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
+        self.frame_stream = TerminalFrameStream(
+            feed=self.stream.feed,
+            send=self.send,
+            publish=self.condition.notify_all,
+        )
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
 
@@ -54,13 +61,12 @@ class TerminalSession:
                         chunk = self.process.read(65536)
                     else:
                         chunk = decoder.decode(os.read(self.master, 65536))
-                        if not chunk:
-                            break
+                    if not chunk:
+                        break
                     log.write(chunk)
                     log.flush()
                     with self.condition:
-                        self.stream.feed(chunk)
-                        self.condition.notify_all()
+                        self.frame_stream.feed(chunk)
         except EOFError:
             pass
         except OSError as exc:
@@ -68,15 +74,26 @@ class TerminalSession:
             if os.name == "nt" or exc.errno != 5:
                 self.reader_error = exc
         finally:
+            self._finish_frame_stream()
             self.finished.set()
             with self.condition:
                 self.condition.notify_all()
+
+    def _finish_frame_stream(self):
+        try:
+            with self.condition:
+                self.frame_stream.finish()
+        except IncompleteSynchronizedFrame as exc:
+            if self.reader_error is None:
+                self.reader_error = exc
 
     def text(self):
         with self.condition:
             return "\n".join(self._render_row(row) for row in range(self.screen.lines))
 
     def _render_row(self, row):
+        from wcwidth import wcswidth
+
         # ConPTY can erase half of a wide glyph, leaving an empty cell in pyte.
         # Preserve its column instead of using Screen.display, which indexes data[0].
         rendered, previous_width = [], 1
@@ -126,7 +143,7 @@ class TerminalSession:
             os.write(self.master, text.encode("utf-8"))
 
     def paste(self, text):
-        self.send("\x01\x1b[200~" + text + "\x1b[201~")
+        self.send("\x1b[200~" + text + "\x1b[201~")
 
     def click(self, label):
         self.wait_text(label)
@@ -153,6 +170,19 @@ class TerminalSession:
         column, row = self.find(visible_text, max_column=max_column)
         self.fill_input_at(column, row, value)
 
+    def fill_focused_input(self, visible_text, value, *, max_column=None):
+        def ready():
+            point = self.find(visible_text, max_column=max_column)
+            if point is None:
+                return False
+            column, row = point
+            left, _ = self._input_bounds_at(column, row)
+            return self._focused_border(self.screen.buffer[row][left])
+
+        self.wait(ready, f"Input {visible_text!r} did not receive keyboard focus")
+        column, row = self.find(visible_text, max_column=max_column)
+        self.fill_input_at(column, row, value)
+
     def fill_source_input(self, value):
         # The wide test layout wraps the source label beside its input's text row.
         self.wait(
@@ -166,31 +196,102 @@ class TerminalSession:
         self.fill_input_at(column + 20, row, value)
 
     def fill_input_at(self, column, row, value):
-        left, _ = self._input_bounds_at(column, row)
-        self.click_at(column, row)
+        left, right = self._input_bounds_at(column, row)
+        initial = "".join(self.screen.buffer[row][index].data for index in range(left + 1, right)).strip()
+        was_focused = self._focused_border(self.screen.buffer[row][left])
+        if not was_focused:
+            self.click_at(column, row)
+        self.wait(
+            lambda: self._focused_input_content(
+                left, initial if not was_focused and len(initial) <= 20 else None
+            ) is not None,
+            f"Input in form column {left} did not receive focus",
+        )
+        # Paste may overtake queued key actions. Observe the cleared field
+        # (including its dim placeholder) before sending the actual paste.
+        self.send("\x05\x15")
+        self.wait(lambda: self._focused_input_is_empty(left), "Input was not cleared before paste")
         self.paste(value)
         # Reflow can move the row and shrink its right edge when a scrollbar appears.
         # Restrict matching to bordered inputs in this form column, never summary text.
+        # Long inputs may scroll to either end when the application normalizes
+        # their value. Read only the focused field; callers also verify effects.
         visible_parts = tuple(part for part in (value[:20], value[-20:]) if part)
 
         def value_visible_in_input():
-            for current_row in range(self.screen.lines):
-                cells = self.screen.buffer[current_row]
-                if cells[left].data != _INPUT_LEFT_BORDER:
-                    continue
-                right = next((index for index in range(left + 1, self.screen.columns)
-                              if cells[index].data == _INPUT_RIGHT_BORDER), None)
-                if right is None:
-                    continue
-                content = "".join(cells[index].data for index in range(left + 1, right))
-                if any(part in content for part in visible_parts):
-                    return True
-            return False
+            content = self._focused_input_content(left)
+            if len(value) <= 20:
+                return content == value
+            return content is not None and any(part in content for part in visible_parts)
 
         self.wait(
             value_visible_in_input,
             f"Input in form column {left} did not display its new value",
         )
+
+    @staticmethod
+    def _focused_border(cell):
+        # Focus remains distinguishable in Windows monochrome rendering too:
+        # compare foreground/background contrast, rather than requiring blue.
+        color, background = cell.fg, cell.bg
+        if color in {"blue", "cyan", "brightblue", "brightcyan"}:
+            return True
+        if len(color) != 6 or len(background) != 6:
+            return False
+        try:
+            channels = [int(color[index:index + 2], 16) for index in (0, 2, 4)]
+            background_channels = [int(background[index:index + 2], 16) for index in (0, 2, 4)]
+        except ValueError:
+            return False
+        return max(abs(value - base) for value, base in zip(channels, background_channels)) >= 48
+
+    def _focused_input_content(self, left, initial=None):
+        for row in range(self.screen.lines):
+            cells = self.screen.buffer[row]
+            for current_left in range(max(0, left - 1), min(self.screen.columns, left + 2)):
+                if cells[current_left].data != _INPUT_LEFT_BORDER or not self._focused_border(cells[current_left]):
+                    continue
+                right = next((index for index in range(current_left + 1, self.screen.columns)
+                              if cells[index].data == _INPUT_RIGHT_BORDER), None)
+                if right is None:
+                    continue
+                content = "".join(cells[index].data for index in range(current_left + 1, right)).strip()
+                if content and not content.strip("▔▁"):
+                    continue
+                if initial and not any(part in content for part in (initial[:12], initial[-12:])):
+                    continue
+                return content
+        return None
+
+    def _focused_input_is_empty(self, left):
+        content = self._focused_input_content(left)
+        if content is None:
+            return False
+        if not content:
+            return True
+        # Default-theme placeholders are dim; real input values are bright.
+        # Ignore the first glyph because Textual paints the blinking cursor there.
+        for row in range(self.screen.lines):
+            cells = self.screen.buffer[row]
+            for start in range(max(0, left - 1), min(self.screen.columns, left + 2)):
+                if cells[start].data != _INPUT_LEFT_BORDER or not self._focused_border(cells[start]):
+                    continue
+                end = next((x for x in range(start + 1, self.screen.columns)
+                            if cells[x].data == _INPUT_RIGHT_BORDER), None)
+                if end is None:
+                    continue
+                glyphs = [cells[x] for x in range(start + 1, end) if cells[x].data.strip()]
+                if ''.join(c.data for c in glyphs) != ''.join(content.split()):
+                    continue
+                colors = [c.fg for c in glyphs[1:]]
+                if not colors:
+                    return False
+                try:
+                    return all(len(color) == 6 and max(int(color[i:i + 2], 16)
+                               for i in (0, 2, 4)) <= 160 for color in colors)
+                except ValueError:
+                    return False
+        return False
 
     def _input_bounds_at(self, column, row):
         cells = self.screen.buffer[row]
@@ -227,6 +328,8 @@ class TerminalSession:
         if not self.finished.wait(timeout):
             self.capture("exit-timeout")
             raise AssertionError("Terminal application did not exit")
+        if self.reader_error is not None:
+            raise RuntimeError(f"Terminal reader failed: {self.reader_error}")
         if os.name == "nt":
             self.exit_code = self.process.wait()
         else:

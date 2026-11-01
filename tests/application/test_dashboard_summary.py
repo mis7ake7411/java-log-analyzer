@@ -1,6 +1,6 @@
 import pytest
 
-from log_analyzer.application.dashboard_summary import aggregate_dashboard_summary
+from log_analyzer.application.analysis.summary import aggregate_dashboard_summary
 from log_analyzer.domain.analysis_control import AnalysisCancelled, AnalysisControl
 
 

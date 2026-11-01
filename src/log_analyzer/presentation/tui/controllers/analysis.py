@@ -12,7 +12,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from rich.text import Text
 from textual.widgets import Button, Checkbox, Input, RichLog, Static
-from log_analyzer.application.analysis_service import (
+from log_analyzer.application.analysis.service import (
     AnalysisRequest,
     NoMatchingLogsError,
 )
@@ -21,7 +21,7 @@ from log_analyzer.domain.analysis_control import (
     AnalysisControl,
     AnalysisProgress,
 )
-from log_analyzer.domain.logback_xml import (
+from log_analyzer.domain.logback.xml import (
     LogbackPatternAssessment,
     LogbackPatternCandidate,
 )

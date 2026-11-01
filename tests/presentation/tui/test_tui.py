@@ -23,7 +23,7 @@ from tui_waits import (
     wait_for_layout_to_settle as _wait_for_layout_to_settle,
 )
 
-from log_analyzer.application.analysis_service import AnalysisRequest
+from log_analyzer.application.analysis.service import AnalysisRequest
 from log_analyzer.infrastructure.paths import get_system_root_path
 from log_analyzer.presentation.tui import LogAnalyzerApp
 from log_analyzer.presentation.tui.components.time_range import TimeRangeSettings
@@ -74,6 +74,8 @@ def test_tui_loads_structured_responsive_stylesheets():
         "tui.responsive.form.tcss",
         "tui.responsive.advanced.tcss",
         "tui.time-range.tcss",
+        "tui.live.tcss",
+        "tui.live-similarity.tcss",
     ]
     assert not (Path(__file__).parents[3] / "src/log_analyzer/tcss/tui.responsive.tcss").exists()
 
@@ -1631,7 +1633,7 @@ def test_loading_view_explains_processing_state():
     panel = build_loading_view()
     lines = [str(renderable) for renderable in panel.renderable.renderables]
 
-    assert panel.title == "執行中"
+    assert panel.title.plain == "執行中"
     assert "分析中，請稍候..." in lines[0]
     assert "正在掃描 Log 目錄" in lines[1]
     assert "大型資料夾" in lines[2]
@@ -1642,7 +1644,7 @@ def test_error_view_includes_next_step_hint():
     panel = build_error_view("找不到資料夾", "路徑不存在：/tmp/missing")
     lines = [str(renderable) for renderable in panel.renderable.renderables]
 
-    assert panel.title == "執行失敗"
+    assert panel.title.plain == "執行失敗"
     assert "找不到資料夾" in lines[0]
     assert "路徑不存在" in lines[1]
     assert "重新選擇 Log 目錄" in lines[2]
@@ -2347,25 +2349,24 @@ def _event_group() -> dict[str, object]:
     }
 
 
-def test_dashboard_browse_button_opens_event_browser():
+def test_dashboard_browse_button_opens_event_browser(tmp_path):
     """情境：查看原文操作應開啟事件瀏覽。"""
     async def run_check() -> None:
         app = LogAnalyzerApp()
         async with app.run_test(size=WIDE_TERMINAL_SIZE) as pilot:
             await pilot.pause()
-            result = SimpleNamespace(
-                total_logs=1,
-                matched_occurrences=1,
-                matched_groups=1,
-                input_path=".",
-                source_states={},
-                matched_logs=[_event_group()],
-            )
+            result = make_analysis_result(tmp_path)
             app._last_result = result
             app._set_result_status("complete", result)
 
-            await pilot.click("#browse-events")
-            await pilot.pause()
+            app._refresh_dashboard_after_resize()
+            assert await pilot.click("#browse-events")
+            await _wait_for_ui_state(
+                pilot,
+                lambda: isinstance(app.screen, EventBrowserScreen)
+                and len(app.screen.query_one("#event-options").options) == 1,
+                "event browser did not show the retained event after dashboard redraw",
+            )
 
             assert isinstance(app.screen, EventBrowserScreen)
             assert len(app.screen.query_one("#event-options").options) == 1
@@ -2501,13 +2502,14 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_hidden(
             )
 
             sequence = []
-            for _ in range(11):
+            for _ in range(12):
                 focused = app.focused
                 sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
                 await _press_tab_and_wait_for_focus(pilot)
 
             assert sequence == [
                 None,
+                "analysis-mode",
                 "path",
                 "browse_path",
                 "preview-format",
@@ -2555,13 +2557,14 @@ def test_tab_order_follows_vertical_form_flow_when_advanced_settings_are_visible
 
             assert app.query_one("#advanced-settings").has_class("advanced-wide")
             sequence = []
-            for _ in range(21):
+            for _ in range(22):
                 focused = app.focused
                 sequence.append(focused.id if focused and getattr(focused, "id", None) else None)
                 await _press_tab_and_wait_for_focus(pilot)
 
             assert sequence == [
                 None,
+                "analysis-mode",
                 "path",
                 "browse_path",
                 "preview-format",

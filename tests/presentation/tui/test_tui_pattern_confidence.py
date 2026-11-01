@@ -9,7 +9,7 @@ from tui_waits import (
     wait_for_ui_state,
 )
 
-from log_analyzer.domain.logback_xml import assess_logback_patterns
+from log_analyzer.domain.logback.xml import assess_logback_patterns
 from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui import LogAnalyzerApp
 from log_analyzer.presentation.tui.screens.pattern_confirmation import LogbackPatternConfirmationScreen

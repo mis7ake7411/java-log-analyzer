@@ -3,11 +3,11 @@ from copy import deepcopy
 
 import pytest
 
-from log_analyzer.application.dashboard_summary import (
+from log_analyzer.application.analysis.summary import (
     DashboardAnalysis,
     aggregate_dashboard_summary,
 )
-from log_analyzer.application.event_query import find_group_indices
+from log_analyzer.application.events.query import find_group_indices
 
 
 class _SinglePassLogs:

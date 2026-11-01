@@ -13,15 +13,15 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from .dashboard_summary import DashboardAnalysis, aggregate_dashboard_summary
-from ..domain.analysis_control import AnalysisControl
-from ..domain.log_types import MatchedLogs, ScanDiagnostics, SourceSnapshot
-from ..domain.log_sources import select_log_source
-from ..domain.parser import ParseOptions, parse_log_directory
-from ..infrastructure.exporting import ExportOptions, export_with_options
-from ..infrastructure.exporting.exporter import _stage_export_with_options
-from ..infrastructure.exporting.transaction import ExportTransaction
-from ..infrastructure.paths import ensure_writable_directory
+from .summary import DashboardAnalysis, aggregate_dashboard_summary
+from log_analyzer.domain.analysis_control import AnalysisControl
+from log_analyzer.domain.log_types import MatchedLogs, ScanDiagnostics, SourceSnapshot
+from log_analyzer.domain.log_sources import select_log_source
+from log_analyzer.domain.parser import ParseOptions, parse_log_directory
+from log_analyzer.infrastructure.exporting import ExportOptions, export_with_options
+from log_analyzer.infrastructure.exporting.exporter import _stage_export_with_options
+from log_analyzer.infrastructure.exporting.transaction import ExportTransaction
+from log_analyzer.infrastructure.paths import ensure_writable_directory
 
 DEFAULT_SELECTED_LEVELS = ("ERROR", "WARN", "INFO")
 
@@ -468,7 +468,7 @@ def export_analysis_bundle(
             ),
             transaction,
         )
-        from .evidence_manifest import _stage_evidence_manifest
+        from .evidence import _stage_evidence_manifest
 
         manifest_staged = _stage_evidence_manifest(
             result,

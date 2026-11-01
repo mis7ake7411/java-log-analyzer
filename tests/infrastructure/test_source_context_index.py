@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from log_analyzer.application.source_context_index import SourceContextReader
-from log_analyzer.application.source_preview import read_source_context
+from log_analyzer.infrastructure.sources.context_index import SourceContextReader
+from log_analyzer.application.sources.preview import read_source_context
 
 
 class _CountingTextFile:
