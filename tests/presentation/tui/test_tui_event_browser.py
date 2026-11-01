@@ -10,24 +10,22 @@ from types import SimpleNamespace
 
 import pytest
 from rich.text import Text
-from textual.app import App, ComposeResult
+from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.widgets import Button, Input, Select, Static
 
 from tui_waits import wait_for_button_ready, wait_for_ui_state, wait_for_layout_to_settle
+from tui_harnesses import StyledApp
 
 from log_analyzer.application.analysis.service import AnalysisResult
 from log_analyzer.application.sources.preview import read_source_context
 from log_analyzer.domain.parser import MatchedLogsStore
-from log_analyzer.presentation.tui import LogAnalyzerApp
 from log_analyzer.presentation.tui.event_browser_text import highlight_literal
 from log_analyzer.presentation.tui.screens.event_browser import EventBrowserScreen
 from log_analyzer.presentation.tui.screens import event_browser as browser_module
 
 
-class EventBrowserHarness(App[None]):
-    CSS_PATH = LogAnalyzerApp.CSS_PATH
-
+class EventBrowserHarness(StyledApp):
     def __init__(self, result: AnalysisResult) -> None:
         self.result = result
         super().__init__()

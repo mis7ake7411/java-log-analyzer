@@ -6,22 +6,20 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
-from textual.app import App, ComposeResult
+from textual.app import ComposeResult
 from textual.widgets import Button, Input, OptionList, Static
 
 from tui_waits import wait_for_button_ready, wait_for_layout_to_settle, wait_for_ui_state
+from tui_harnesses import StyledApp
 
 from log_analyzer.application.analysis.service import AnalysisResult
 from log_analyzer.domain.parser import MatchedLogsStore
-from log_analyzer.presentation.tui import LogAnalyzerApp
 from log_analyzer.presentation.tui.screens.event_browser import EventBrowserScreen
 from log_analyzer.presentation.tui.screens.event_correlation import EventCorrelationScreen
 from log_analyzer.presentation.tui.screens import event_correlation as correlation_module
 
 
-class CorrelationHarness(App[None]):
-    CSS_PATH = LogAnalyzerApp.CSS_PATH
-
+class CorrelationHarness(StyledApp):
     def __init__(self, result: AnalysisResult, *, start_browser: bool = False) -> None:
         self.result = result
         self.start_browser = start_browser

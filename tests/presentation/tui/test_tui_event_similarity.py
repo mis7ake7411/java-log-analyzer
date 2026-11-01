@@ -5,14 +5,14 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
-from textual.app import App, ComposeResult
+from textual.app import ComposeResult
 from textual.widgets import Button, Input, OptionList, Static
 
 from tui_waits import wait_for_button_ready, wait_for_layout_to_settle, wait_for_ui_state
+from tui_harnesses import StyledApp
 
 from log_analyzer.application.analysis.service import AnalysisResult
 from log_analyzer.application.events.similarity import SimilarGroup
-from log_analyzer.presentation.tui import LogAnalyzerApp
 from log_analyzer.presentation.tui.screens.event_browser import EventBrowserScreen
 from log_analyzer.presentation.tui.screens.event_similarity import EventSimilarityScreen
 from log_analyzer.presentation.tui.screens import event_similarity as similarity_screen
@@ -107,10 +107,8 @@ def _result(tmp_path: Path) -> AnalysisResult:
     )
 
 
-class SimilarityHarness(App[None]):
+class SimilarityHarness(StyledApp):
     """以正式應用程式樣式承載事件瀏覽器或相似查找畫面。"""
-
-    CSS_PATH = LogAnalyzerApp.CSS_PATH
 
     def __init__(self, result: AnalysisResult, *, reference: str | None = None) -> None:
         self.result = result

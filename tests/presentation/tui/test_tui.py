@@ -1633,7 +1633,7 @@ def test_loading_view_explains_processing_state():
     panel = build_loading_view()
     lines = [str(renderable) for renderable in panel.renderable.renderables]
 
-    assert panel.title == "執行中"
+    assert panel.title.plain == "執行中"
     assert "分析中，請稍候..." in lines[0]
     assert "正在掃描 Log 目錄" in lines[1]
     assert "大型資料夾" in lines[2]
@@ -1644,7 +1644,7 @@ def test_error_view_includes_next_step_hint():
     panel = build_error_view("找不到資料夾", "路徑不存在：/tmp/missing")
     lines = [str(renderable) for renderable in panel.renderable.renderables]
 
-    assert panel.title == "執行失敗"
+    assert panel.title.plain == "執行失敗"
     assert "找不到資料夾" in lines[0]
     assert "路徑不存在" in lines[1]
     assert "重新選擇 Log 目錄" in lines[2]

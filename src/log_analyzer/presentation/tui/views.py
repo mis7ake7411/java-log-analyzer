@@ -3,6 +3,10 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from rich.style import Style
+from log_analyzer.presentation.tui.dashboard_styles import (
+    DASHBOARD_PALETTE,
+    dashboard_card,
+)
 from log_analyzer.presentation.dashboard_navigation import build_dashboard_targets
 from ...application.analysis.service import AnalysisResult
 from ...application.analysis.summary import DashboardAnalysis, aggregate_dashboard_summary
@@ -25,11 +29,16 @@ def analyze_dashboard(result: AnalysisResult) -> DashboardAnalysis:
 def build_idle_view() -> Panel:
     return _build_status_panel(
         "結果區",
-        "cyan",
         (
-            Text("尚未產生分析結果", style="bold cyan"),
-            Text("請先在上方填入條件，然後按「開始分析」", style="white"),
-            Text("Enter 開始分析，c 清除結果，q 離開", style="dim"),
+            Text("尚未產生分析結果", style=DASHBOARD_PALETTE.secondary_bold_style),
+            Text(
+                "請先在上方填入條件，然後按「開始分析」",
+                style=DASHBOARD_PALETTE.value_style,
+            ),
+            Text(
+                "Enter 開始分析，c 清除結果，q 離開",
+                style=DASHBOARD_PALETTE.secondary_style,
+            ),
         ),
     )
 
@@ -37,11 +46,13 @@ def build_idle_view() -> Panel:
 def build_loading_view() -> Panel:
     return _build_status_panel(
         "執行中",
-        "cyan",
         (
-            Text("分析中，請稍候...", style="bold cyan"),
-            Text("正在掃描 Log 目錄並套用條件", style="white"),
-            Text("大型資料夾可能需要較久時間", style="dim"),
+            Text("分析中，請稍候...", style=DASHBOARD_PALETTE.secondary_bold_style),
+            Text(
+                "正在掃描 Log 目錄並套用條件",
+                style=DASHBOARD_PALETTE.value_style,
+            ),
+            Text("大型資料夾可能需要較久時間", style=DASHBOARD_PALETTE.secondary_style),
         ),
     )
 
@@ -49,11 +60,13 @@ def build_loading_view() -> Panel:
 def build_error_view(title: str, message: str) -> Panel:
     return _build_status_panel(
         "執行失敗",
-        "red",
         (
-            Text(title, style="bold red"),
-            Text(message, style="white"),
-            Text(get_error_hint(title, message), style="dim"),
+            Text(title, style=DASHBOARD_PALETTE.error_style),
+            Text(message, style=DASHBOARD_PALETTE.value_style),
+            Text(
+                get_error_hint(title, message),
+                style=DASHBOARD_PALETTE.secondary_style,
+            ),
         ),
     )
 
@@ -74,23 +87,34 @@ def build_zero_result_view(diagnostics: ScanDiagnostics) -> Panel:
 
     panel = _build_status_panel(
         "沒有符合資料",
-        "yellow",
         (
-            Text("沒有符合資料", style="bold yellow"),
-            Text(reason, style="white"),
-            Text(f"掃描 Log 檔案：{diagnostics.files_scanned}", style="cyan"),
-            Text(f"符合 Pattern 的事件：{diagnostics.parsed_entries}", style="cyan"),
-            Text(f"時間範圍後：{diagnostics.after_time}", style="cyan"),
-            Text(f"Level 後：{diagnostics.after_level}", style="cyan"),
-            Text(f"關鍵字後：{diagnostics.after_keyword}", style="cyan"),
+            Text("沒有符合資料", style=DASHBOARD_PALETTE.warning_style),
+            Text(reason, style=DASHBOARD_PALETTE.value_style),
+            Text(
+                f"掃描 Log 檔案：{diagnostics.files_scanned}",
+                style=DASHBOARD_PALETTE.value_style,
+            ),
+            Text(
+                f"符合 Pattern 的事件：{diagnostics.parsed_entries}",
+                style=DASHBOARD_PALETTE.value_style,
+            ),
+            Text(f"時間範圍後：{diagnostics.after_time}", style=DASHBOARD_PALETTE.value_style),
+            Text(f"Level 後：{diagnostics.after_level}", style=DASHBOARD_PALETTE.value_style),
+            Text(f"關鍵字後：{diagnostics.after_keyword}", style=DASHBOARD_PALETTE.value_style),
         ),
     )
     encoding_warning = format_encoding_warning(diagnostics)
     if encoding_warning:
-        panel.renderable = Group(panel.renderable, Text(encoding_warning, style="yellow"))
+        panel.renderable = Group(
+            panel.renderable,
+            Text(encoding_warning, style=DASHBOARD_PALETTE.warning_style),
+        )
     coverage = format_scan_coverage(diagnostics)
     if coverage:
-        panel.renderable = Group(panel.renderable, Text(coverage))
+        panel.renderable = Group(
+            panel.renderable,
+            Text(coverage, style=DASHBOARD_PALETTE.secondary_style),
+        )
     return panel
 
 
@@ -128,16 +152,15 @@ def build_dashboard_view(
         if has_export
         else "未匯出"
     )
-    status_line = Text("分析完成", style="bold green")
+    status_line = Text("分析完成", style=DASHBOARD_PALETTE.success_style)
     status_line.append(" · ")
-    status_line.append(export_state, style="magenta" if has_export else "dim")
+    status_line.append(export_state, style=DASHBOARD_PALETTE.secondary_style)
     if navigation_generation is not None:
-        status_line.append(" · d 摘要導覽", style="bold cyan")
-    overview = Panel(
+        status_line.append(" · d 摘要導覽", style=DASHBOARD_PALETTE.secondary_style)
+    overview = dashboard_card(
         status_line,
-        border_style="green",
+        "執行狀態",
         padding=(0, 1),
-        title="執行狀態",
         expand=True,
     )
     exception_panel = _build_exception_summary_panel(analysis.exception_summary)
@@ -148,50 +171,71 @@ def build_dashboard_view(
     )
 
     metric_cards = [
-        _metric_card("總 Log", str(result.total_logs), "cyan", "整體筆數"),
-        _metric_card("群組", str(result.matched_groups), "green", "符合條件的事件群組"),
-        _metric_card("命中", str(result.matched_occurrences), "yellow", "條件觸發總次數"),
+        _metric_card("總 Log", str(result.total_logs), "整體筆數"),
+        _metric_card("群組", str(result.matched_groups), "符合條件的事件群組"),
+        _metric_card("命中", str(result.matched_occurrences), "條件觸發總次數"),
     ]
 
     metadata = Table.grid(padding=(0, 1), expand=True)
-    metadata.add_column(style="bold cyan", width=12)
-    metadata.add_column(ratio=1, no_wrap=False, overflow="fold")
+    metadata.add_column(style=DASHBOARD_PALETTE.secondary_bold_style, width=12)
+    metadata.add_column(
+        style=DASHBOARD_PALETTE.value_style,
+        ratio=1,
+        no_wrap=False,
+        overflow="fold",
+    )
     encoding_warning = format_encoding_warning(getattr(result, "diagnostics", None))
     if encoding_warning:
-        metadata.add_row("讀取提醒", Text(encoding_warning, style="yellow"))
+        metadata.add_row(
+            "讀取提醒",
+            Text(encoding_warning, style=DASHBOARD_PALETTE.warning_style),
+        )
     analysis_request = getattr(result, "analysis_request", None)
     selected_path = getattr(analysis_request, "path", None)
-    metadata.add_row("Log 來源", Text(selected_path or result.input_path))
+    metadata.add_row(
+        "Log 來源",
+        Text(selected_path or result.input_path, style=DASHBOARD_PALETTE.value_style),
+    )
     if analysis_request is not None:
-        metadata.add_row("時間區間", Text(request_time_range(analysis_request)))
-        metadata.add_row("Pattern", Text(getattr(analysis_request, "log_pattern", None) or DEFAULT_LOGBACK_PATTERN))
+        metadata.add_row(
+            "時間區間",
+            Text(request_time_range(analysis_request), style=DASHBOARD_PALETTE.value_style),
+        )
+        metadata.add_row(
+            "Pattern",
+            Text(
+                getattr(analysis_request, "log_pattern", None) or DEFAULT_LOGBACK_PATTERN,
+                style=DASHBOARD_PALETTE.value_style,
+            ),
+        )
     metadata.add_row(
         "輸出檔案",
-        Text("\n".join(result.exported_files) if has_export else "尚未匯出"),
+        Text(
+            "\n".join(result.exported_files) if has_export else "尚未匯出",
+            style=DASHBOARD_PALETTE.value_style,
+        ),
     )
     if len(result.exported_files) > 1:
         metadata.add_row("分割檔案", f"{len(result.exported_files)} 個")
-    metadata.add_row("關鍵字", Text(result.keyword))
+    metadata.add_row("關鍵字", Text(result.keyword, style=DASHBOARD_PALETTE.value_style))
     levels = getattr(result, "selected_levels", ())
     selected_levels = ", ".join(levels) if levels else "全部"
-    metadata.add_row("Log 層級", Text(selected_levels))
+    metadata.add_row("Log 層級", Text(selected_levels, style=DASHBOARD_PALETTE.value_style))
     metadata.add_row("排序方式", "Level 分組" if result.sort_by == "level" else "時間排序")
     metadata.add_row("忽略大小寫", "是" if result.ignore_case else "否")
 
     level_content = _build_level_distribution(result, targets, navigation_generation)
 
     summary_panel_items = [
-        Panel(
+        dashboard_card(
             metadata,
-            title="分析資訊",
-            border_style="blue",
+            "分析資訊",
             padding=(0, 1),
             expand=True,
         ),
-        Panel(
+        dashboard_card(
             level_content,
-            title="Level 分布",
-            border_style="green",
+            "Level 分布",
             padding=(0, 1),
             expand=True,
         ),
@@ -207,7 +251,12 @@ def build_dashboard_view(
             if getattr(analysis, "top_events", ()) else []
         ),
         *(
-            [Panel(Text(coverage), title="逐檔解析診斷", border_style="yellow")]
+            [
+                dashboard_card(
+                    Text(coverage, style=DASHBOARD_PALETTE.secondary_style),
+                    "逐檔解析診斷",
+                )
+            ]
             if (coverage := format_scan_coverage(getattr(result, "diagnostics", None))) else []
         ),
         exception_panel,
@@ -222,16 +271,16 @@ def _status_text(message: str, color: str) -> Text:
     return text
 
 
-def _build_status_panel(title: str, border_style: str, lines: tuple[Text, ...]) -> Panel:
-    return Panel(Group(*lines), title=title, border_style=border_style, padding=(1, 2))
+def _build_status_panel(title: str, lines: tuple[Text, ...]) -> Panel:
+    return dashboard_card(Group(*lines), title, padding=(1, 2))
 
 
-def _metric_card(title: str, value: str, accent: str, caption: str) -> Panel:
+def _metric_card(title: str, value: str, caption: str) -> Panel:
     body = Group(
-        Text(value, style=f"bold {accent}"),
-        Text(caption, style="dim"),
+        Text(value, style=DASHBOARD_PALETTE.value_bold_style),
+        Text(caption, style=DASHBOARD_PALETTE.secondary_style),
     )
-    return Panel(body, title=title, border_style=accent, padding=(0, 1), expand=True)
+    return dashboard_card(body, title, padding=(0, 1), expand=True)
 
 
 class _ResponsivePanelRow:
@@ -273,12 +322,17 @@ class _ProgressBar:
         filled = 0
         if self.maximum > 0 and self.value > 0:
             filled = min(width, max(1, round(self.value / self.maximum * width)))
-        yield Text("█" * filled + "░" * (width - filled), style=Style(color="green") + _dashboard_link_style(self.action))
+        yield Text(
+            "█" * filled + "░" * (width - filled),
+            style=_dashboard_link_style(self.action),
+        )
 
 
 def _dashboard_link_style(action: str | None) -> Style:
     """附上程式產生的入口編號，避免將日誌文字拼成操作指令。"""
-    return Style(color="cyan", underline=True, meta={"@click": action}) if action else Style()
+    if action:
+        return DASHBOARD_PALETTE.interactive_style(action)
+    return DASHBOARD_PALETTE.value_style
 
 
 def _build_level_distribution(result, targets, generation: int | None) -> Group:
@@ -288,13 +342,25 @@ def _build_level_distribution(result, targets, generation: int | None) -> Group:
         if target.level is not None
     }
     table = Table.grid(expand=True, padding=(0, 1))
-    table.add_column(style="bold", width=7, no_wrap=True)
-    table.add_column(justify="right", width=7, no_wrap=True)
-    table.add_column(justify="right", width=8, no_wrap=True)
+    table.add_column(style=DASHBOARD_PALETTE.value_style, width=7, no_wrap=True)
+    table.add_column(
+        style=DASHBOARD_PALETTE.value_style,
+        justify="right",
+        width=7,
+        no_wrap=True,
+    )
+    table.add_column(
+        style=DASHBOARD_PALETTE.value_style,
+        justify="right",
+        width=8,
+        no_wrap=True,
+    )
     table.add_column(ratio=1, min_width=1)
     table.add_row(
-        Text("Level", style="dim"), Text("筆數", style="dim"),
-        Text("占比", style="dim"), Text("相對最高", style="dim"),
+        Text("Level", style=DASHBOARD_PALETTE.secondary_style),
+        Text("筆數", style=DASHBOARD_PALETTE.secondary_style),
+        Text("占比", style=DASHBOARD_PALETTE.secondary_style),
+        Text("相對最高", style=DASHBOARD_PALETTE.secondary_style),
     )
     if result.level_summary:
         maximum = max(count for _, count in result.level_summary)
@@ -311,8 +377,19 @@ def _build_level_distribution(result, targets, generation: int | None) -> Group:
                 _ProgressBar(count, maximum, action=action),
             )
     else:
-        table.add_row("N/A", "-", "", "沒有可顯示的統計")
-    return Group(table, Text("占比以本次結果的總筆數計算；長條以最高筆數為滿格。", style="dim"))
+        table.add_row(
+            Text("N/A", style=DASHBOARD_PALETTE.secondary_style),
+            Text("-", style=DASHBOARD_PALETTE.secondary_style),
+            "",
+            Text("沒有可顯示的統計", style=DASHBOARD_PALETTE.secondary_style),
+        )
+    return Group(
+        table,
+        Text(
+            "占比以本次結果的總筆數計算；長條以最高筆數為滿格。",
+            style=DASHBOARD_PALETTE.secondary_style,
+        ),
+    )
 
 
 def _build_top_events_panel(events, targets, generation: int | None) -> Panel:
@@ -334,51 +411,71 @@ def _build_top_events_panel(events, targets, generation: int | None) -> Panel:
             Text(f"{event.level} · {event.message}", style=style),
             Text(f"{event.count} 次", style=style),
         )
-    return Panel(table, title="高頻事件（前 5 項）", border_style="cyan", padding=(0, 1), expand=True)
+    return dashboard_card(
+        table,
+        "高頻事件（前 5 項）",
+        padding=(0, 1),
+        expand=True,
+    )
 
 
 def _build_exception_summary_panel(summary: tuple[tuple[str, int, int], ...]) -> Panel:
     body = Table.grid(expand=True)
-    body.add_column(style="bold red", ratio=2)
-    body.add_column(justify="right", width=10)
-    body.add_column(justify="right", width=10)
+    body.add_column(style=DASHBOARD_PALETTE.error_style, ratio=2)
+    body.add_column(style=DASHBOARD_PALETTE.value_style, justify="right", width=10)
+    body.add_column(style=DASHBOARD_PALETTE.value_style, justify="right", width=10)
 
     if summary:
         for signature, group_count, occurrence_count in summary[:5]:
             body.add_row(signature, f"{group_count} 群組", f"{occurrence_count} 次")
-        footer = Text(f"共 {len(summary)} 種例外群組", style="dim")
-        return Panel(Group(body, footer), title="例外群組摘要", border_style="red", padding=(1, 2))
+        footer = Text(
+            f"共 {len(summary)} 種例外群組",
+            style=DASHBOARD_PALETTE.secondary_style,
+        )
+        return dashboard_card(
+            Group(body, footer),
+            "例外群組摘要",
+            padding=(1, 2),
+        )
 
-    return Panel(
+    return dashboard_card(
         Group(
-            Text("尚未偵測到例外群組", style="bold red"),
-            Text("目前結果沒有可歸類的 stacktrace 或例外標題", style="dim"),
+            Text("尚未偵測到例外群組", style=DASHBOARD_PALETTE.secondary_bold_style),
+            Text(
+                "目前結果沒有可歸類的 stacktrace 或例外標題",
+                style=DASHBOARD_PALETTE.secondary_style,
+            ),
         ),
-        title="例外群組摘要",
-        border_style="red",
+        "例外群組摘要",
         padding=(1, 2),
     )
 
 
 def _build_time_hotspot_panel(summary: tuple[tuple[str, int, int], ...]) -> Panel:
     body = Table.grid(expand=True)
-    body.add_column(style="bold yellow", ratio=2)
-    body.add_column(justify="right", width=10)
-    body.add_column(justify="right", width=10)
+    body.add_column(style=DASHBOARD_PALETTE.value_bold_style, ratio=2)
+    body.add_column(style=DASHBOARD_PALETTE.value_style, justify="right", width=10)
+    body.add_column(style=DASHBOARD_PALETTE.value_style, justify="right", width=10)
 
     if summary:
         for bucket, group_count, occurrence_count in summary[:5]:
             body.add_row(bucket, f"{group_count} 群組", f"{occurrence_count} 次")
-        footer = Text(f"共 {len(summary)} 個時段", style="dim")
-        return Panel(Group(body, footer), title="時間熱點", border_style="yellow", padding=(1, 2))
+        footer = Text(
+            f"共 {len(summary)} 個時段",
+            style=DASHBOARD_PALETTE.secondary_style,
+        )
+        return dashboard_card(
+            Group(body, footer),
+            "時間熱點",
+            padding=(1, 2),
+        )
 
-    return Panel(
+    return dashboard_card(
         Group(
-            Text("尚未偵測到時間熱點", style="bold yellow"),
-            Text("目前結果沒有可用的時間戳記", style="dim"),
+            Text("尚未偵測到時間熱點", style=DASHBOARD_PALETTE.secondary_bold_style),
+            Text("目前結果沒有可用的時間戳記", style=DASHBOARD_PALETTE.secondary_style),
         ),
-        title="時間熱點",
-        border_style="yellow",
+        "時間熱點",
         padding=(1, 2),
     )
 
@@ -388,29 +485,33 @@ def _build_logger_thread_distribution_panel(
     thread_summary: tuple[tuple[str, int, int], ...],
 ) -> Panel:
 
-    logger_table = _distribution_table("Logger", logger_summary, "blue")
-    thread_table = _distribution_table("Thread", thread_summary, "magenta")
+    logger_table = _distribution_table("Logger", logger_summary)
+    thread_table = _distribution_table("Thread", thread_summary)
 
     if logger_summary or thread_summary:
         distribution_content = _ResponsivePanelRow(
             [logger_table, thread_table],
             minimum_panel_width=40,
         )
-        return Panel(
+        return dashboard_card(
             distribution_content,
-            title="Logger / Thread 分布",
-            border_style="blue",
+            "Logger / Thread 分布",
             padding=(1, 2),
             expand=True,
         )
 
-    return Panel(
+    return dashboard_card(
         Group(
-            Text("尚未偵測到 Logger / Thread 分布", style="bold blue"),
-            Text("目前結果沒有足夠的 logger 或 thread 資訊", style="dim"),
+            Text(
+                "尚未偵測到 Logger / Thread 分布",
+                style=DASHBOARD_PALETTE.secondary_bold_style,
+            ),
+            Text(
+                "目前結果沒有足夠的 logger 或 thread 資訊",
+                style=DASHBOARD_PALETTE.secondary_style,
+            ),
         ),
-        title="Logger / Thread 分布",
-        border_style="blue",
+        "Logger / Thread 分布",
         padding=(1, 2),
         expand=True,
     )
@@ -419,32 +520,32 @@ def _build_logger_thread_distribution_panel(
 def _distribution_table(
     label: str,
     summary: tuple[tuple[str, int, int], ...],
-    accent: str,
 ) -> Panel:
     body = Table.grid(expand=True)
-    body.add_column(style=f"bold {accent}", ratio=2)
-    body.add_column(justify="right", width=10)
-    body.add_column(justify="right", width=10)
+    body.add_column(style=DASHBOARD_PALETTE.value_bold_style, ratio=2)
+    body.add_column(style=DASHBOARD_PALETTE.value_style, justify="right", width=10)
+    body.add_column(style=DASHBOARD_PALETTE.value_style, justify="right", width=10)
 
     if summary:
         for value, group_count, occurrence_count in summary[:5]:
             body.add_row(value, f"{group_count} 群組", f"{occurrence_count} 次")
-        footer = Text(f"共 {len(summary)} 個 {label}", style="dim")
-        return Panel(
+        footer = Text(
+            f"共 {len(summary)} 個 {label}",
+            style=DASHBOARD_PALETTE.secondary_style,
+        )
+        return dashboard_card(
             Group(body, footer),
-            title=label,
-            border_style=accent,
+            label,
             padding=(1, 1),
             expand=True,
         )
 
-    return Panel(
+    return dashboard_card(
         Group(
-            Text(f"尚無 {label}", style=f"bold {accent}"),
-            Text("目前沒有可顯示的分布資訊", style="dim"),
+            Text(f"尚無 {label}", style=DASHBOARD_PALETTE.secondary_bold_style),
+            Text("目前沒有可顯示的分布資訊", style=DASHBOARD_PALETTE.secondary_style),
         ),
-        title=label,
-        border_style=accent,
+        label,
         padding=(1, 1),
         expand=True,
     )

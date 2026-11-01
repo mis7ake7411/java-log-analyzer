@@ -111,8 +111,9 @@
     width: 1fr;
     min-height: 0;
     min-width: 0;
-    border: round #334155;
-    background: #111827;
+    border: round $dashboard-border;
+    background: $dashboard-background;
+    color: $dashboard-value;
 }
 
 #form-actions {

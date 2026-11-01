@@ -2,7 +2,6 @@ from __future__ import annotations
 import logging
 import os
 from rich.console import Group
-from rich.panel import Panel
 from rich.text import Text
 from textual.containers import Container
 from textual.widgets import Button, Checkbox, Input, RichLog, Static
@@ -11,6 +10,10 @@ from log_analyzer.presentation.tui.screens.event_browser import EventBrowserScre
 from log_analyzer.presentation.tui.views import build_dashboard_view, build_idle_view, analyze_dashboard
 from log_analyzer.presentation.dashboard_navigation import build_dashboard_targets
 from log_analyzer.presentation.tui.screens.summary_navigation import SummaryNavigationScreen
+from log_analyzer.presentation.tui.dashboard_styles import (
+    DASHBOARD_PALETTE,
+    dashboard_card,
+)
 from log_analyzer.presentation.analysis_labels import export_result_context
 
 logger = logging.getLogger(__name__)
@@ -92,10 +95,12 @@ class ResultStateMixin:
         if not self._restored_encoding_warning:
             return dashboard
         return Group(
-            Panel(
-                Text(self._restored_encoding_warning, style="yellow"),
-                title="本次掃描編碼提醒",
-                border_style="yellow",
+            dashboard_card(
+                Text(
+                    self._restored_encoding_warning,
+                    style=DASHBOARD_PALETTE.warning_style,
+                ),
+                "本次掃描編碼提醒",
                 padding=(0, 1),
                 expand=True,
             ),

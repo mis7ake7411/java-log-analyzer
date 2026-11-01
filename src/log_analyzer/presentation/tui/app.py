@@ -37,6 +37,7 @@ from log_analyzer.presentation.tui.form_values import (
     get_default_output_name_text,
     parse_datetime_range_inputs,
 )
+from log_analyzer.presentation.tui.dashboard_styles import DASHBOARD_PALETTE
 from log_analyzer.presentation.tui.controllers.sources import SourceControllerMixin
 from log_analyzer.presentation.tui.controllers.conditions import ConditionsControllerMixin
 from log_analyzer.presentation.tui.controllers.patterns import PatternSetupMixin
@@ -103,6 +104,12 @@ class LogAnalyzerApp(
         str(_PACKAGE_ROOT / "tcss" / "tui.live.tcss"),
         str(_PACKAGE_ROOT / "tcss" / "tui.live-similarity.tcss"),
     ]
+
+    def get_css_variables(self) -> dict[str, str]:
+        variables = super().get_css_variables()
+        variables.update(DASHBOARD_PALETTE.css_variables)
+        return variables
+
     _last_result: AnalysisResult | None = None
     _result_state = "idle"
     _advanced_settings_visible: bool = False
