@@ -7,11 +7,11 @@ from log_analyzer.presentation.tui.dashboard_styles import (
     DASHBOARD_PALETTE,
     DashboardCardCategory,
 )
+from log_analyzer.presentation.tui.components.scan_coverage import build_scan_coverage_text
 from ...application.analysis.service import AnalysisResult
 from ...application.analysis.summary import DashboardAnalysis, aggregate_dashboard_summary
 from ...domain.log_types import ScanDiagnostics
 from ..encoding_warnings import format_encoding_warning
-from log_analyzer.presentation.scan_diagnostics import format_scan_coverage
 from ..error_messages import get_error_hint
 
 def analyze_dashboard(result: AnalysisResult) -> DashboardAnalysis:
@@ -106,11 +106,11 @@ def build_zero_result_view(diagnostics: ScanDiagnostics) -> Panel:
             panel.renderable,
             Text(encoding_warning, style=DASHBOARD_PALETTE.warning_style),
         )
-    coverage = format_scan_coverage(diagnostics)
+    coverage = build_scan_coverage_text(diagnostics)
     if coverage:
         panel.renderable = Group(
             panel.renderable,
-            Text(coverage, style=DASHBOARD_PALETTE.secondary_style),
+            coverage,
         )
     return panel
 

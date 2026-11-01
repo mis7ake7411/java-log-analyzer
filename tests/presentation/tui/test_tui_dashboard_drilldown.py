@@ -111,6 +111,7 @@ def _link_cell(log, action, *, bar_only=False):
             if (
                 segment.style
                 and segment.style.meta.get("@click") == action
+                and (bar_only or segment.text.strip() != "›")
                 and (not bar_only or "█" in segment.text or "░" in segment.text)
             ):
                 return x, y

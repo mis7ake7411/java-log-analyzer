@@ -19,10 +19,15 @@ from log_analyzer.presentation.tui.dashboard_styles import (
     DASHBOARD_PALETTE,
     DashboardCardCategory,
 )
+from log_analyzer.presentation.tui.components.scan_coverage import (
+    build_scan_coverage_text,
+)
+from log_analyzer.presentation.scan_diagnostics import format_scan_coverage
 from log_analyzer.presentation.tui.components.dashboard import (
     DashboardView,
     _ProgressBar,
     _build_exception_summary_panel,
+    _build_level_distribution,
     _build_logger_thread_distribution_panel,
     _build_top_events_panel,
     _build_time_hotspot_panel,
@@ -106,6 +111,8 @@ def test_dashboard_card_uses_explicit_truecolor_styles_and_literal_text() -> Non
     assert (
         _contrast_ratio(DASHBOARD_PALETTE.secondary, DASHBOARD_PALETTE.background) >= 7
     )
+    assert _contrast_ratio(DASHBOARD_PALETTE.info, DASHBOARD_PALETTE.background) >= 7
+    assert _contrast_ratio(DASHBOARD_PALETTE.debug, DASHBOARD_PALETTE.background) >= 7
 
 
 def test_dashboard_cards_share_category_appearance_and_neutral_background() -> None:
@@ -241,6 +248,412 @@ def _build_style_test_dashboard():
     )
 
 
+def test_level_rows_use_semantic_labels_and_neutral_clickable_data() -> None:
+    levels = (("ERROR", 5), ("WARN", 3), ("INFO", 12), ("DEBUG", 25))
+    targets = tuple(SimpleNamespace(level=level) for level, _count in levels)
+    actions = {
+        level: f"app.open_dashboard_target(9, {index})"
+        for index, (level, _count) in enumerate(levels)
+    }
+    renderable = dashboard_card(
+        _build_level_distribution(
+            SimpleNamespace(level_summary=levels), targets, generation=9
+        ),
+        "Level 分布",
+        padding=(0, 1),
+        expand=True,
+        category=DashboardCardCategory.DISTRIBUTION,
+    )
+
+    for width in (45, 110):
+        segments = list(
+            Console(width=width, color_system="truecolor", legacy_windows=False).render(
+                renderable
+            )
+        )
+        rendered_text = "".join(segment.text for segment in segments).replace("\n", "")
+        assert all(f"› {level}" in rendered_text for level, _count in levels)
+
+        markers = [
+            segment
+            for segment in segments
+            if segment.text.strip() == "› "
+            or (segment.text.strip() == "›" and segment.style.color)
+        ]
+        assert len(markers) == len(levels)
+        for marker, (level, _count) in zip(markers, levels, strict=True):
+            assert marker.style.color.triplet == _truecolor_triplet(DASHBOARD_PALETTE.link)
+            assert marker.style.underline
+            assert marker.style.meta == {"@click": actions[level]}
+
+        for level, count in levels:
+            action = actions[level]
+            label = next(
+                segment
+                for segment in segments
+                if level in segment.text and segment.style.meta == {"@click": action}
+            )
+            expected_style = {
+                "ERROR": DASHBOARD_PALETTE.error_style,
+                "WARN": DASHBOARD_PALETTE.warning_style,
+                "INFO": DASHBOARD_PALETTE.info_style,
+                "DEBUG": DASHBOARD_PALETTE.debug_style,
+            }.get(level, DASHBOARD_PALETTE.value_style)
+            assert label.style.color == expected_style.color
+            assert label.style.bold == expected_style.bold
+            assert not label.style.underline
+
+            count_segment = next(
+                segment
+                for segment in segments
+                if str(count) in segment.text and segment.style.meta == {"@click": action}
+            )
+            percentage = f"{count / sum(value for _, value in levels) * 100:.1f}%"
+            percent_segment = next(
+                segment
+                for segment in segments
+                if percentage in segment.text and segment.style.meta == {"@click": action}
+            )
+            bar_segment = next(
+                segment
+                for segment in segments
+                if ("█" in segment.text or "░" in segment.text)
+                and segment.style.meta == {"@click": action}
+            )
+            for data_segment in (count_segment, percent_segment, bar_segment):
+                assert data_segment.style.color.triplet == _truecolor_triplet(
+                    DASHBOARD_PALETTE.value
+                )
+                assert not data_segment.style.underline
+                assert data_segment.style.meta == {"@click": action}
+
+        static_segments = list(
+            Console(width=width, color_system="truecolor", legacy_windows=False).render(
+                dashboard_card(
+                    _build_level_distribution(
+                        SimpleNamespace(level_summary=levels), (), None
+                    ),
+                    "Level 分布",
+                    padding=(0, 1),
+                    expand=True,
+                    category=DashboardCardCategory.DISTRIBUTION,
+                )
+            )
+        )
+        assert "› " not in "".join(segment.text for segment in static_segments)
+        assert not any(
+            (segment.style.meta or {}).get("@click")
+            for segment in static_segments
+            if segment.style
+        )
+
+
+def test_top_event_rows_keep_literal_clickable_content_neutral_except_level_and_marker() -> None:
+    events = tuple(
+        SimpleNamespace(
+            group_index=index,
+            level=level,
+            message="[red]literal[/red]",
+            count=index + 2,
+        )
+        for index, level in enumerate(("ERROR", "WARN", "INFO", "DEBUG"))
+    )
+    targets = tuple(SimpleNamespace(group_index=event.group_index) for event in events)
+
+    for width in (45, 110):
+        panel = _build_top_events_panel(events, targets, generation=12)
+        segments = list(
+            Console(width=width, color_system="truecolor", legacy_windows=False).render(
+                panel
+            )
+        )
+        rendered_text = "".join(segment.text for segment in segments).replace("\n", "")
+        assert all(
+            f"{event.level} · {event.message}" in rendered_text for event in events
+        )
+
+        markers = [
+            segment
+            for segment in segments
+            if segment.text.strip() == "› "
+            or (segment.text.strip() == "›" and segment.style.color)
+        ]
+        assert len(markers) == len(events)
+        link_segments = [
+            segment
+            for segment in segments
+            if segment.style
+            and segment.style.color
+            and segment.style.color.triplet == _truecolor_triplet(DASHBOARD_PALETTE.link)
+        ]
+        assert all(segment in markers for segment in link_segments)
+
+        for index, event in enumerate(events):
+            action = f"app.open_dashboard_target(12, {index})"
+            marker = next(
+                segment
+                for segment in markers
+                if segment.style.meta == {"@click": action}
+            )
+            assert marker.style.underline
+
+            level_segment = next(
+                segment
+                for segment in segments
+                if event.level in segment.text
+                and segment.style.meta == {"@click": action}
+            )
+            expected_style = {
+                "ERROR": DASHBOARD_PALETTE.error_style,
+                "WARN": DASHBOARD_PALETTE.warning_style,
+                "INFO": DASHBOARD_PALETTE.info_style,
+                "DEBUG": DASHBOARD_PALETTE.debug_style,
+            }.get(event.level, DASHBOARD_PALETTE.value_style)
+            assert level_segment.style.color == expected_style.color
+            assert level_segment.style.bold == expected_style.bold
+            assert not level_segment.style.underline
+
+            message_segment = next(
+                segment
+                for segment in segments
+                if event.message in segment.text
+                and segment.style.meta == {"@click": action}
+            )
+            count_segment = next(
+                segment
+                for segment in segments
+                if str(event.count) in segment.text
+                and segment.style.meta == {"@click": action}
+            )
+            count_unit_segment = next(
+                segment
+                for segment in segments
+                if "次" in segment.text and segment.style.meta == {"@click": action}
+            )
+            for data_segment in (message_segment, count_segment):
+                assert data_segment.style.color.triplet == _truecolor_triplet(
+                    DASHBOARD_PALETTE.value
+                )
+                assert not data_segment.style.underline
+                assert data_segment.style.meta == {"@click": action}
+            assert count_unit_segment.style.color.triplet == _truecolor_triplet(
+                DASHBOARD_PALETTE.secondary
+            )
+            assert count_unit_segment.style.meta == {"@click": action}
+
+        static_segments = list(
+            Console(width=width, color_system="truecolor", legacy_windows=False).render(
+                _build_top_events_panel(events, (), generation=None)
+            )
+        )
+        assert "› " not in "".join(segment.text for segment in static_segments)
+        assert not any(
+            (segment.style.meta or {}).get("@click")
+            for segment in static_segments
+            if segment.style
+        )
+
+
+def test_dashboard_content_uses_category_identifiers_value_numbers_and_secondary_units() -> None:
+    category_styles = {
+        DashboardCardCategory.CONTEXT: DASHBOARD_CATEGORY_APPEARANCES[
+            DashboardCardCategory.CONTEXT
+        ].title_style,
+        DashboardCardCategory.EVENTS: DASHBOARD_CATEGORY_APPEARANCES[
+            DashboardCardCategory.EVENTS
+        ].title_style,
+        DashboardCardCategory.DISTRIBUTION: DASHBOARD_CATEGORY_APPEARANCES[
+            DashboardCardCategory.DISTRIBUTION
+        ].title_style,
+    }
+    context_dashboard = _build_style_test_dashboard()
+    metadata_panel = context_dashboard.renderables[2].renderables[0]
+    metadata_segments = list(
+        Console(width=110, color_system="truecolor", legacy_windows=False).render(
+            metadata_panel
+        )
+    )
+    metadata_key = next(
+        segment for segment in metadata_segments if "Log 來源" in segment.text
+    )
+    metadata_value = next(
+        segment for segment in metadata_segments if "C:/logs" in segment.text
+    )
+    assert metadata_key.style.color == category_styles[DashboardCardCategory.CONTEXT].color
+    assert metadata_value.style.color.triplet == _truecolor_triplet(DASHBOARD_PALETTE.value)
+
+    hotspot_bucket = "2026-11-01 12:00"
+    hotspot_segments = list(
+        Console(width=110, color_system="truecolor", legacy_windows=False).render(
+            _build_time_hotspot_panel(((hotspot_bucket, 2, 7),))
+        )
+    )
+    bucket_segment = next(
+        segment for segment in hotspot_segments if hotspot_bucket in segment.text
+    )
+    assert bucket_segment.style.color == category_styles[DashboardCardCategory.EVENTS].color
+
+    logger_name = "com.example.Logger12"
+    distribution_segments = list(
+        Console(width=110, color_system="truecolor", legacy_windows=False).render(
+            _distribution_table("Logger", ((logger_name, 2, 7),))
+        )
+    )
+    logger_segment = next(
+        segment for segment in distribution_segments if logger_name in segment.text
+    )
+    assert logger_segment.style.color == category_styles[DashboardCardCategory.DISTRIBUTION].color
+
+    exception_segments = list(
+        Console(width=110, color_system="truecolor", legacy_windows=False).render(
+            _build_exception_summary_panel((("IllegalStateException", 2, 7),))
+        )
+    )
+    exception_signature = next(
+        segment for segment in exception_segments if "IllegalStateException" in segment.text
+    )
+    assert exception_signature.style.color.triplet == _truecolor_triplet(DASHBOARD_PALETTE.error)
+    assert "例外 · " not in "".join(segment.text for segment in exception_segments)
+
+    for segments in (hotspot_segments, distribution_segments, exception_segments):
+        group_number = next(
+            segment for segment in segments if segment.text.strip() == "2"
+        )
+        occurrence_number = next(
+            segment for segment in segments if segment.text.strip() == "7"
+        )
+        group_unit = next(
+            segment for segment in segments if segment.text.strip() == "群組"
+        )
+        occurrence_unit = next(
+            segment for segment in segments if segment.text.strip() == "次"
+        )
+        for number in (group_number, occurrence_number):
+            assert number.style.color.triplet == _truecolor_triplet(
+                DASHBOARD_PALETTE.value
+            )
+        for unit in (group_unit, occurrence_unit):
+            assert unit.style.color.triplet == _truecolor_triplet(
+                DASHBOARD_PALETTE.secondary
+            )
+
+
+def test_exception_summary_colors_only_java_type_tokens_at_narrow_and_wide_widths() -> None:
+    cases = (
+        (
+            "java.lang.IllegalStateException: detail [red]literal[/red]",
+            ("java.lang.IllegalStateException",),
+        ),
+        ("com.example.Outer$InnerError: inner detail", ("com.example.Outer$InnerError",)),
+        (
+            "Bad Request: nested java.lang.RuntimeException: java.io.IOException: [red]literal[/red]",
+            ("java.lang.RuntimeException", "java.io.IOException"),
+        ),
+        ("Caused by: com.example.ServiceThrowable: detail", ("com.example.ServiceThrowable",)),
+        ("RuntimeException: bare Exception and Error", ("RuntimeException", "Exception", "Error")),
+        ("Bad Request: plain message [red]literal[/red]", ()),
+        ("NotExceptionally", ()),
+        ("ErrorCode", ()),
+        ("java.lang.Exception.handler", ()),
+    )
+    error_color = _truecolor_triplet(DASHBOARD_PALETTE.error)
+    value_color = _truecolor_triplet(DASHBOARD_PALETTE.value)
+
+    for signature, expected_types in cases:
+        panel = _build_exception_summary_panel(((signature, 2, 7),))
+        body = panel.renderable.renderables[0]
+        signature_text = body.columns[0]._cells[0]
+        assert isinstance(signature_text, Text)
+        assert signature_text.plain == signature
+        assert signature_text.style.color.triplet == value_color
+        assert "例外 · " not in signature_text.plain
+
+        expected_neutral = signature
+        for type_name in expected_types:
+            expected_neutral = expected_neutral.replace(type_name, "", 1)
+
+        for width in (45, 110):
+            segments = list(
+                Console(width=width, color_system="truecolor", legacy_windows=False).render(
+                    signature_text
+                )
+            )
+            red_segments = [
+                segment
+                for segment in segments
+                if segment.style
+                and segment.style.color
+                and segment.style.color.triplet == error_color
+            ]
+            neutral_segments = [
+                segment
+                for segment in segments
+                if segment.style
+                and segment.style.color
+                and segment.style.color.triplet == value_color
+            ]
+            assert "".join(segment.text for segment in red_segments) == "".join(
+                expected_types
+            )
+            assert "".join(segment.text for segment in neutral_segments) == expected_neutral
+            assert not any(
+                (segment.style.meta or {}).get("@click")
+                for segment in segments
+                if segment.style
+            )
+
+
+def test_scan_coverage_component_styles_parts_without_parsing_user_text() -> None:
+    diagnostics = ScanDiagnostics(
+        file_coverage=[
+            FileScanCoverage(
+                filename="service12.log",
+                total_lines=5,
+                parsed_entries=3,
+                stacktrace_lines=0,
+                continuation_lines=0,
+                blank_lines=1,
+                unrecognized_lines=1,
+                unrecognized_samples=[(5, "[red]INFO 2031[/red]")],
+            )
+        ]
+    )
+    coverage = build_scan_coverage_text(diagnostics)
+    expected = format_scan_coverage(diagnostics)
+
+    assert isinstance(coverage, Text)
+    assert coverage.plain == expected
+    assert "service12.log" in coverage.plain
+    assert "[red]INFO 2031[/red]" in coverage.plain
+
+    for width in (45, 110):
+        segments = list(
+            Console(width=width, color_system="truecolor", legacy_windows=False).render(
+                coverage
+            )
+        )
+        filename_segment = next(
+            segment for segment in segments if "service12.log" in segment.text
+        )
+        assert filename_segment.style.color == DASHBOARD_CATEGORY_APPEARANCES[
+            DashboardCardCategory.CONTEXT
+        ].title_style.color
+        warning_segments = [
+            segment
+            for segment in segments
+            if segment.style
+            and segment.style.color.triplet
+            == _truecolor_triplet(DASHBOARD_PALETTE.warning)
+        ]
+        assert any(segment.text.strip() == "1" for segment in warning_segments)
+        sample_segment = next(
+            segment for segment in segments if "[red]INFO 2031[/red]" in segment.text
+        )
+        assert sample_segment.style.color.triplet == _truecolor_triplet(
+            DASHBOARD_PALETTE.value
+        )
+
+
 def test_category_colors_render_on_title_and_border_without_coloring_body() -> None:
     category = DashboardCardCategory.EVENTS
     appearance = DASHBOARD_CATEGORY_APPEARANCES[category]
@@ -372,7 +785,8 @@ def test_dashboard_links_keep_action_metadata_and_static_bars_are_neutral() -> N
 
     linked_segments = list(console.render(_ProgressBar(1, 2, action=action)))
     linked_bar = next(segment for segment in linked_segments if "█" in segment.text)
-    assert linked_bar.style.color.triplet == _truecolor_triplet(DASHBOARD_PALETTE.link)
+    assert linked_bar.style.color.triplet == _truecolor_triplet(DASHBOARD_PALETTE.value)
+    assert not linked_bar.style.underline
     assert linked_bar.style.meta == {"@click": action}
 
 

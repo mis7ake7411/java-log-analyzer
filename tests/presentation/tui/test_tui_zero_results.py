@@ -5,9 +5,14 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
-from log_analyzer.domain.log_types import ScanDiagnostics
+from log_analyzer.domain.log_types import FileScanCoverage, ScanDiagnostics
 from log_analyzer.presentation.tui import app as tui_module
 from log_analyzer.presentation.tui import views as tui_views
+from log_analyzer.presentation.tui.dashboard_styles import (
+    DASHBOARD_CATEGORY_APPEARANCES,
+    DASHBOARD_PALETTE,
+    DashboardCardCategory,
+)
 from log_analyzer.presentation.tui.recent_state import load_recent_tui_state, save_recent_tui_state
 from log_analyzer.presentation.tui import LogAnalyzerApp
 from tui_waits import wait_for_layout_to_settle, wait_for_ui_state
@@ -155,6 +160,40 @@ def test_zero_result_view_warns_when_invalid_utf8_was_replaced():
     assert "UTF-8" in rendered
     assert "�" in rendered
     assert "2" in rendered
+
+
+def test_zero_result_view_uses_rich_scan_coverage_text_and_category_identifier_style():
+    """情境：零結果畫面應共用診斷文字元件並保留純文字樣本。"""
+    diagnostics = ScanDiagnostics(
+        files_scanned=1,
+        file_coverage=[
+            FileScanCoverage(
+                filename="zero[1].log",
+                total_lines=2,
+                unrecognized_lines=1,
+                unrecognized_samples=[(2, "[red]literal 12[/red]")],
+            )
+        ],
+    )
+    segments = list(
+        Console(width=120, color_system="truecolor", legacy_windows=False).render(
+            tui_views.build_zero_result_view(diagnostics)
+        )
+    )
+
+    filename_segment = next(
+        segment for segment in segments if "zero[1].log" in segment.text
+    )
+    sample_segment = next(
+        segment for segment in segments if "[red]literal 12[/red]" in segment.text
+    )
+    assert filename_segment.style.color == DASHBOARD_CATEGORY_APPEARANCES[
+        DashboardCardCategory.CONTEXT
+    ].title_style.color
+    assert sample_segment.style.color.triplet == tuple(
+        int(DASHBOARD_PALETTE.value.removeprefix("#")[index : index + 2], 16)
+        for index in (0, 2, 4)
+    )
 
 
 @pytest.mark.parametrize(

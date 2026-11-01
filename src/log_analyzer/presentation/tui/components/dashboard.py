@@ -11,8 +11,16 @@ from log_analyzer.application.analysis.summary import DashboardAnalysis
 from log_analyzer.domain.logback.pattern import DEFAULT_LOGBACK_PATTERN
 from log_analyzer.presentation.analysis_labels import request_time_range
 from log_analyzer.presentation.dashboard_navigation import build_dashboard_targets
-from log_analyzer.presentation.scan_diagnostics import format_scan_coverage
 from log_analyzer.presentation.tui.components.dashboard_card import dashboard_card
+from log_analyzer.presentation.tui.components.dashboard_text import (
+    dashboard_action_style,
+    dashboard_exception_text,
+    dashboard_identifier_style,
+    dashboard_identifier_text,
+    dashboard_level_style,
+    dashboard_number_with_unit,
+)
+from log_analyzer.presentation.tui.components.scan_coverage import build_scan_coverage_text
 from log_analyzer.presentation.tui.dashboard_styles import (
     DASHBOARD_PALETTE,
     DashboardCardCategory,
@@ -66,7 +74,10 @@ class DashboardView(Group):
         ]
 
         metadata = Table.grid(padding=(0, 1), expand=True)
-        metadata.add_column(style=DASHBOARD_PALETTE.secondary_bold_style, width=12)
+        metadata.add_column(
+            style=dashboard_identifier_style(DashboardCardCategory.CONTEXT),
+            width=12,
+        )
         metadata.add_column(
             style=DASHBOARD_PALETTE.value_style,
             ratio=1,
@@ -163,13 +174,13 @@ class DashboardView(Group):
             *(
                 [
                     dashboard_card(
-                        Text(coverage, style=DASHBOARD_PALETTE.secondary_style),
+                        coverage,
                         "逐檔解析診斷",
                         category=DashboardCardCategory.CONTEXT,
                     )
                 ]
                 if (
-                    coverage := format_scan_coverage(
+                    coverage := build_scan_coverage_text(
                         getattr(result, "diagnostics", None)
                     )
                 )
@@ -236,7 +247,7 @@ class _ProgressBar:
             filled = min(width, max(1, round(self.value / self.maximum * width)))
         yield Text(
             "█" * filled + "░" * (width - filled),
-            style=_dashboard_link_style(self.action),
+            style=dashboard_action_style(DASHBOARD_PALETTE.value_style, self.action),
         )
 
 
@@ -284,11 +295,20 @@ def _build_level_distribution(result, targets, generation: int | None) -> Group:
                 if level in indices
                 else None
             )
-            style = _dashboard_link_style(action)
+            level_text = Text()
+            if action:
+                level_text.append("› ", style=_dashboard_link_style(action))
+            level_text.append(str(level), style=dashboard_level_style(level, action))
             table.add_row(
-                Text(str(level), style=style),
-                Text(str(count), style=style),
-                Text(f"{count / total * 100 if total else 0:.1f}%", style=style),
+                level_text,
+                Text(
+                    str(count),
+                    style=dashboard_action_style(DASHBOARD_PALETTE.value_style, action),
+                ),
+                Text(
+                    f"{count / total * 100 if total else 0:.1f}%",
+                    style=dashboard_action_style(DASHBOARD_PALETTE.value_style, action),
+                ),
                 _ProgressBar(count, maximum, action=action),
             )
     else:
@@ -323,10 +343,16 @@ def _build_top_events_panel(events, targets, generation: int | None) -> Panel:
             if event.group_index in indices
             else None
         )
-        style = _dashboard_link_style(action)
+        content_style = dashboard_action_style(DASHBOARD_PALETTE.value_style, action)
+        row_text = Text()
+        if action:
+            row_text.append("› ", style=_dashboard_link_style(action))
+        row_text.append(str(event.level), style=dashboard_level_style(event.level, action))
+        row_text.append(" · ", style=content_style)
+        row_text.append(str(event.message), style=content_style)
         table.add_row(
-            Text(f"{event.level} · {event.message}", style=style),
-            Text(f"{event.count} 次", style=style),
+            row_text,
+            dashboard_number_with_unit(event.count, "次", action=action),
         )
     return dashboard_card(
         table,
@@ -339,13 +365,17 @@ def _build_top_events_panel(events, targets, generation: int | None) -> Panel:
 
 def _build_exception_summary_panel(summary: tuple[tuple[str, int, int], ...]) -> Panel:
     body = Table.grid(expand=True)
-    body.add_column(style=DASHBOARD_PALETTE.error_style, ratio=2)
-    body.add_column(style=DASHBOARD_PALETTE.value_style, justify="right", width=10)
-    body.add_column(style=DASHBOARD_PALETTE.value_style, justify="right", width=10)
+    body.add_column(ratio=2)
+    body.add_column(justify="right", width=10)
+    body.add_column(justify="right", width=10)
 
     if summary:
         for signature, group_count, occurrence_count in summary[:5]:
-            body.add_row(signature, f"{group_count} 群組", f"{occurrence_count} 次")
+            body.add_row(
+                dashboard_exception_text(signature),
+                dashboard_number_with_unit(group_count, "群組"),
+                dashboard_number_with_unit(occurrence_count, "次"),
+            )
         footer = Text(
             f"共 {len(summary)} 種例外群組",
             style=DASHBOARD_PALETTE.secondary_style,
@@ -373,13 +403,17 @@ def _build_exception_summary_panel(summary: tuple[tuple[str, int, int], ...]) ->
 
 def _build_time_hotspot_panel(summary: tuple[tuple[str, int, int], ...]) -> Panel:
     body = Table.grid(expand=True)
-    body.add_column(style=DASHBOARD_PALETTE.value_bold_style, ratio=2)
-    body.add_column(style=DASHBOARD_PALETTE.value_style, justify="right", width=10)
-    body.add_column(style=DASHBOARD_PALETTE.value_style, justify="right", width=10)
+    body.add_column(ratio=2)
+    body.add_column(justify="right", width=10)
+    body.add_column(justify="right", width=10)
 
     if summary:
         for bucket, group_count, occurrence_count in summary[:5]:
-            body.add_row(bucket, f"{group_count} 群組", f"{occurrence_count} 次")
+            body.add_row(
+                dashboard_identifier_text(bucket, DashboardCardCategory.EVENTS),
+                dashboard_number_with_unit(group_count, "群組"),
+                dashboard_number_with_unit(occurrence_count, "次"),
+            )
         footer = Text(
             f"共 {len(summary)} 個時段",
             style=DASHBOARD_PALETTE.secondary_style,
@@ -446,13 +480,17 @@ def _distribution_table(
     summary: tuple[tuple[str, int, int], ...],
 ) -> Panel:
     body = Table.grid(expand=True)
-    body.add_column(style=DASHBOARD_PALETTE.value_bold_style, ratio=2)
-    body.add_column(style=DASHBOARD_PALETTE.value_style, justify="right", width=10)
-    body.add_column(style=DASHBOARD_PALETTE.value_style, justify="right", width=10)
+    body.add_column(ratio=2)
+    body.add_column(justify="right", width=10)
+    body.add_column(justify="right", width=10)
 
     if summary:
         for value, group_count, occurrence_count in summary[:5]:
-            body.add_row(value, f"{group_count} 群組", f"{occurrence_count} 次")
+            body.add_row(
+                dashboard_identifier_text(value, DashboardCardCategory.DISTRIBUTION),
+                dashboard_number_with_unit(group_count, "群組"),
+                dashboard_number_with_unit(occurrence_count, "次"),
+            )
         footer = Text(
             f"共 {len(summary)} 個 {label}",
             style=DASHBOARD_PALETTE.secondary_style,

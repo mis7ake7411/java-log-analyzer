@@ -20,6 +20,8 @@ class DashboardPalette:
     success: str = "#4ADE80"
     warning: str = "#FBBF24"
     error: str = "#F87171"
+    info: str = "#93C5FD"
+    debug: str = "#C4B5FD"
     link: str = "#38BDF8"
 
     @property
@@ -61,6 +63,14 @@ class DashboardPalette:
     @property
     def error_style(self) -> Style:
         return Style(color=self.error, bold=True)
+
+    @property
+    def info_style(self) -> Style:
+        return Style(color=self.info, bold=True)
+
+    @property
+    def debug_style(self) -> Style:
+        return Style(color=self.debug, bold=True)
 
     def interactive_style(self, action: str) -> Style:
         """為程式產生的 dashboard 操作保留 Rich click metadata。"""
